@@ -1,0 +1,890 @@
+"""FastAPI application with a WebSocket endpoint bridging the browser to the
+OpenAI Realtime API (gpt-realtime-2) via the OpenAI Agents SDK realtime layer.
+
+Architecture (migrated from Google ADK / Gemini Live):
+- Per-connection RealtimeRunner + RealtimeSession (server-side WebSocket).
+- upstream_task: browser WebSocket  →  RealtimeSession
+    * binary PCM @ 16 kHz  → resampled to 24 kHz  → session.send_audio()
+    * text / image / canvas JSON  → session.send_message()
+- downstream_task: RealtimeSession events  →  browser WebSocket
+    * Translates SDK events (audio, tool_start, tool_end, raw transcripts,
+      interruptions, errors) into the SAME ADK-shaped JSON envelopes the
+      frontend already consumes, so no frontend protocol change is required.
+    * Preserves the Canvas Bridge / Early Canvas Push innovations.
+- asyncio with a long-lived upstream task + a downstream retry loop that
+  recreates a fresh RealtimeSession on transient errors.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import json
+import logging
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
+from dotenv import load_dotenv
+
+# Load .env BEFORE importing modules that read env vars at import time.
+load_dotenv()
+
+import numpy as np
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+try:
+    # tracing is noisy and not needed in this deployment
+    from agents import set_tracing_disabled  # type: ignore[attr-defined]
+except Exception:  # pragma: no cover
+    def set_tracing_disabled(_v: bool) -> None:  # type: ignore[misc]
+        pass
+
+from agents.realtime import RealtimeAgent, RealtimeRunner
+from agents.realtime.openai_realtime import OpenAIRealtimeWebSocketModel
+
+from app.agents.tutor_agent import build_tutor_agent
+from app.agents.prompt_builder import build_tutor_instruction
+from app.auth.dependencies import verify_basic_credentials
+from app.config import settings
+from sqlalchemy import select
+
+from app.db import SessionLocal, SessionRow, Tutor, User
+from app.routers import auth_router, users, dashboard, schedule, tutors
+from app.routers import discover as discover_router
+from app.routers import clicky as clicky_router
+from app.utils.errors import (
+    ErrorCategory,
+    ErrorPayload,
+    ErrorSeverity,
+    classify_api_error,
+)
+from app.utils.logging_config import setup_logging
+from app.utils.ws_signals import set_ws_notify, ws_notify
+
+logger = logging.getLogger(__name__)
+
+# ── Globals initialised at startup ────────────────────────────────────────────
+default_root_agent: Optional[RealtimeAgent] = None
+
+
+# ── Audio helpers ─────────────────────────────────────────────────────────────
+
+_INPUT_RATE = 16_000
+_OUTPUT_RATE = 24_000
+
+
+def _resample_pcm16(data: bytes, src_rate: int, dst_rate: int) -> bytes:
+    """Resample mono 16-bit PCM from src_rate to dst_rate (linear interpolation)."""
+    if not data or src_rate == dst_rate:
+        return data
+    try:
+        arr = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+    except ValueError:
+        return data
+    n = len(arr)
+    if n == 0:
+        return data
+    new_n = max(1, int(round(n * dst_rate / src_rate)))
+    idx = np.linspace(0, n - 1, new_n)
+    resampled = np.interp(idx, np.arange(n), arr).astype(np.int16)
+    return resampled.tobytes()
+
+
+def _to_base64(value: Any) -> str:
+    """Normalise an audio chunk (bytes or base64 str) to a base64 string.
+
+    Handles the various shapes the OpenAI Realtime SDK may expose:
+    raw bytes, a base64 string, or a model-audio event object exposing
+    ``.delta`` / ``.data`` attributes.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return base64.b64encode(bytes(value)).decode("ascii")
+    if isinstance(value, str):
+        return value
+    # Object wrappers: try .delta (response.audio.delta) then .data
+    for attr in ("delta", "data", "audio"):
+        inner = getattr(value, attr, None)
+        if inner is not None:
+            return _to_base64(inner)
+    return ""
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Initialise the default realtime agent tree once at startup."""
+    global default_root_agent
+    setup_logging(settings.log_level)
+    set_tracing_disabled(True)
+    logger.info("Initialising Magic Whiteboard Tutor backend (OpenAI Realtime API)…")
+
+    # Ensure SQLite tables exist (idempotent — also runs at db import time).
+    from app.db import init_db
+    init_db()
+
+    # Ensure local uploads directory exists for storage_tools.
+    import os
+    os.makedirs(settings.uploads_dir, exist_ok=True)
+
+    default_root_agent = build_tutor_agent()
+    logger.info("Default realtime agent ready (agent=%s)", default_root_agent.name)
+
+    yield  # ← app is running
+
+    logger.info("Shutting down Magic Whiteboard Tutor backend.")
+
+
+# ── FastAPI App ───────────────────────────────────────────────────────────────
+
+app = FastAPI(
+    title="Magic Whiteboard Tutor",
+    version="0.2.0",
+    lifespan=lifespan,
+)
+
+app.include_router(users.router)
+app.include_router(auth_router.router)
+app.include_router(dashboard.router)
+app.include_router(schedule.router)
+app.include_router(tutors.router)
+app.include_router(discover_router.router)
+app.include_router(clicky_router.router)
+
+# Serve locally-saved canvas snapshots / generated images at /uploads/*
+import os as _os
+_os.makedirs(settings.uploads_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=settings.uploads_dir), name="uploads")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ── Health-check ──────────────────────────────────────────────────────────────
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "agent": "magic-whiteboard-tutor", "backend": "openai-realtime"}
+
+
+# ── Realtime session config ───────────────────────────────────────────────────
+
+
+def _build_runner(agent: RealtimeAgent, voice: str) -> RealtimeRunner:
+    """Build a RealtimeRunner configured for low-latency bidi voice."""
+    model_settings = {
+        "model_name": settings.realtime_model,
+        "audio": {
+            "input": {
+                "format": "pcm16",
+                "transcription": {"model": settings.transcription_model},
+                "turn_detection": {
+                    "type": "semantic_vad",
+                    "interrupt_response": True,
+                },
+            },
+            "output": {
+                "format": "pcm16",
+                "voice": voice or settings.realtime_voice,
+                "transcription": {"model": settings.transcription_model},
+            },
+        },
+        "tool_choice": "auto",
+    }
+    # Custom model with a longer WS handshake timeout (default 10s is too
+    # short for high-latency links to OpenAI; raises "timed out during
+    # opening handshake" on flaky connections).
+    model = OpenAIRealtimeWebSocketModel(
+        transport_config={"handshake_timeout": 30.0}
+    )
+    return RealtimeRunner(
+        starting_agent=agent,
+        model=model,
+        config={"model_settings": model_settings},
+    )
+
+
+def _model_config() -> Dict[str, Any]:
+    cfg: Dict[str, Any] = {}
+    if settings.openai_api_key:
+        cfg["api_key"] = settings.openai_api_key
+    return cfg
+
+
+# ── WebSocket Endpoint ────────────────────────────────────────────────────────
+
+
+@app.websocket("/ws/{user_id}/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str):
+    """Bidirectional realtime streaming session.
+
+    Browser protocol (unchanged from the Gemini Live version):
+    - Binary frame → raw 16-bit PCM @ 16 kHz (resampled to 24 kHz upstream)
+    - JSON {"type":"text","text":"..."}
+    - JSON {"type":"image","data":"<base64>","mimeType":"image/jpeg"}
+    - JSON {"type":"canvas","data":"<base64>","mimeType":"image/jpeg"}
+    - JSON {"type":"canvas_elements","elements":[...]}
+    - JSON {"type":"activity_start"|"activity_end"}
+    - JSON {"type":"stop"}
+
+    Server → client emits ADK-shaped JSON envelopes:
+    - {"content":{"parts":[{"inlineData":{"mimeType":"audio/pcm;rate=24000","data":...}}]}}  (audio)
+    - {"content":{"parts":[{"functionResponse":{"name":...,"response":{...}}}]}}            (canvas/image)
+    - {"outputTranscription":{"text":...,"finished":bool},"author":...}                   (assistant transcript)
+    - {"inputTranscription":{"text":...,"finished":bool}}                                  (user transcript)
+    - {"turnComplete":true} / {"interrupted":true}
+    - {"type":"generating_image","status":"..."} / {"type":"saving_progress",...}
+    - {"type":"error",...}
+    """
+    await websocket.accept()
+
+    # ── Basic auth (manual) ────────────────────────────────────────────────
+    # The frontend sends an HTTP ``Authorization: Basic <base64>`` header,
+    # which the browser forwards as a WS subprotocol / query param.  We accept
+    # it via either the ``token`` query param (raw "Basic <b64>") or the
+    # ``auth`` sec-websocket-protocol header — kept simple here.
+    token = websocket.query_params.get("token")
+    authz = websocket.headers.get("authorization") or websocket.query_params.get("auth") or token
+    user_info = verify_basic_credentials(authz)
+    if user_info is None or str(user_info["uid"]) != str(user_id):
+        logger.warning("WS connection rejected: bad credentials for user %s", user_id)
+        await websocket.close(code=1008, reason="Invalid authentication")
+        return
+
+    logger.info("WS connected: user=%s session=%s", user_id, session_id)
+
+    # ── Per-tutor personalisation (SQLite) ────────────────────────────────
+    tutor_id = websocket.query_params.get("tutor_id")
+    tutor_voice: str = settings.realtime_voice
+    root_agent = default_root_agent
+
+    if tutor_id:
+        try:
+            with SessionLocal() as db:
+                _tutor_row = db.get(Tutor, tutor_id)
+            if _tutor_row is not None and str(_tutor_row.user_id) == str(user_id):
+                _tutor_config = {
+                    "name": _tutor_row.name,
+                    "title": _tutor_row.title,
+                    "desc": _tutor_row.desc,
+                    "subjects": _tutor_row.subjects or [],
+                    "personality": _tutor_row.personality,
+                    "level": _tutor_row.level,
+                    "voice": _tutor_row.voice,
+                    "styles": _tutor_row.styles or [],
+                }
+                logger.info(
+                    "Tutor config loaded: name=%s subjects=%s personality=%s voice=%s",
+                    _tutor_config["name"], _tutor_config["subjects"],
+                    _tutor_config["personality"], _tutor_config["voice"],
+                )
+                dynamic_instruction = build_tutor_instruction(_tutor_config)
+                tutor_voice = _tutor_config.get("voice") or settings.realtime_voice
+                root_agent = build_tutor_agent(custom_instruction=dynamic_instruction)
+                logger.info(
+                    "Per-tutor agent built: tutor=%s voice=%s",
+                    _tutor_config.get("name"), tutor_voice,
+                )
+            else:
+                logger.warning("Tutor doc not found: %s/%s", user_id, tutor_id)
+        except Exception as _tutor_err:
+            logger.warning("Failed to load tutor config: %s", _tutor_err)
+
+    if root_agent is None:
+        logger.error("No root agent available — aborting session")
+        await websocket.close(code=1011, reason="Agent unavailable")
+        return
+
+    # ── Persist session start to SQLite ────────────────────────────────────
+    session_start_time = datetime.now(timezone.utc)
+    try:
+        with SessionLocal() as db:
+            existing = db.scalar(
+                select(SessionRow).where(
+                    SessionRow.user_id == int(user_id), SessionRow.session_id == session_id
+                )
+            )
+            if existing is None:
+                db.add(SessionRow(
+                    user_id=int(user_id),
+                    session_id=session_id,
+                    created_at=session_start_time,
+                    status="active",
+                    topic="General Tutoring",
+                    subject="",
+                    duration_minutes=0.0,
+                    tutor_id=tutor_id,
+                ))
+                db.commit()
+                logger.info("Session row created: user=%s session=%s", user_id, session_id)
+    except Exception as _db_exc:
+        logger.warning("Failed to save session start: %s", _db_exc)
+
+    # ── Per-WS contextvars for tools ────────────────────────────────────────
+    from app.mcp.calendar_mcp import current_session_id as _cal_sid_ctx
+    from app.mcp.calendar_mcp import current_user_id as _cal_user_ctx
+    from app.mcp.calendar_mcp import current_user_timezone as _cal_tz_ctx
+
+    _cal_user_ctx.set(str(user_id))
+    _cal_sid_ctx.set(session_id)
+    try:
+        with SessionLocal() as db:
+            _u = db.get(User, int(user_id))
+            if _u is not None and _u.timezone:
+                _cal_tz_ctx.set(_u.timezone)
+                logger.info("User timezone set to: %s", _u.timezone)
+    except Exception as _tz_err:
+        logger.warning("Could not load user timezone: %s", _tz_err)
+
+    _notify_token = set_ws_notify(
+        lambda data: asyncio.ensure_future(_send_json(websocket, data))
+    )
+
+    # ── Canvas early-push helpers ───────────────────────────────────────────
+    _CANVAS_TOOL_NAMES = {
+        "draw_on_canvas", "write_text_on_canvas", "draw_diagram",
+        "highlight_area", "clear_canvas", "plot_function",
+    }
+    _early_pushed: set[str] = set()
+    _early_cursor_snapshot: Dict[str, float] = {}
+    # Track which output transcripts already have an open partial message,
+    # to synthesise one if streaming deltas never arrived.
+    _output_partial_open: set[str] = set()
+
+    async def _try_early_canvas_push(tool_name: str, args_json: str) -> None:
+        if tool_name not in _CANVAS_TOOL_NAMES or not args_json:
+            return
+        try:
+            from app.tools import canvas_tools as _ct
+            from app.tools import plot_tools as _pt
+
+            fn = getattr(_pt, tool_name, None) or getattr(_ct, tool_name, None)
+            if fn is None:
+                return
+
+            args = json.loads(args_json)
+            result = fn(**args)  # canvas/plot tools are synchronous
+
+            _early_cursor_snapshot[tool_name] = _ct._cursor_y
+
+            if isinstance(result, dict) and "deferred_canvas_id" in result:
+                c_id = result["deferred_canvas_id"]
+                from app.tools.canvas_tools import canvas_bridge
+                if c_id in canvas_bridge:
+                    bridge_data = canvas_bridge.pop(c_id)
+                    result["elements"] = bridge_data["elements"]
+                    if "animation" in bridge_data:
+                        result["animation"] = bridge_data["animation"]
+                    await _send_json(websocket, {
+                        "content": {"parts": [{"functionResponse": {
+                            "name": tool_name,
+                            "response": result,
+                        }}]}
+                    })
+                    _early_pushed.add(tool_name)
+                    logger.info(
+                        "Early canvas push for %s (%d elements)",
+                        tool_name, len(bridge_data["elements"]),
+                    )
+        except Exception as exc:
+            logger.warning("Early canvas push failed for %s: %s", tool_name, exc)
+
+    def _build_function_response_envelope(tool_name: str, output: Any) -> Optional[Dict[str, Any]]:
+        """Re-inject bridge data into a tool output and build the client envelope."""
+        if not isinstance(output, dict):
+            output = {"output": output} if output is not None else {"status": "ok"}
+
+        # Re-inject deferred image data
+        if "deferred_file_id" in output:
+            f_id = output["deferred_file_id"]
+            from app.tools.canvas_tools import image_bridge
+            if f_id in image_bridge:
+                output["files"] = {f_id: image_bridge.pop(f_id)}
+                if not output.get("elements"):
+                    output["elements"] = [
+                        {
+                            "type": "image",
+                            "fileId": f_id,
+                            "x": 100, "y": 100, "width": 400, "height": 300,
+                            "status": "saved",
+                        }
+                    ]
+                    output.setdefault("tool", "generate_and_show_image")
+                    output.setdefault("action", "add")
+                logger.info("Re-injected deferred image data for fileId: %s", f_id)
+
+        # Re-inject deferred canvas element data
+        if "deferred_canvas_id" in output:
+            c_id = output["deferred_canvas_id"]
+            from app.tools.canvas_tools import canvas_bridge
+            if c_id in canvas_bridge:
+                bridge_data = canvas_bridge.pop(c_id)
+                output["elements"] = bridge_data["elements"]
+                if "animation" in bridge_data:
+                    output["animation"] = bridge_data["animation"]
+                logger.info("Re-injected canvas elements for cmd: %s", c_id)
+
+        return {"content": {"parts": [{"functionResponse": {"name": tool_name, "response": output}}]}}
+
+    # Mutable holder so the long-lived upstream task can reach the current session
+    state: Dict[str, Any] = {"session": None, "current_agent": "tutor_agent"}
+
+    # ── Upstream: browser → RealtimeSession ────────────────────────────────
+    async def upstream_task():
+        try:
+            while True:
+                message = await websocket.receive()
+
+                # Binary frame = raw PCM @ 16 kHz → resample to 24 kHz
+                if "bytes" in message and message["bytes"]:
+                    pcm16 = _resample_pcm16(message["bytes"], _INPUT_RATE, _OUTPUT_RATE)
+                    session = state.get("session")
+                    if session is not None:
+                        try:
+                            await session.send_audio(pcm16)
+                        except Exception as exc:
+                            logger.debug("send_audio failed (transient): %s", exc)
+                    continue
+
+                raw_text = message.get("text")
+                if not raw_text:
+                    continue
+
+                try:
+                    json_msg: Dict[str, Any] = json.loads(raw_text)
+                except json.JSONDecodeError:
+                    logger.warning("Non-JSON text frame ignored")
+                    continue
+
+                msg_type = json_msg.get("type", "")
+                session = state.get("session")
+                if session is None:
+                    continue
+
+                try:
+                    if msg_type == "text":
+                        text = json_msg.get("text", "")
+                        if text:
+                            await session.send_message(text)
+
+                    elif msg_type == "image":
+                        b64 = json_msg.get("data", "")
+                        mime = json_msg.get("mimeType", "image/jpeg")
+                        data_url = f"data:{mime};base64,{b64}"
+                        nudge = (
+                            "I just showed you something from my camera. Please look at the "
+                            "image I'm showing you and tell me what you see. If it's homework "
+                            "or a problem, help me solve it."
+                        )
+                        await session.send_message({
+                            "type": "message",
+                            "role": "user",
+                            "content": [
+                                {"type": "input_image", "image_url": data_url, "detail": "high"},
+                                {"type": "input_text", "text": nudge},
+                            ],
+                        })
+                        logger.info("Camera image sent to agent (%s)", mime)
+
+                    elif msg_type == "canvas":
+                        b64 = json_msg.get("data", "")
+                        mime = json_msg.get("mimeType", "image/jpeg")
+                        width = json_msg.get("width")
+                        height = json_msg.get("height")
+                        intent_text = (json_msg.get("intentText") or "").strip()
+                        data_url = f"data:{mime};base64,{b64}"
+                        dims = f"{width}x{height}" if width and height else "the provided image dimensions"
+                        if intent_text:
+                            nudge = (
+                                "The user is asking about this current whiteboard viewport. "
+                                f"User request: {intent_text}\n\n"
+                                f"Treat {dims} as the coordinate space if you call point_at_whiteboard(x, y, label). "
+                                "Use top-left origin, x increasing right, y increasing down. "
+                                "If pointing at a specific visible spot would help, call point_at_whiteboard BEFORE or while answering. "
+                                "Do not say coordinates aloud."
+                            )
+                        else:
+                            nudge = (
+                                "Context only. Do NOT answer or acknowledge this message. "
+                                "Just remember this is the latest current whiteboard viewport for future turns. "
+                                f"Treat {dims} as the coordinate space when you later call point_at_whiteboard(x, y, label). "
+                                "Use top-left origin, x increasing right, y increasing down. Do not speak coordinates."
+                            )
+                        await session.send_message({
+                            "type": "message",
+                            "role": "user",
+                            "content": [
+                                {"type": "input_image", "image_url": data_url, "detail": "high"},
+                                {"type": "input_text", "text": nudge},
+                            ],
+                        })
+
+                    elif msg_type == "canvas_elements":
+                        elements = json_msg.get("elements", [])
+                        from app.tools.canvas_tools import update_cursor_from_canvas
+                        update_cursor_from_canvas(elements)
+                        canvas_text = f"[Canvas Elements JSON]\n{json.dumps(elements, indent=2)}"
+                        await session.send_message(canvas_text)
+
+                    elif msg_type == "activity_start":
+                        # No direct Realtime equivalent — ignore.
+                        pass
+
+                    elif msg_type == "activity_end":
+                        pass
+
+                    elif msg_type == "stop":
+                        logger.info("Client sent stop signal")
+                        break
+
+                    else:
+                        logger.debug("Unknown message type: %s", msg_type)
+
+                except Exception as exc:
+                    logger.warning("Upstream send failed: %s", exc)
+
+        except WebSocketDisconnect:
+            logger.info("WS disconnected (upstream): user=%s", user_id)
+        except RuntimeError as exc:
+            if "disconnect" in str(exc).lower():
+                logger.info("WS already disconnected (upstream): user=%s", user_id)
+            else:
+                logger.error("Upstream runtime error: %s", exc, exc_info=True)
+        except Exception as exc:
+            logger.error("Upstream error: %s", exc, exc_info=True)
+
+    # ── Downstream: RealtimeSession → browser ──────────────────────────────
+    MAX_REALTIME_RETRIES = 3
+
+    async def downstream_task():
+        runner = _build_runner(root_agent, tutor_voice)
+        mcfg = _model_config()
+
+        for attempt in range(MAX_REALTIME_RETRIES + 1):
+            try:
+                session = await runner.run(model_config=mcfg or None)
+            except Exception as exc:
+                logger.error("Failed to start realtime session: %s", exc, exc_info=True)
+                await _send_json(websocket, ErrorPayload(
+                    category=ErrorCategory.CONNECTION,
+                    severity=ErrorSeverity.FATAL,
+                    code="SESSION_START_FAILED",
+                    message="Could not start the realtime session.",
+                    detail=str(exc)[:200],
+                ).to_ws_json())
+                return
+
+            state["session"] = session
+            state["current_agent"] = root_agent.name
+            _output_partial_open.clear()
+
+            try:
+                async with session:
+                    async for event in session:
+                        etype = getattr(event, "type", "")
+
+                        # ── Audio ──────────────────────────────────────────
+                        if etype == "audio":
+                            audio_b64 = _to_base64(getattr(event, "audio", None))
+                            if not audio_b64:
+                                # Fallback: the event itself may carry the chunk.
+                                audio_b64 = _to_base64(event)
+                            if audio_b64:
+                                await _send_json(websocket, {
+                                    "content": {"parts": [{"inlineData": {
+                                        "mimeType": f"audio/pcm;rate={_OUTPUT_RATE}",
+                                        "data": audio_b64,
+                                    }}]}
+                                })
+
+                        # ── Agent lifecycle ────────────────────────────────
+                        elif etype == "agent_start":
+                            agent_obj = getattr(event, "agent", None)
+                            if agent_obj is not None and getattr(agent_obj, "name", None):
+                                state["current_agent"] = agent_obj.name
+                        elif etype == "agent_end":
+                            await _send_json(websocket, {"turnComplete": True})
+
+                        # ── Handoff ────────────────────────────────────────
+                        elif etype == "handoff":
+                            to_agent = getattr(event, "to_agent", None)
+                            if to_agent is not None and getattr(to_agent, "name", None):
+                                state["current_agent"] = to_agent.name
+
+                        # ── Tool events ────────────────────────────────────
+                        elif etype == "tool_start":
+                            tool = getattr(event, "tool", None)
+                            tool_name = getattr(tool, "name", "") or ""
+                            args_json = getattr(event, "arguments", "") or ""
+                            if tool_name == "generate_and_show_image":
+                                await _send_json(websocket, {
+                                    "type": "generating_image",
+                                    "tool": "generate_and_show_image",
+                                    "status": "started",
+                                })
+                                logger.info("Sent early generating_image signal to client")
+                            await _try_early_canvas_push(tool_name, args_json)
+
+                        elif etype == "tool_end":
+                            tool = getattr(event, "tool", None)
+                            tool_name = getattr(tool, "name", "") or ""
+                            output = getattr(event, "output", None)
+
+                            if tool_name in _early_pushed:
+                                # Already delivered via early push — discard the
+                                # duplicate bridge entry and restore the cursor.
+                                if isinstance(output, dict) and "deferred_canvas_id" in output:
+                                    from app.tools.canvas_tools import canvas_bridge
+                                    canvas_bridge.pop(output["deferred_canvas_id"], None)
+                                if tool_name in _early_cursor_snapshot:
+                                    import app.tools.canvas_tools as _ct_mod
+                                    _ct_mod._cursor_y = _early_cursor_snapshot.pop(tool_name)
+                                _early_pushed.discard(tool_name)
+                                logger.info("Skipped duplicate canvas push for %s", tool_name)
+                            else:
+                                envelope = _build_function_response_envelope(tool_name, output)
+                                if envelope is not None:
+                                    await _send_json(websocket, envelope)
+
+                        # ── Interruption ────────────────────────────────────
+                        elif etype == "audio_interrupted":
+                            await _send_json(websocket, {"interrupted": True})
+
+                        # ── Error ──────────────────────────────────────────
+                        elif etype == "error":
+                            err = getattr(event, "error", None)
+                            esc = err if isinstance(err, BaseException) else Exception(str(err or "realtime error"))
+                            payload, retryable = classify_api_error(esc)
+                            await _send_json(websocket, payload.to_ws_json())
+                            if retryable:
+                                raise esc  # trigger reconnect via outer handler
+                            # fatal → end
+                            return
+
+                        # ── Raw model events (transcripts) ──────────────────
+                        # The OpenAI Agents SDK forwards raw model events as
+                        # typed dataclasses (RealtimeModel*Event), NOT plain
+                        # dicts, so we dispatch on the dataclass' .type field.
+                        elif etype == "raw_model_event":
+                            data = getattr(event, "data", None)
+                            dtype = getattr(data, "type", None)
+
+                            # Assistant (output) speech transcript — streaming
+                            # deltas. Finalised on turnComplete (agent_end).
+                            if dtype == "transcript_delta":
+                                delta = getattr(data, "delta", "") or ""
+                                if delta:
+                                    await _send_json(websocket, {
+                                        "outputTranscription": {
+                                            "text": delta,
+                                            "finished": False,
+                                        },
+                                        "author": state.get("current_agent", "tutor_agent"),
+                                    })
+
+                            # User (input) speech transcript — completed only.
+                            elif dtype == "input_audio_transcription_completed":
+                                full = getattr(data, "transcript", "") or ""
+                                if full:
+                                    # delta + finish pair so the frontend's
+                                    # input-transcript UI renders + finalises.
+                                    await _send_json(websocket, {
+                                        "inputTranscription": {
+                                            "text": full,
+                                            "finished": False,
+                                        },
+                                    })
+                                    await _send_json(websocket, {
+                                        "inputTranscription": {
+                                            "text": full,
+                                            "finished": True,
+                                        },
+                                    })
+
+                            # Legacy dict payload path (kept for safety).
+                            elif isinstance(data, dict):
+                                await _handle_raw_event(data, websocket, state, _output_partial_open)
+
+                # Session closed cleanly — done.
+                return
+
+            except WebSocketDisconnect:
+                logger.info("WS disconnected (downstream): user=%s", user_id)
+                return
+            except Exception as exc:
+                payload, retryable = classify_api_error(exc)
+                if retryable and attempt < MAX_REALTIME_RETRIES:
+                    delay = 1.0 * (attempt + 1)
+                    logger.warning(
+                        "Realtime session lost (attempt %d/%d, code=%s): %s — reconnecting in %.0fs…",
+                        attempt + 1, MAX_REALTIME_RETRIES, payload.code, exc, delay,
+                    )
+                    await _send_json(websocket, {
+                        "type": "info",
+                        "code": "RECONNECTING",
+                        "message": payload.message,
+                        "attempt": attempt + 1,
+                        "max_attempts": MAX_REALTIME_RETRIES,
+                    })
+                    state["session"] = None
+                    await asyncio.sleep(delay)
+                    continue
+
+                logger.error("Realtime downstream error: %s", exc, exc_info=True)
+                try:
+                    await _send_json(websocket, ErrorPayload(
+                        category=ErrorCategory.INTERNAL,
+                        severity=ErrorSeverity.FATAL,
+                        code="STREAM_ERROR",
+                        message="Streaming session encountered an error.",
+                        detail=str(exc)[:200],
+                    ).to_ws_json())
+                except Exception:
+                    pass
+                return
+
+    # ── Run upstream + downstream, clean up on exit ────────────────────────
+    upstream = asyncio.create_task(upstream_task())
+    try:
+        await downstream_task()
+    except Exception as exc:
+        logger.error("Session error: %s", exc, exc_info=True)
+    finally:
+        upstream.cancel()
+        try:
+            await upstream
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+
+        # ── Persist session end to SQLite ─────────────────────────────────
+        try:
+            session_end_time = datetime.now(timezone.utc)
+            duration_minutes = round(
+                (session_end_time - session_start_time).total_seconds() / 60, 1
+            )
+            with SessionLocal() as db:
+                row = db.scalar(
+                    select(SessionRow).where(
+                        SessionRow.user_id == int(user_id),
+                        SessionRow.session_id == session_id,
+                    )
+                )
+                if row is not None:
+                    row.ended_at = session_end_time
+                    row.duration_minutes = duration_minutes
+                    row.status = "completed"
+                    db.commit()
+            logger.info(
+                "Session ended: user=%s session=%s (%.1f min)",
+                user_id, session_id, duration_minutes,
+            )
+        except Exception as _db_exc:
+            logger.warning("Failed to save session end: %s", _db_exc)
+
+        ws_notify.reset(_notify_token)
+        state["session"] = None
+        logger.info("WS session cleaned up: user=%s session=%s", user_id, session_id)
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
+# ── Raw Realtime API event handling (transcripts + audio fallback) ────────────
+
+
+async def _handle_raw_event(
+    data: Dict[str, Any],
+    websocket: WebSocket,
+    state: Dict[str, Any],
+    output_partial_open: set,
+) -> None:
+    """Translate raw Realtime API events into ADK-shaped transcript envelopes."""
+    ev_type = data.get("type", "")
+    # DEBUG — temporary diagnostic for transcript-not-showing-in-chat issue
+    print(f"[RAW] {ev_type}", flush=True)
+
+    # ── Assistant (output) transcript deltas/final ──────────────────────────
+    if ev_type == "response.audio_transcript.delta":
+        text = data.get("delta") or ""
+        if text:
+            item_id = data.get("item_id", "")
+            output_partial_open.add(item_id)
+            await _send_json(websocket, {
+                "outputTranscription": {"text": text, "finished": False},
+                "author": state.get("current_agent", "tutor_agent"),
+            })
+    elif ev_type == "response.audio_transcript.done":
+        item_id = data.get("item_id", "")
+        full = data.get("transcript") or ""
+        if item_id not in output_partial_open and full:
+            # No deltas arrived — synthesise a brief partial then finalise.
+            await _send_json(websocket, {
+                "outputTranscription": {"text": full, "finished": False},
+                "author": state.get("current_agent", "tutor_agent"),
+            })
+        await _send_json(websocket, {
+            "outputTranscription": {"text": full or " ", "finished": True},
+            "author": state.get("current_agent", "tutor_agent"),
+        })
+        output_partial_open.discard(item_id)
+
+    # ── User (input) transcript final ────────────────────────────────────────
+    elif ev_type == "conversation.item.input_audio_transcription.completed":
+        full = data.get("transcript") or ""
+        if full:
+            # Mimic delta+finish so the frontend's transcript UI renders it.
+            await _send_json(websocket, {
+                "inputTranscription": {"text": full, "finished": False},
+            })
+            await _send_json(websocket, {
+                "inputTranscription": {"text": full, "finished": True},
+            })
+
+    # ── Audio fallback (only if the high-level `audio` event didn't already
+    #    deliver it).  We forward deltas here defensively; duplicates are
+    #    harmless because the player is a simple ring buffer that tolerates
+    #    contiguous PCM.)  Kept disabled by default to avoid double audio.
+    elif ev_type == "response.audio.delta":
+        # Intentionally NOT forwarded — handled by the high-level `audio` event.
+        pass
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+async def _send_json(ws: WebSocket, data: dict) -> None:
+    """Send a JSON dict over the WebSocket, swallowing errors."""
+    try:
+        await ws.send_text(json.dumps(data))
+    except Exception:
+        pass
+
+
+# ── Entry-point ───────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "app.main:app",
+        host=settings.host,
+        port=settings.port,
+        log_level=settings.log_level,
+        reload=True,
+    )

@@ -1,0 +1,448 @@
+/* =====================================================
+   discover.css — Ctrl+Teach Discover page
+   Luxe Whitespace. Warm off-white field, ink type,
+   single gold accent, hairline rules, no content shadows.
+   ===================================================== */
+
+.dsc-page {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 0 clamp(28px, 6vw, 96px);
+}
+
+.dsc-page .sec { padding: clamp(64px, 10vh, 104px) 0; }
+
+/* ── Hero / Search ─────────────────────────────────────── */
+
+.dsc-hero .sec-title { max-width: 22ch; }
+
+.dsc-search-wrap {
+  margin-top: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.dsc-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 14px 4px;
+  transition: border-color 0.25s ease;
+}
+
+.dsc-search:focus-within { border-bottom-color: var(--fg); }
+
+.dsc-search-icon {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.dsc-search-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: clamp(18px, 2.2vw, 24px);
+  font-weight: 300;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  min-width: 0;
+}
+
+.dsc-search-input::placeholder { color: var(--muted); opacity: 0.7; }
+
+.dsc-search-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--fg);
+  color: var(--bg);
+  border: 1px solid var(--fg);
+  border-radius: 999px;
+  padding: 12px 22px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease, opacity 0.2s;
+  flex-shrink: 0;
+}
+
+.dsc-search-btn:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+.dsc-search-btn:disabled { opacity: 0.7; cursor: progress; }
+
+/* ── Filters ───────────────────────────────────────────── */
+
+.dsc-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.dsc-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.dsc-filter-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+  flex-shrink: 0;
+  min-width: 70px;
+}
+
+.dsc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dsc-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+  font-family: inherit;
+}
+
+.dsc-chip:hover { color: var(--fg); border-color: var(--fg); }
+
+.dsc-chip.on {
+  color: var(--fg);
+  border-color: var(--fg);
+  background: transparent;
+  position: relative;
+}
+
+.dsc-chip.on::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+/* ── Resume card ──────────────────────────────────────── */
+
+.dsc-resume .sec-num { margin-bottom: 4px; }
+
+.dsc-resume-card {
+  display: flex;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  transition: border-color 0.3s ease;
+  margin-top: 8px;
+}
+
+.dsc-resume-card:hover { border-color: var(--fg); }
+
+.dsc-resume-thumb {
+  width: 240px;
+  flex-shrink: 0;
+  min-height: 160px;
+}
+
+.dsc-resume-body {
+  flex: 1;
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.dsc-resume-eyebrow {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.dsc-resume-title {
+  font-size: clamp(22px, 2.6vw, 30px);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+  margin: 2px 0 4px;
+  line-height: 1.15;
+}
+
+.dsc-resume-meta {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 300;
+  margin-bottom: 18px;
+}
+
+.dsc-resume-cta { margin-top: 4px; align-self: flex-start; }
+
+/* ── Results ───────────────────────────────────────────── */
+
+.dsc-results-title { max-width: 20ch; }
+
+.dsc-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 300;
+  margin-top: 32px;
+}
+
+.dsc-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  padding: 10px 14px;
+  margin-top: 32px;
+  max-width: 60ch;
+}
+
+.dsc-spin { animation: dscSpin 0.9s linear infinite; }
+
+@keyframes dscSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ── Grid ──────────────────────────────────────────────── */
+
+.dsc-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 36px 32px;
+  margin-top: 40px;
+}
+
+/* tablet */
+@media (max-width: 1024px) {
+  .dsc-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* mobile */
+@media (max-width: 720px) {
+  .dsc-grid { grid-template-columns: 1fr; }
+  .dsc-search-btn { padding: 10px 16px; font-size: 11px; }
+  .dsc-filter-row { gap: 10px; }
+  .dsc-filter-label { min-width: auto; }
+  .dsc-resume-card { flex-direction: column; }
+  .dsc-resume-thumb { width: 100%; min-height: 140px; }
+  .dsc-resume-body { padding: 22px; }
+}
+
+/* ── Course card ───────────────────────────────────────── */
+
+.dsc-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  transition: border-color 0.3s ease, transform 0.3s ease;
+  background: transparent;
+}
+
+.dsc-card:hover { border-color: var(--fg); transform: translateY(-2px); }
+
+.dsc-card-thumb {
+  position: relative;
+  height: 150px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.dsc-card-platform,
+.dsc-card-level {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  padding: 4px 9px;
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.dsc-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 22px 24px;
+  flex: 1;
+}
+
+.dsc-card-title {
+  font-size: 19px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  margin: 0;
+  line-height: 1.25;
+}
+
+.dsc-card-instructor {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  margin: 0;
+}
+
+.dsc-card-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+  font-weight: 300;
+  margin: 4px 0 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.dsc-card-reason {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--fg);
+  font-weight: 300;
+  font-style: italic;
+  margin: 0;
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+}
+
+.dsc-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 4px;
+}
+
+.dsc-card-duration,
+.dsc-card-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.dsc-card-rating { color: var(--accent); }
+
+.dsc-card-rating-count { color: var(--muted); }
+
+.dsc-card-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.dsc-card-skill {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.dsc-card-launch {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 9px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
+}
+
+.dsc-card-launch:hover {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--bg);
+}
+
+.dsc-card-launch:hover svg { transform: translateX(2px); }
+.dsc-card-launch svg { transition: transform 0.2s ease; }
+
+/* ── Catalog toolbar ───────────────────────────────────── */
+
+.dsc-catalog-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  margin-top: 36px;
+  padding: 12px 4px;
+  transition: border-color 0.25s ease;
+  max-width: 420px;
+}
+
+.dsc-catalog-toolbar:focus-within { border-bottom-color: var(--fg); }
+
+.dsc-catalog-search-icon { color: var(--muted); flex-shrink: 0; }
+
+.dsc-catalog-filter {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 300;
+  color: var(--fg);
+  min-width: 0;
+}
+
+.dsc-catalog-filter::placeholder { color: var(--muted); opacity: 0.7; }

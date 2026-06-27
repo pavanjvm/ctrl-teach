@@ -1,0 +1,350 @@
+/* =====================================================
+   completion.css — Ctrl+Teach Completion experience
+   Luxe Whitespace. Parchment certificate, dashed gold border,
+   gold hairlines instead of content shadows.
+   ===================================================== */
+
+.cmp {
+  position: relative;
+}
+
+/* ── Certificate ──────────────────────────────────────── */
+
+.cmp-cert {
+  margin-top: 40px;
+  max-width: 720px;
+}
+
+.cmp-cert-inner {
+  position: relative;
+  background: #FBF8F1;
+  border: 2px dashed #D4A574;
+  border-radius: 6px;
+  padding: clamp(36px, 5vw, 64px) clamp(32px, 5vw, 64px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.cmp-cert-eyebrow {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: #666666;
+}
+
+.cmp-cert-name {
+  margin-top: 28px;
+  font-size: clamp(30px, 4.4vw, 44px);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  color: #2A2A2A;
+  line-height: 1.1;
+}
+
+.cmp-cert-hairline {
+  display: block;
+  width: 48px;
+  height: 1px;
+  background: #D4A574;
+  margin: 26px 0;
+}
+
+.cmp-cert-line,
+.cmp-cert-instructor,
+.cmp-cert-date {
+  font-size: 15px;
+  font-weight: 300;
+  color: #666666;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.cmp-cert-course {
+  font-size: clamp(20px, 2.6vw, 24px);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: #2A2A2A;
+  margin: 10px 0 6px;
+  max-width: 32ch;
+}
+
+.cmp-cert-date {
+  margin-top: 18px;
+}
+
+.cmp-cert-foot {
+  margin-top: 36px;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.cmp-cert-issued {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.cmp-cert-foot-label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #666666;
+}
+
+.cmp-cert-foot-value {
+  font-size: 16px;
+  font-weight: 500;
+  color: #2A2A2A;
+  letter-spacing: 0.02em;
+}
+
+.cmp-seal {
+  flex-shrink: 0;
+}
+
+.cmp-cert-cta {
+  display: flex;
+  justify-content: center;
+}
+
+.cmp-download {
+  margin: 28px auto 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #2A2A2A;
+  color: #FAFAF8;
+  border: 1px solid #2A2A2A;
+  border-radius: 999px;
+  padding: 14px 24px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+.cmp-download:hover {
+  background: #D4A574;
+  border-color: #D4A574;
+  color: #2A2A2A;
+}
+
+/* ── Skills row ──────────────────────────────────────── */
+
+.cmp-skills-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 36px;
+}
+
+.cmp-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #2A2A2A;
+  border: 1px solid #E0DCD6;
+  padding: 9px 16px;
+  border-radius: 999px;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.cmp-skill-chip:hover {
+  color: #D4A574;
+  border-color: #D4A574;
+}
+
+/* ── Progress stat grid ───────────────────────────────── */
+
+.cmp-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 36px;
+}
+
+.cmp-stat {
+  padding: 0 28px;
+  border-left: 1px solid #E0DCD6;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cmp-stat:first-child { border-left: none; padding-left: 0; }
+.cmp-stat:last-child { padding-right: 0; }
+
+.cmp-stat-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #666666;
+}
+
+.cmp-stat-value {
+  font-size: clamp(34px, 4vw, 48px);
+  font-weight: 200;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: #2A2A2A;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.cmp-unit {
+  color: #D4A574;
+  font-size: 0.5em;
+  vertical-align: 0.55em;
+  margin-left: 4px;
+  font-weight: 300;
+}
+
+.cmp-stat-foot {
+  font-size: 12px;
+  font-weight: 300;
+  color: #666666;
+}
+
+/* ── Badges ──────────────────────────────────────────── */
+
+.cmp-badge-grid {
+  list-style: none;
+  margin: 36px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0;
+  border-top: 1px solid #E0DCD6;
+}
+
+.cmp-badge {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 28px 24px;
+  border-right: 1px solid #E0DCD6;
+  border-bottom: 1px solid #E0DCD6;
+  transition: background 0.25s ease;
+}
+
+.cmp-badge:hover { background: #FBF8F1; }
+
+.cmp-badge-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid #D4A574;
+  color: #D4A574;
+  background: #FBF8F1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.3s ease;
+}
+
+.cmp-badge:hover .cmp-badge-icon { transform: rotate(8deg); }
+
+.cmp-badge.is-locked { opacity: 0.5; }
+.cmp-badge.is-locked:hover { background: transparent; }
+
+.cmp-badge-icon-locked {
+  border-color: #E0DCD6;
+  color: #666666;
+  background: transparent;
+}
+
+.cmp-badge-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cmp-badge-title {
+  font-size: 16px;
+  font-weight: 500;
+  color: #2A2A2A;
+  letter-spacing: -0.005em;
+  margin: 0;
+}
+
+.cmp-badge-desc {
+  font-size: 13px;
+  font-weight: 300;
+  color: #666666;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.cmp-badge-when {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #D4A574;
+  margin-top: 4px;
+}
+
+.cmp-badge-when-soon {
+  color: #666666;
+}
+
+/* ── Confetti ────────────────────────────────────────── */
+
+.cmp-confetti {
+  position: absolute;
+  top: 40px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.cmp-confetti-bit {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 1px;
+  display: block;
+}
+
+/* ── Responsive ──────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  .cmp-stat-grid { grid-template-columns: repeat(2, 1fr); gap: 32px 0; }
+  .cmp-stat { border-left: none; padding: 0; }
+  .cmp-stat:nth-child(odd) { padding-right: 28px; border-right: 1px solid #E0DCD6; }
+  .cmp-stat:nth-child(even) { padding-left: 28px; }
+}
+
+@media (max-width: 720px) {
+  .cmp-stat-grid { grid-template-columns: 1fr; }
+  .cmp-stat {
+    border-left: none;
+    border-top: 1px solid #E0DCD6;
+    padding: 24px 0 !important;
+  }
+  .cmp-stat:first-child { border-top: none; }
+  .cmp-cert-foot {
+    flex-direction: column-reverse;
+    align-items: center;
+    gap: 18px;
+  }
+  .cmp-cert-issued { text-align: center; align-items: center; }
+}

@@ -1,0 +1,123 @@
+/* ── Ctrl+Teach Learner Workspace — immersive 3-pane + bottom ────────────── */
+
+.learn-app {
+  position: fixed;
+  inset: 0;
+  top: 0; /* dashboard topbar is sticky; this app itself is fixed to viewport */
+  display: grid;
+  grid-template-columns: 268px 1fr 348px;
+  grid-template-rows: 1fr 64px;
+  grid-template-areas:
+    "side center companion"
+    "bottom bottom bottom";
+  height: 100vh;
+  background: var(--bg);
+  font-family: var(--font);
+  overflow: hidden;
+}
+
+.learn-side    { grid-area: side;     border-right: 1px solid var(--border); overflow-y: auto; background: var(--bg); }
+.learn-center  { grid-area: center;   position: relative; overflow: hidden; background: #fff; }
+.learn-comp    { grid-area: companion; border-left: 1px solid var(--border); overflow: hidden; display: flex; flex-direction: column; background: var(--bg); }
+.learn-bottom  { grid-area: bottom;   border-top: 1px solid var(--border); display: flex; align-items: center; gap: 0; padding: 0 20px; background: var(--bg); }
+
+@media (max-width: 1180px) {
+  .learn-app { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto auto; grid-template-areas: "center" "side" "companion" "bottom"; }
+  .learn-side, .learn-comp { max-height: 40vh; }
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────────── */
+.lp-head { padding: 22px 22px 14px; }
+.lp-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.lp-title { font-size: 19px; font-weight: 500; margin-top: 6px; line-height: 1.25; color: var(--fg); }
+.lp-instructor { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.lp-progressbar { height: 4px; background: var(--surface); border-radius: 999px; margin-top: 14px; overflow: hidden; }
+.lp-progressbar > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width .6s cubic-bezier(.2,.8,.2,1); }
+
+.lp-module { padding: 8px 12px; }
+.lp-module-title { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 8px 10px; }
+.lp-lesson { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer; border: 1.5px solid transparent; transition: background .15s, border-color .15s; }
+.lp-lesson:hover { background: var(--surface); }
+.lp-lesson.active { background: #fff; border-color: var(--accent); }
+.lp-lesson.done .lp-lesson-dot { background: var(--accent); border-color: var(--accent); }
+.lp-lesson-dot { flex: none; width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--baseline); background: transparent; display: grid; place-items: center; }
+.lp-lesson-label { font-size: 13.5px; font-weight: 400; color: var(--fg); flex: 1; line-height: 1.3; }
+.lp-lesson-type { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 2px 6px; border: 1px solid var(--border); border-radius: 999px; }
+.lp-lesson-type.study { color: #1864ab; }
+.lp-lesson-type.lab { color: #6366f1; }
+.lp-lesson-type.assessment { color: #6B8E5A; }
+.lp-lesson-type.roleplay { color: #b45309; }
+.lp-lesson-mark { color: var(--accent); font-size: 14px; cursor: pointer; opacity: .35; }
+.lp-lesson-mark.on { opacity: 1; }
+
+/* ── Bottom progress ──────────────────────────────────────────────────────── */
+.bp { display: flex; align-items: center; gap: 26px; width: 100%; height: 100%; }
+.bp-stat { display: flex; flex-direction: column; gap: 2px; }
+.bp-stat .v { font-size: 15px; font-weight: 600; color: var(--fg); }
+.bp-stat .l { font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.bp-sep { width: 1px; height: 28px; background: var(--border); }
+.bp-xp { display: flex; align-items: baseline; gap: 4px; }
+.bp-xp .u { font-size: 11px; color: var(--muted); }
+.bp-spacer { flex: 1; }
+.bp-pct { font-weight: 600; }
+.bp-bar { flex: 1; max-width: 240px; height: 6px; background: var(--surface); border-radius: 999px; overflow: hidden; }
+.bp-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), #c9a35f); border-radius: 999px; transition: width .6s ease; }
+.bp-mode-switch { display: flex; gap: 6px; }
+.bp-mode-btn { font-size: 12.5px; font-weight: 600; color: var(--muted); background: transparent; border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; cursor: pointer; transition: all .15s; }
+.bp-mode-btn.active { color: var(--fg); border-color: var(--fg); background: rgba(0,0,0,.03); }
+
+/* ── Center stage ─────────────────────────────────────────────────────────── */
+.ls-topbar { position: absolute; top: 0; left: 0; right: 0; z-index: 6; display: flex; align-items: center; gap: 12px; padding: 14px 20px; background: linear-gradient(to bottom, rgba(255,255,255,.96), rgba(255,255,255,0)); }
+.ls-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+.ls-title { font-size: 16px; font-weight: 500; color: var(--fg); }
+.ls-type-pill { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
+.ls-stage { position: absolute; inset: 56px 0 0; }
+.ls-empty { display: grid; place-items: center; height: 100%; color: var(--muted); text-align: center; padding: 40px; }
+.ls-empty h2 { font-size: 22px; font-weight: 400; margin-bottom: 8px; }
+
+/* ── Companion panel ──────────────────────────────────────────────────────── */
+.cp-tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 8px; flex: none; }
+.cp-tab { font-size: 12px; font-weight: 600; color: var(--muted); background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 12px 10px; cursor: pointer; }
+.cp-tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+.cp-body { flex: 1; overflow-y: auto; padding: 16px; }
+.cp-msg { margin-bottom: 12px; }
+.cp-msg .who { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+.cp-msg.user .who { color: var(--accent); }
+.cp-msg .bubble { font-size: 13.5px; line-height: 1.5; color: var(--fg); }
+.cp-msg.agent .bubble { background: var(--surface); border-radius: 12px 12px 12px 2px; padding: 10px 12px; }
+.cp-proactive { background: #fff8e1; border: 1px solid var(--accent); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; color: var(--fg); margin-bottom: 14px; }
+.cp-proactive .tag { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 3px; }
+.cp-input { flex: none; border-top: 1px solid var(--border); padding: 10px; display: flex; gap: 8px; }
+.cp-input textarea { flex: 1; resize: none; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-family: var(--font); font-size: 13px; color: var(--fg); background: #fff; outline: none; }
+.cp-input button { background: var(--fg); color: var(--bg); border: 0; border-radius: 8px; padding: 0 14px; font-weight: 600; cursor: pointer; }
+.cp-note-area { width: 100%; min-height: 220px; resize: vertical; border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-family: var(--font); font-size: 13.5px; color: var(--fg); background: #fff; outline: none; }
+.cp-hint { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; font-size: 13px; line-height: 1.5; }
+.cp-hint .h { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #6366f1; margin-bottom: 4px; }
+
+/* ── Lab surface + study ──────────────────────────────────────────────────── */
+.lab-wrap { padding: 24px 28px 90px; height: 100%; overflow-y: auto; }
+.lab-surface { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 24px; }
+.lab-coach-banner { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.lab-coach-dot { width: 10px; height: 10px; border-radius: 50%; background: #6366f1; box-shadow: 0 0 0 0 rgba(99,102,241,.5); animation: labPulse 1.6s ease-out infinite; }
+@keyframes labPulse { 0%{box-shadow:0 0 0 0 rgba(99,102,241,.5)} 70%{box-shadow:0 0 0 14px rgba(99,102,241,0)} 100%{box-shadow:0 0 0 0 rgba(99,102,241,0)} }
+.lab-coach-text { font-size: 12.5px; font-weight: 600; color: #6366f1; letter-spacing: .02em; }
+
+.study-wrap { display: grid; grid-template-rows: 1fr; height: 100%; }
+.study-canvas { position: relative; width: 100%; height: 100%; }
+.study-resources { position: absolute; bottom: 16px; right: 16px; z-index: 7; display: flex; gap: 8px; }
+.res-pill { background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 7px 12px; font-size: 11.5px; font-weight: 600; color: var(--fg); cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.res-pill:hover { border-color: var(--accent); }
+
+.role-wrap { padding: 24px 28px; height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+.role-persona { border: 1px solid var(--border); border-radius: 14px; padding: 18px; background: #fff; display: flex; gap: 14px; align-items: center; }
+.role-persona .av { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg,#b45309,#f59e0b); display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 16px; }
+.role-chat { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.role-row { max-width: 78%; }
+.role-row.me { align-self: flex-end; }
+.role-row.them { align-self: flex-start; }
+.role-bubble { padding: 10px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; }
+.role-row.me .role-bubble { background: var(--fg); color: var(--bg); border-radius: 14px 14px 2px 14px; }
+.role-row.them .role-bubble { background: var(--surface); color: var(--fg); border-radius: 14px 14px 14px 2px; }
+.role-input { margin-top: auto; display: flex; gap: 8px; }
+.role-input input { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-family: var(--font); font-size: 13.5px; outline: none; background: #fff; }
+.role-input button { background: var(--fg); color: var(--bg); border: 0; border-radius: 8px; padding: 0 16px; font-weight: 600; cursor: pointer; }

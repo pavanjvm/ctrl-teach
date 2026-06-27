@@ -1,0 +1,29 @@
+# Magic Whiteboard Tutor - Backend Dependencies
+# OpenAI Realtime API + SQLite + Basic auth. No Firebase/Google Cloud deps.
+
+# OpenAI Agents SDK (realtime layer) + OpenAI client
+openai-agents
+openai
+
+# Audio resampling for 16 kHz → 24 kHz PCM (Realtime API native rate)
+numpy
+
+# Database (SQLAlchemy + SQLite)
+sqlalchemy>=2.0
+pydantic==2.12.5
+pydantic-settings==2.13.1
+python-dotenv==1.2.1
+
+# Auth (Basic + password hashing)
+passlib>=1.7.4
+
+# Web framework
+fastapi==0.129.0
+uvicorn[standard]==0.41.0
+websockets==15.0.1
+
+# HTTP & networking
+httpx==0.28.1
+
+# Image processing
+pillow==12.1.1

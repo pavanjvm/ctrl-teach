@@ -1,0 +1,756 @@
+
+/* =====================================================
+   SCHEDULE PAGE — Interactive Calendar Styles
+   ===================================================== */
+
+/* ── View Toggle ────────────────────────────────────── */
+.sched-view-toggle {
+    background: var(--bg-main);
+    border-radius: 12px;
+    padding: 4px;
+    display: flex;
+}
+
+.sched-toggle-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.sched-toggle-btn.active {
+    background: white;
+    color: var(--text-main);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* ── Calendar Card ──────────────────────────────────── */
+.sched-calendar-card {
+    background: var(--bg-card);
+    border-radius: 20px;
+    padding: 24px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.02);
+    display: flex;
+    flex-direction: column;
+    min-height: 700px;
+}
+
+/* ── Calendar Toolbar ───────────────────────────────── */
+.sched-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.sched-month-label {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0;
+}
+
+.sched-nav-btn {
+    background: var(--bg-main);
+    border: none;
+    border-radius: 8px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-main);
+    transition: all 0.15s ease;
+}
+
+.sched-nav-btn:hover {
+    background: var(--primary-light);
+    color: var(--primary);
+    transform: scale(1.05);
+}
+
+.sched-today-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--primary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.sched-today-btn:hover {
+    background: var(--primary-light);
+    border-color: var(--primary);
+}
+
+.sched-filter-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    padding: 8px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.sched-filter-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.sched-filter-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 8px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+    z-index: 50;
+    min-width: 180px;
+}
+
+.sched-filter-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-main);
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.sched-filter-option:hover {
+    background: var(--bg-main);
+}
+
+.sched-filter-option.active {
+    background: var(--primary-light);
+    color: var(--primary);
+}
+
+.sched-filter-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+/* ── Week Grid ──────────────────────────────────────── */
+.sched-grid-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.sched-days-header {
+    display: grid;
+    grid-template-columns: 60px repeat(7, 1fr);
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-main);
+}
+
+.sched-corner {
+    /* empty top-left corner cell in the calendar grid */
+    min-height: 1px;
+}
+
+.sched-day-col-header {
+    padding: 12px;
+    text-align: center;
+    border-left: 1px solid var(--border-color);
+}
+
+.sched-day-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.sched-day-number {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-main);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 4px auto 0;
+    transition: all 0.2s ease;
+}
+
+.sched-day-number.today {
+    background: var(--primary);
+    color: white;
+    box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
+}
+
+/* ── Time Grid ──────────────────────────────────────── */
+.sched-time-grid {
+    flex: 1;
+    overflow-y: auto;
+    position: relative;
+    min-height: 560px;
+}
+
+.sched-hour-row {
+    display: grid;
+    grid-template-columns: 60px 1fr;
+    height: 60px;
+}
+
+.sched-hour-label {
+    padding: 4px 8px 0 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-align: right;
+    transform: translateY(-8px);
+    user-select: none;
+}
+
+.sched-hour-cells {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    border-bottom: 1px solid var(--border-color);
+    border-left: 1px solid var(--border-color);
+}
+
+.sched-cell {
+    border-right: 1px dashed rgba(226, 232, 240, 0.5);
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.sched-cell:hover {
+    background: rgba(79, 70, 229, 0.04);
+}
+
+.sched-cell:last-child {
+    border-right: none;
+}
+
+/* ── Session Block ──────────────────────────────────── */
+.sched-session-block {
+    position: absolute;
+    margin: 2px 4px;
+    border-radius: 8px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    z-index: 10;
+    overflow: hidden;
+    transition: box-shadow 0.2s ease;
+}
+
+.sched-session-block:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.sched-session-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 2px;
+}
+
+.sched-session-title {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+    margin: 0;
+}
+
+.sched-session-tutor {
+    font-size: 10px;
+    opacity: 0.8;
+    font-weight: 600;
+}
+
+.sched-session-time {
+    font-size: 9px;
+    opacity: 0.7;
+    font-weight: 600;
+    margin-top: auto;
+}
+
+/* ── Current Time Line ──────────────────────────────── */
+.sched-now-line {
+    position: absolute;
+    left: 60px;
+    right: 0;
+    height: 2px;
+    background: #ef4444;
+    z-index: 20;
+    pointer-events: none;
+}
+
+.sched-now-dot {
+    position: absolute;
+    left: -5px;
+    top: -4px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
+/* ── Sidebar Session Item ───────────────────────────── */
+.sched-sidebar-session {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.sched-sidebar-session:hover {
+    background: var(--bg-main);
+}
+
+.sched-sidebar-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #f1f5f9;
+    flex-shrink: 0;
+}
+
+/* ── Toggle Switch ──────────────────────────────────── */
+.sched-toggle-switch {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    border-radius: 20px;
+    transition: background 0.3s;
+    cursor: pointer;
+}
+
+.sched-toggle-knob {
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+/* ── Suggestion Card ────────────────────────────────── */
+.sched-suggestion-card {
+    background: white;
+    border-radius: 12px;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+}
+
+.sched-add-btn {
+    flex: 1;
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--primary-light);
+    color: var(--primary);
+    font-weight: 600;
+    font-size: 12px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.sched-add-btn:hover {
+    background: #c7d2fe;
+    transform: translateY(-1px);
+}
+
+.sched-more-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    background: var(--bg-main);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.sched-more-btn:hover {
+    background: var(--border-color);
+    color: var(--text-main);
+}
+
+/* ── Modals ─────────────────────────────────────────── */
+.sched-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(4px);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.sched-detail-modal,
+.sched-booking-modal {
+    position: relative;
+    background: var(--bg-card);
+    border-radius: 20px;
+    width: 480px;
+    max-width: 90vw;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+}
+
+.sched-modal-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    cursor: pointer;
+    z-index: 2;
+    transition: all 0.15s ease;
+}
+
+.sched-modal-close:hover {
+    background: white;
+    color: var(--text-main);
+    transform: scale(1.05);
+}
+
+.sched-modal-color-bar {
+    height: 6px;
+    width: 100%;
+}
+
+.sched-modal-body {
+    padding: 28px;
+}
+
+/* Session Detail */
+.sched-modal-avatar-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.sched-modal-avatar {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.sched-modal-title {
+    font-size: 22px;
+    font-weight: 800;
+    margin: 0 0 6px;
+    color: var(--text-main);
+}
+
+.sched-modal-tutor {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin: 0;
+}
+
+.sched-ai-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--primary-light);
+    color: var(--primary);
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    margin-left: 8px;
+}
+
+.sched-modal-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    background: var(--bg-main);
+    border-radius: 12px;
+    margin-bottom: 16px;
+}
+
+.sched-modal-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.sched-modal-meta-item svg {
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.sched-modal-desc {
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    margin: 0 0 20px;
+}
+
+.sched-modal-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.sched-start-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--primary);
+    color: white;
+    padding: 14px 24px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 15px;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sched-start-btn:hover {
+    background: #4338ca;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(79, 70, 229, 0.3);
+}
+
+.sched-delete-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid #fca5a5;
+    color: #ef4444;
+    padding: 12px 20px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.sched-delete-btn:hover {
+    background: #fef2f2;
+    border-color: #ef4444;
+    transform: translateY(-1px);
+}
+
+.sched-cancel-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    padding: 12px 20px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.sched-cancel-btn:hover {
+    background: var(--bg-main);
+    color: var(--text-main);
+}
+
+/* ── Booking Form ───────────────────────────────────── */
+.sched-form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.sched-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sched-form-group.full {
+    grid-column: 1 / -1;
+}
+
+.sched-form-group label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.sched-input {
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: var(--font);
+    color: var(--text-main);
+    background: var(--bg-main);
+    outline: none;
+    transition: all 0.15s ease;
+}
+
+.sched-input:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    background: white;
+}
+
+.sched-input::placeholder {
+    color: var(--text-muted);
+    font-weight: 400;
+}
+
+.sched-textarea {
+    resize: vertical;
+    min-height: 60px;
+}
+
+/* ── Month View ─────────────────────────────────────── */
+.sched-month-view {
+    flex: 1;
+    padding: 8px;
+}
+
+.sched-month-grid-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    margin-bottom: 8px;
+}
+
+.sched-month-day-name {
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    padding: 8px 0;
+}
+
+.sched-month-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+}
+
+.sched-month-cell {
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    gap: 4px;
+}
+
+.sched-month-cell:not(.empty):hover {
+    background: var(--primary-light);
+}
+
+.sched-month-cell.empty {
+    cursor: default;
+}
+
+.sched-month-cell.today {
+    background: var(--primary);
+}
+
+.sched-month-cell.today .sched-month-date {
+    color: white;
+}
+
+.sched-month-date {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.sched-month-dots {
+    display: flex;
+    gap: 3px;
+}
+
+.sched-month-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--primary);
+}
+
+.sched-month-cell.today .sched-month-dot {
+    background: white;
+}
