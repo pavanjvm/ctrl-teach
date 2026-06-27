@@ -270,6 +270,7 @@ export default function GlobalClickyAssistant() {
   const { user, getToken } = useAuth();
   const pathname = usePathname();
   const pageHasRealtimeTutor = pathname?.startsWith("/board") || pathname?.startsWith("/learn");
+  const [mounted, setMounted] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [status, setStatus] = useState("Clicky asleep");
   const [bubble, setBubble] = useState("");
@@ -528,7 +529,7 @@ export default function GlobalClickyAssistant() {
         const dy = y - cur.y;
         const speed = Math.hypot(dx, dy);
         const rot = speed > 0.2 ? (Math.atan2(dy, dx) * 180) / Math.PI + 90 : -35;
-        setCursor(x, y, rot, 1 + Math.min(speed / 100, 0.08), user ? 1 : 0);
+        setCursor(x, y, rot, 1 + Math.min(speed / 100, 0.08), 1);
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -537,7 +538,11 @@ export default function GlobalClickyAssistant() {
       window.removeEventListener("pointermove", onMove);
       cancelAnimationFrame(rafRef.current);
     };
-  }, [setCursor, user]);
+  }, [setCursor]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const flyTo = useCallback((point: Point) => {
     activePointRef.current = true;
@@ -994,7 +999,22 @@ export default function GlobalClickyAssistant() {
     };
   }, [enabled, pageHasRealtimeTutor, scheduleSnapshotPrefetch, trainingOpen, user, wakeTemplate]);
 
-  if (!user) return null;
+  if (!mounted) return null;
+
+  if (!user) {
+    return (
+      <div data-global-clicky="true" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 2147483000 }}>
+        <div
+          ref={cursorRef}
+          style={{ position: "fixed", left: 0, top: 0, width: 0, height: 0, opacity: 0, willChange: "transform, opacity" }}
+        >
+          <div style={{ position: "absolute", left: 0, top: 0, opacity: mode === "idle" ? 1 : 0, transition: "opacity 0.15s ease" }}>
+            <div style={{ width: 0, height: 0, borderLeft: "9px solid transparent", borderRight: "9px solid transparent", borderBottom: "16px solid #6366f1", filter: "drop-shadow(0 0 8px rgba(99,102,241,0.55))" }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div data-global-clicky="true" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 2147483000 }}>

@@ -4,23 +4,24 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { User, Lock, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { useLearner } from "@/lib/learner";
+import "../auth.css";
 
-function getPasswordStrength(pw: string): { label: string; color: string; pct: number } {
-  if (!pw) return { label: "", color: "#e2e8f0", pct: 0 };
+function getPasswordStrength(pw: string): { label: string; pct: number } {
+  if (!pw) return { label: "", pct: 0 };
   let score = 0;
   if (pw.length >= 8) score++;
   if (/[A-Z]/.test(pw)) score++;
   if (/[0-9]/.test(pw)) score++;
   if (/[^A-Za-z0-9]/.test(pw)) score++;
   if (pw.length >= 12) score++;
-  if (score <= 1) return { label: "Weak password", color: "#ef4444", pct: 25 };
-  if (score === 2) return { label: "Fair password", color: "#f59e0b", pct: 50 };
-  if (score === 3) return { label: "Good password", color: "#3b82f6", pct: 75 };
-  return { label: "Strong password", color: "#10b981", pct: 100 };
+  if (score <= 1) return { label: "Weak", pct: 25 };
+  if (score === 2) return { label: "Fair", pct: 50 };
+  if (score === 3) return { label: "Good", pct: 75 };
+  return { label: "Strong", pct: 100 };
 }
 
 export default function SignUpPage() {
@@ -66,82 +67,115 @@ export default function SignUpPage() {
   const strength = getPasswordStrength(password);
 
   if (loading) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#fafafa" }}>
-        <p style={{ color: "#64748b", fontSize: "15px" }}>Loading…</p>
-      </div>
-    );
+    return <div className="auth-loading">Loading</div>;
   }
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#fafafa", padding: "24px", fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
+    <div className="auth-shell">
       <motion.div
+        className="auth-card"
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-        style={{ width: "100%", maxWidth: "480px", background: "white", borderRadius: "24px", padding: "48px 40px", boxShadow: "0 4px 32px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.03)" }}
+        transition={{ duration: 0.6, ease: "easeOut" }}
+        style={{ maxWidth: 500 }}
       >
-        <h1 style={{ fontSize: "28px", fontWeight: 800, color: "#1a1a2e", margin: "0 0 6px 0" }}>
-          Create Account
+        <span className="auth-eyebrow">Get started</span>
+        <h1 className="auth-title">
+          Create account<span className="stop">.</span>
         </h1>
-        <p style={{ fontSize: "14px", color: "#64748b", margin: "0 0 32px 0" }}>
+        <p className="auth-sub">
           Already have an account?{" "}
-          <Link href="/login" style={{ color: "#6366f1", fontWeight: 600, textDecoration: "none" }}>
-            Sign in
-          </Link>
+          <Link href="/login">Sign in</Link>
         </p>
 
         {error && (
-          <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} style={{ background: "#fef2f2", color: "#dc2626", padding: "10px 14px", borderRadius: "10px", fontSize: "13px", marginBottom: "16px", border: "1px solid #fecaca" }}>
+          <motion.div
+            className="auth-error"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
             {error}
           </motion.div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
-          <div>
-            <label style={{ fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px", display: "block" }}>Display name</label>
-            <div style={{ position: "relative" }}>
-              <User size={16} color="#94a3b8" style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)" }} />
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name" style={{ width: "100%", height: "46px", padding: "0 14px 0 40px", border: "1.5px solid #e2e8f0", borderRadius: "10px", fontSize: "14px", color: "#1a1a2e", background: "white", outline: "none" }} />
+        <form onSubmit={handleSubmit} className="auth-form">
+          <div className="auth-field">
+            <label className="auth-label" htmlFor="signup-name">Display name</label>
+            <div className="auth-input-wrap">
+              <input
+                id="signup-name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Enter your name"
+                className="auth-input"
+              />
             </div>
           </div>
 
-          <div>
-            <label style={{ fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px", display: "block" }}>Username</label>
-            <div style={{ position: "relative" }}>
-              <User size={16} color="#94a3b8" style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)" }} />
-              <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Choose a username" style={{ width: "100%", height: "46px", padding: "0 14px 0 40px", border: "1.5px solid #e2e8f0", borderRadius: "10px", fontSize: "14px", color: "#1a1a2e", background: "white", outline: "none" }} />
+          <div className="auth-field">
+            <label className="auth-label" htmlFor="signup-username">Username</label>
+            <div className="auth-input-wrap">
+              <input
+                id="signup-username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Choose a username"
+                className="auth-input"
+              />
             </div>
           </div>
 
-          <div>
-            <label style={{ fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "6px", display: "block" }}>Password</label>
-            <div style={{ position: "relative" }}>
-              <Lock size={16} color="#94a3b8" style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)" }} />
-              <input type={showPassword ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Create a password" style={{ width: "100%", height: "46px", padding: "0 42px 0 40px", border: "1.5px solid #e2e8f0", borderRadius: "10px", fontSize: "14px", color: "#1a1a2e", background: "white", outline: "none" }} />
-              <button type="button" onClick={() => setShowPassword((v) => !v)} style={{ position: "absolute", right: "12px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#94a3b8" }}>
+          <div className="auth-field">
+            <label className="auth-label" htmlFor="signup-password">Password</label>
+            <div className="auth-input-wrap">
+              <input
+                id="signup-password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Create a password (min 8 chars)"
+                className="auth-input"
+                style={{ paddingRight: "44px" }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="auth-input-action"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
             {password && (
-              <div style={{ marginTop: "10px" }}>
-                <div style={{ height: "6px", borderRadius: "999px", background: "#e2e8f0", overflow: "hidden" }}>
-                  <div style={{ width: `${strength.pct}%`, height: "100%", background: strength.color, transition: "width 0.2s" }} />
-                </div>
-                <p style={{ margin: "6px 0 0 0", fontSize: "12px", color: strength.color, fontWeight: 600 }}>{strength.label}</p>
+              <div className="auth-strength">
+                <span className="auth-strength-track">
+                  <span className="auth-strength-fill" style={{ width: `${strength.pct}%` }} />
+                </span>
+                <span className="auth-strength-label">{strength.label}</span>
               </div>
             )}
           </div>
 
-          <label style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "13px", color: "#475569" }}>
-            <input type="checkbox" checked={agreedTerms} onChange={(e) => setAgreedTerms(e.target.checked)} />
-            I agree to the Terms of Service.
+          <label className="auth-checkbox">
+            <input
+              type="checkbox"
+              checked={agreedTerms}
+              onChange={(e) => setAgreedTerms(e.target.checked)}
+            />
+            I agree to the Terms of Service and Privacy Policy.
           </label>
 
-          <button type="submit" disabled={isSubmitting} style={{ width: "100%", height: "48px", borderRadius: "12px", border: "none", background: "#6366f1", color: "white", fontSize: "14px", fontWeight: 700, cursor: isSubmitting ? "not-allowed" : "pointer", marginTop: "6px" }}>
+          <button type="submit" disabled={isSubmitting} className="auth-submit">
             {isSubmitting ? "Creating account…" : "Create Account"}
           </button>
         </form>
+
+        <div className="auth-foot">
+          <span>New learner</span>
+          <Link href="/">Back to home</Link>
+        </div>
       </motion.div>
     </div>
   );

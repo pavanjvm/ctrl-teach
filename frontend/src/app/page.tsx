@@ -95,6 +95,50 @@ function useNavSpy(links: string[]) {
   }, [links]);
 }
 
+// ── Custom smooth scroll (slower, eased) ───────────────────────────────────────
+
+function useSmoothScroll() {
+  useEffect(() => {
+    const NAV_OFFSET = 64;
+    const DURATION = 950;
+
+    const easeInOutCubic = (t: number) =>
+      t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+    const animateScroll = (targetY: number) => {
+      const startY = window.scrollY;
+      const distance = targetY - startY;
+      if (Math.abs(distance) < 2) return;
+      const startTime = performance.now();
+      const step = (now: number) => {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / DURATION, 1);
+        const eased = easeInOutCubic(progress);
+        window.scrollTo(0, startY + distance * eased);
+        if (progress < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    };
+
+    const onClick = (e: MouseEvent) => {
+      const link = (e.target as HTMLElement)?.closest?.("a[href^='#']") as HTMLAnchorElement | null;
+      if (!link) return;
+      const href = link.getAttribute("href");
+      if (!href || href === "#") return;
+      const target = document.querySelector(href) as HTMLElement | null;
+      if (!target) return;
+      e.preventDefault();
+      const rect = target.getBoundingClientRect();
+      const targetY = window.scrollY + rect.top - NAV_OFFSET;
+      animateScroll(Math.max(0, targetY));
+      history.replaceState(null, "", href);
+    };
+
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, []);
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
@@ -107,6 +151,7 @@ export default function HomePage() {
   }, []);
 
   useReveal();
+  useSmoothScroll();
   useNavSpy([
     "#problem",
     "#shift",
@@ -138,12 +183,6 @@ export default function HomePage() {
             <a href="#comparison">Compare</a>
             <a href="#monetization">Platform</a>
           </div>
-          <div className="land-nav-actions">
-            <Link href="/login" className="land-cta land-cta-secondary">Log in</Link>
-            <Link href="/login" className="land-cta land-cta-primary">
-              Get started <IconArrow />
-            </Link>
-          </div>
         </div>
       </nav>
 
@@ -155,24 +194,16 @@ export default function HomePage() {
             <div className="land-hero-text">
               <div className="land-eyebrow land-reveal">Training-as-a-Service&nbsp;/&nbsp;AI-led curriculum</div>
               <h1 className="land-headline land-reveal">
-                Turn any learning objective into a live AI-led course<span className="stop">.</span>
+                ctrl <span className="land-headline-plus">+</span> teach<span className="stop">.</span>
               </h1>
               <p className="land-sub land-reveal">
                 Ctrl+Teach creates, curates, and delivers self-paced technical training
                 with an AI instructor that speaks, draws, guides practice, and adapts to each learner.
               </p>
               <div className="land-cta-group land-reveal">
-                <Link href="#monetization" className="land-cta land-cta-primary">
-                  Generate a course <IconArrow />
+                <Link href="/login" className="land-cta land-cta-primary">
+                  Log in <IconArrow />
                 </Link>
-                <Link href="#lesson" className="land-cta land-cta-secondary">View demo flow</Link>
-              </div>
-
-              <div className="land-pills land-reveal">
-                <span className="land-pill"><span className="land-pill-dot" />AI-led sessions</span>
-                <span className="land-pill"><span className="land-pill-dot" />Live whiteboard</span>
-                <span className="land-pill"><span className="land-pill-dot" />Checkpoint gating</span>
-                <span className="land-pill"><span className="land-pill-dot" />Mastery-locked</span>
               </div>
             </div>
 
@@ -535,10 +566,9 @@ export default function HomePage() {
           </h2>
           <div className="land-close-note land-reveal">One objective in. A live AI-led course out.</div>
           <div className="land-cta-group land-reveal">
-            <Link href="#monetization" className="land-cta land-cta-primary">
-              Generate a course <IconArrow />
+            <Link href="/login" className="land-cta land-cta-primary">
+              Log in <IconArrow />
             </Link>
-            <Link href="#lesson" className="land-cta land-cta-secondary">View demo flow</Link>
           </div>
         </div>
       </section>
