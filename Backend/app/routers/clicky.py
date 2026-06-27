@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import time
@@ -10,8 +11,6 @@ from typing import Any, List, Optional
 from fastapi import APIRouter, Depends
 from openai import OpenAI
 from pydantic import BaseModel
-from agents.realtime import RealtimeAgent, RealtimeRunner
-from agents.realtime.openai_realtime import OpenAIRealtimeWebSocketModel
 
 from app.auth.dependencies import get_current_user
 from app.config import settings
@@ -97,82 +96,35 @@ def _normalize_clicky_json(data: Any) -> dict[str, Any]:
     return data
 
 
-def _to_b64(value: Any) -> str:
-    import base64
+async def _speak(answer: str, request_id: str = "unknown") -> str:
+    """Generate Clicky's spoken audio via OpenAI TTS (fast single HTTP call).
 
-    if value is None:
-        return ""
-    if isinstance(value, (bytes, bytearray, memoryview)):
-        return base64.b64encode(bytes(value)).decode("ascii")
-    if isinstance(value, str):
-        return value
-    for attr in ("delta", "data", "audio"):
-        inner = getattr(value, attr, None)
-        if inner is not None:
-            return _to_b64(inner)
-    return ""
-
-
-async def _speak_with_realtime(answer: str, request_id: str = "unknown") -> str:
-    """Generate Clicky's spoken audio via gpt-realtime-2 PCM output."""
+    Returns base64-encoded 24kHz PCM16 mono audio, matching what the frontend
+    playPcm16Audio helper expects. Replaces the previous Realtime WebSocket
+    approach which added 2-5s of handshake overhead per response.
+    """
     if not answer.strip() or not settings.openai_api_key:
         return ""
     tts_start = time.perf_counter()
     logger.info("clicky tts start request_id=%s answer=%r", request_id, answer[:160])
-    agent = RealtimeAgent(
-        name="clicky_voice",
-        instructions=(
-            "You are Clicky's voice. Speak naturally and warmly. "
-            "When given text to say, speak exactly that text with no additions."
-        ),
-    )
-    model = OpenAIRealtimeWebSocketModel(transport_config={"handshake_timeout": 30.0})
-    runner = RealtimeRunner(
-        starting_agent=agent,
-        model=model,
-        config={
-            "model_settings": {
-                "model_name": settings.realtime_model,
-                "audio": {
-                    "output": {
-                        "format": "pcm16",
-                        "voice": settings.realtime_voice,
-                        "transcription": {"model": settings.transcription_model},
-                    }
-                },
-            }
-        },
-    )
-    import base64
-
-    chunks: list[bytes] = []
-    session = await runner.run(model_config={"api_key": settings.openai_api_key})
-    async with session:
-        await session.send_message(f"Say exactly this text, and nothing else:\n{answer}")
-        async for event in session:
-            etype = getattr(event, "type", "")
-            if etype == "audio":
-                b64 = _to_b64(getattr(event, "audio", None)) or _to_b64(event)
-                if b64:
-                    try:
-                        chunk = base64.b64decode(b64)
-                        chunks.append(chunk)
-                        logger.info("clicky tts audio chunk request_id=%s bytes=%s", request_id, len(chunk))
-                    except Exception:
-                        pass
-            elif etype == "agent_end":
-                break
-            elif etype == "error":
-                break
-    audio = b"".join(chunks)
-    logger.info(
-        "clicky tts done request_id=%s chunks=%s bytes=%s tts_ms=%s",
-        request_id,
-        len(chunks),
-        len(audio),
-        int((time.perf_counter() - tts_start) * 1000),
-    )
-    return base64.b64encode(audio).decode("ascii") if audio else ""
+    try:
+        response = _client().audio.speech.create(
+            model="tts-1",
+            voice=settings.realtime_voice,
+            input=answer,
+            response_format="pcm",
+        )
+        audio = response.read()
+        logger.info(
+            "clicky tts done request_id=%s bytes=%s tts_ms=%s",
+            request_id,
+            len(audio),
+            int((time.perf_counter() - tts_start) * 1000),
+        )
+        return base64.b64encode(audio).decode("ascii") if audio else ""
+    except Exception as exc:
+        logger.warning("clicky tts failed request_id=%s error=%s", request_id, exc)
+        return ""
 
 
 @router.post("")
@@ -198,6 +150,8 @@ async def ask_clicky(req: ClickyRequest, _user: dict = Depends(get_current_user)
     dom_inventory = json.dumps(req.elements[:120], ensure_ascii=False)[:16000]
     system = (
         "You are Clicky, a concise browser-tab assistant. You see a screenshot of the current app tab. "
+        "Your name is Clicky, but users often address you as 'chat' or 'hey chat' (e.g. 'hey chat, click that button'). "
+        "When a user greets you with 'chat' or 'hey chat', treat it as addressing you and respond as Clicky. "
         "You also receive a DOM inventory of visible page elements with exact viewport rects. "
         "For pointing accuracy, ALWAYS prefer returning targetId from the DOM inventory when a relevant element exists. "
         "Only use point as a fallback for things visible in the screenshot but not represented in the DOM inventory. "
@@ -275,7 +229,7 @@ async def ask_clicky(req: ClickyRequest, _user: dict = Depends(get_current_user)
         tts_ms = 0
         if req.includeAudio:
             tts_start = time.perf_counter()
-            audio_b64 = await _speak_with_realtime(answer, request_id)
+            audio_b64 = await _speak(answer, request_id)
             tts_ms = int((time.perf_counter() - tts_start) * 1000)
         total_ms = int((time.perf_counter() - total_start) * 1000)
         logger.info(
@@ -305,7 +259,7 @@ async def speak_clicky(req: ClickySpeakRequest, _user: dict = Depends(get_curren
     text = req.text.strip()
     if not text:
         return {"audio_b64": None, "audio_mime": None}
-    audio_b64 = await _speak_with_realtime(text, request_id)
+    audio_b64 = await _speak(text, request_id)
     return {
         "audio_b64": audio_b64 or None,
         "audio_mime": "audio/pcm;rate=24000" if audio_b64 else None,

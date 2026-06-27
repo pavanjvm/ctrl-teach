@@ -91,7 +91,7 @@ function saveClickyTurn(user: string, assistant: string) {
 }
 
 function isPushToTalkShortcut(event: KeyboardEvent) {
-  return event.ctrlKey && event.altKey && !event.metaKey;
+  return event.ctrlKey && (event.key === "t" || event.key === "T" || event.code === "KeyT") && !event.metaKey && !event.altKey && !event.shiftKey;
 }
 
 function isWakePhrase(text: string) {
@@ -766,7 +766,7 @@ export default function GlobalClickyAssistant() {
       stopCurrentResponse();
       recognitionShouldRunRef.current = true;
       setMode("listening");
-      setStatus("Hold Control + Option, speak, then release");
+      setStatus("Hold Control + T, speak, then release");
       scheduleSnapshotPrefetch();
       try { recognitionRef.current?.start(); } catch {}
     };
