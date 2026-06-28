@@ -44,10 +44,12 @@ except Exception:  # pragma: no cover
         pass
 
 from agents.realtime import RealtimeAgent, RealtimeRunner
+from agents.realtime.model_inputs import RealtimeModelSendRawMessage
 from agents.realtime.openai_realtime import OpenAIRealtimeWebSocketModel
 
 from app.agents.tutor_agent import build_tutor_agent
 from app.agents.prompt_builder import build_tutor_instruction
+from app.agents.clicky_agent import build_clicky_agent
 from app.auth.dependencies import verify_basic_credentials
 from app.config import settings
 from sqlalchemy import select
@@ -185,16 +187,20 @@ async def health():
 
 def _build_runner(agent: RealtimeAgent, voice: str) -> RealtimeRunner:
     """Build a RealtimeRunner configured for low-latency bidi voice."""
+    # Clicky is explicitly push-to-talk and commits on Ctrl release. Disabling
+    # server VAD prevents it from creating/committing a turn while the browser
+    # is still capturing the screen context that belongs to that same turn.
+    turn_detection = None if agent.name == "clicky_agent" else {
+        "type": "semantic_vad",
+        "interrupt_response": True,
+    }
     model_settings = {
         "model_name": settings.realtime_model,
         "audio": {
             "input": {
                 "format": "pcm16",
                 "transcription": {"model": settings.transcription_model},
-                "turn_detection": {
-                    "type": "semantic_vad",
-                    "interrupt_response": True,
-                },
+                "turn_detection": turn_detection,
             },
             "output": {
                 "format": "pcm16",
@@ -266,12 +272,21 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
 
     logger.info("WS connected: user=%s session=%s", user_id, session_id)
 
-    # ── Per-tutor personalisation (SQLite) ────────────────────────────────
+    # ── Agent selection: ?agent=tutor (default) | clicky ────────────────────
+    agent_kind = websocket.query_params.get("agent") or "tutor"
+
+    # ── Per-tutor personalisation (SQLite) — TUTOR ONLY ───────────────────
     tutor_id = websocket.query_params.get("tutor_id")
     tutor_voice: str = settings.realtime_voice
-    root_agent = default_root_agent
+    root_agent: Optional[RealtimeAgent] = default_root_agent
 
-    if tutor_id:
+    if agent_kind == "clicky":
+        # Clicky owns its own agent tree and never depends on tutor config.
+        root_agent = build_clicky_agent()
+        tutor_voice = settings.realtime_voice
+        logger.info("Clicky agent selected for user=%s session=%s", user_id, session_id)
+
+    elif tutor_id:
         try:
             with SessionLocal() as db:
                 _tutor_row = db.get(Tutor, tutor_id)
@@ -308,30 +323,31 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
         await websocket.close(code=1011, reason="Agent unavailable")
         return
 
-    # ── Persist session start to SQLite ────────────────────────────────────
+    # ── Persist session start to SQLite — TUTOR ONLY ───────────────────────
     session_start_time = datetime.now(timezone.utc)
-    try:
-        with SessionLocal() as db:
-            existing = db.scalar(
-                select(SessionRow).where(
-                    SessionRow.user_id == int(user_id), SessionRow.session_id == session_id
+    if agent_kind != "clicky":
+        try:
+            with SessionLocal() as db:
+                existing = db.scalar(
+                    select(SessionRow).where(
+                        SessionRow.user_id == int(user_id), SessionRow.session_id == session_id
+                    )
                 )
-            )
-            if existing is None:
-                db.add(SessionRow(
-                    user_id=int(user_id),
-                    session_id=session_id,
-                    created_at=session_start_time,
-                    status="active",
-                    topic="General Tutoring",
-                    subject="",
-                    duration_minutes=0.0,
-                    tutor_id=tutor_id,
-                ))
-                db.commit()
-                logger.info("Session row created: user=%s session=%s", user_id, session_id)
-    except Exception as _db_exc:
-        logger.warning("Failed to save session start: %s", _db_exc)
+                if existing is None:
+                    db.add(SessionRow(
+                        user_id=int(user_id),
+                        session_id=session_id,
+                        created_at=session_start_time,
+                        status="active",
+                        topic="General Tutoring",
+                        subject="",
+                        duration_minutes=0.0,
+                        tutor_id=tutor_id,
+                    ))
+                    db.commit()
+                    logger.info("Session row created: user=%s session=%s", user_id, session_id)
+        except Exception as _db_exc:
+            logger.warning("Failed to save session start: %s", _db_exc)
 
     # ── Per-WS contextvars for tools ────────────────────────────────────────
     from app.mcp.calendar_mcp import current_session_id as _cal_sid_ctx
@@ -440,7 +456,11 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
         return {"content": {"parts": [{"functionResponse": {"name": tool_name, "response": output}}]}}
 
     # Mutable holder so the long-lived upstream task can reach the current session
-    state: Dict[str, Any] = {"session": None, "current_agent": "tutor_agent"}
+    state: Dict[str, Any] = {
+        "session": None,
+        "current_agent": "tutor_agent" if agent_kind != "clicky" else "clicky_agent",
+        "agent_kind": agent_kind,
+    }
 
     # ── Upstream: browser → RealtimeSession ────────────────────────────────
     async def upstream_task():
@@ -456,7 +476,15 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                         try:
                             await session.send_audio(pcm16)
                         except Exception as exc:
-                            logger.debug("send_audio failed (transient): %s", exc)
+                            logger.warning("send_audio failed (transient): %s", exc)
+                    else:
+                        _mic_probe_n = state.get("_mic_probe_n", 0) + 1
+                        state["_mic_probe_n"] = _mic_probe_n
+                        if _mic_probe_n % 50 == 1:
+                            logger.debug(
+                                "dropping binary audio (%d bytes): realtime session not ready yet",
+                                len(message["bytes"]),
+                            )
                     continue
 
                 raw_text = message.get("text")
@@ -532,6 +560,86 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             ],
                         })
 
+                    elif msg_type == "clicky_screen":
+                        # Clicky-only side-channel: pushes a current tab
+                        # screenshot + DOM inventory so the model can decide
+                        # whether to call point_at(target_id=...) for an
+                        # exact DOM target, or point_at(x=,y=...) for vision
+                        # fallback on non-DOM pixels (e.g. inside an iframe).
+                        b64 = json_msg.get("data", "")
+                        mime = json_msg.get("mimeType", "image/jpeg")
+                        width = json_msg.get("width")
+                        height = json_msg.get("height")
+                        elements = json_msg.get("elements", []) or []
+                        intent_text = (json_msg.get("intentText") or "").strip()
+                        data_url = f"data:{mime};base64,{b64}"
+                        dims = f"{width}x{height}" if width and height else "the provided image dimensions"
+                        dom_summary = json.dumps(elements[:120], ensure_ascii=False)[:16000]
+                        if intent_text:
+                            nudge = (
+                                f"Current tab screenshot (image dimensions: {dims} pixels, "
+                                "origin top-left, x right, y down). "
+                                f"User just asked: {intent_text}\n\n"
+                                f"Visible DOM inventory JSON:\n{dom_summary}\n\n"
+                                "Decide whether to call point_at. Prefer target_id from the "
+                                "inventory when a matching element exists. Fall back to raw "
+                                "x,y only for things visible in the screenshot but absent "
+                                "from the inventory. Do not say coordinates or ids aloud."
+                            )
+                        else:
+                            nudge = (
+                                f"Context only — do NOT answer. Just remember this is the "
+                                f"latest current tab screenshot (image dimensions: {dims} "
+                                "pixels, origin top-left, x right, y down) for future turns.\n\n"
+                                f"Visible DOM inventory JSON:\n{dom_summary}\n\n"
+                                "If you later call point_at, prefer target_id from this "
+                                "inventory; fall back to raw x,y only for non-DOM pixels. "
+                                "Do not say coordinates or ids aloud."
+                            )
+                        # `session.send_message()` automatically starts a new
+                        # response. A Clicky snapshot is context for the pending
+                        # audio turn, so insert it without creating a response;
+                        # clicky_commit_audio starts exactly one response after
+                        # both the speech and current screen are present.
+                        await session._model.send_event(RealtimeModelSendRawMessage(
+                            message={
+                                "type": "conversation.item.create",
+                                "other_data": {
+                                    "item": {
+                                        "type": "message",
+                                        "role": "user",
+                                        "content": [
+                                            {
+                                                "type": "input_image",
+                                                "image_url": data_url,
+                                                "detail": "high",
+                                            },
+                                            {"type": "input_text", "text": nudge},
+                                        ],
+                                    }
+                                },
+                            }
+                        ))
+                        logger.info(
+                            "Clicky screen context sent (%s, %d elements)",
+                            dims, len(elements),
+                        )
+
+                    elif msg_type == "clicky_commit_audio":
+                        # Clicky is push-to-talk. On Ctrl release the browser
+                        # sends this after a short silence tail so the server
+                        # explicitly commits the current input audio buffer.
+                        # Clicky has server VAD disabled, so this is the single
+                        # operation that closes the input buffer and replies.
+                        try:
+                            await session.send_audio(b"\x00\x00" * 1200, commit=True)
+                            await session._model.send_event(RealtimeModelSendRawMessage(
+                                message={"type": "response.create", "other_data": {}}
+                            ))
+                            logger.info("Clicky audio committed explicitly and response.create sent")
+                        except Exception as exc:
+                            logger.warning("Clicky audio commit failed: %s", exc)
+
                     elif msg_type == "canvas_elements":
                         elements = json_msg.get("elements", [])
                         from app.tools.canvas_tools import update_cursor_from_canvas
@@ -587,12 +695,13 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                 ).to_ws_json())
                 return
 
-            state["session"] = session
-            state["current_agent"] = root_agent.name
-            _output_partial_open.clear()
-
             try:
                 async with session:
+                    state["session"] = session
+                    state["current_agent"] = root_agent.name
+                    _output_partial_open.clear()
+                    logger.info("Realtime session ready agent=%s — upstream can now forward audio", root_agent.name)
+                    await _send_json(websocket, {"type": "realtime_ready", "agent": root_agent.name})
                     async for event in session:
                         etype = getattr(event, "type", "")
 
@@ -642,6 +751,29 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             tool = getattr(event, "tool", None)
                             tool_name = getattr(tool, "name", "") or ""
                             output = getattr(event, "output", None)
+
+                            # ── Clicky point_at → emit a lightweight envelope ─
+                            if tool_name == "point_at":
+                                payload = output if isinstance(output, dict) else {}
+                                await _send_json(websocket, {
+                                    "type": "clicky_point",
+                                    "tool": "point_at",
+                                    "response": {
+                                        "targetId": payload.get("target_id"),
+                                        "x": payload.get("x"),
+                                        "y": payload.get("y"),
+                                        "label": payload.get("label") or "right here",
+                                        "action": payload.get("action") or "none",
+                                    },
+                                })
+                                logger.info(
+                                    "Clicky point_at: target_id=%s x=%s y=%s action=%s",
+                                    payload.get("target_id"),
+                                    payload.get("x"),
+                                    payload.get("y"),
+                                    payload.get("action"),
+                                )
+                                continue
 
                             if tool_name in _early_pushed:
                                 # Already delivered via early push — discard the
@@ -699,6 +831,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             elif dtype == "input_audio_transcription_completed":
                                 full = getattr(data, "transcript", "") or ""
                                 if full:
+                                    logger.info("Realtime input transcript: %r", full)
                                     # delta + finish pair so the frontend's
                                     # input-transcript UI renders + finalises.
                                     await _send_json(websocket, {
@@ -756,6 +889,9 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                     pass
                 return
 
+    # ── Persist session end to SQLite — TUTOR ONLY ────────────────────────
+    _persist_session_end = agent_kind != "clicky"
+
     # ── Run upstream + downstream, clean up on exit ────────────────────────
     upstream = asyncio.create_task(upstream_task())
     try:
@@ -772,29 +908,30 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
             pass
 
         # ── Persist session end to SQLite ─────────────────────────────────
-        try:
-            session_end_time = datetime.now(timezone.utc)
-            duration_minutes = round(
-                (session_end_time - session_start_time).total_seconds() / 60, 1
-            )
-            with SessionLocal() as db:
-                row = db.scalar(
-                    select(SessionRow).where(
-                        SessionRow.user_id == int(user_id),
-                        SessionRow.session_id == session_id,
-                    )
+        if _persist_session_end:
+            try:
+                session_end_time = datetime.now(timezone.utc)
+                duration_minutes = round(
+                    (session_end_time - session_start_time).total_seconds() / 60, 1
                 )
-                if row is not None:
-                    row.ended_at = session_end_time
-                    row.duration_minutes = duration_minutes
-                    row.status = "completed"
-                    db.commit()
-            logger.info(
-                "Session ended: user=%s session=%s (%.1f min)",
-                user_id, session_id, duration_minutes,
-            )
-        except Exception as _db_exc:
-            logger.warning("Failed to save session end: %s", _db_exc)
+                with SessionLocal() as db:
+                    row = db.scalar(
+                        select(SessionRow).where(
+                            SessionRow.user_id == int(user_id),
+                            SessionRow.session_id == session_id,
+                        )
+                    )
+                    if row is not None:
+                        row.ended_at = session_end_time
+                        row.duration_minutes = duration_minutes
+                        row.status = "completed"
+                        db.commit()
+                logger.info(
+                    "Session ended: user=%s session=%s (%.1f min)",
+                    user_id, session_id, duration_minutes,
+                )
+            except Exception as _db_exc:
+                logger.warning("Failed to save session end: %s", _db_exc)
 
         ws_notify.reset(_notify_token)
         state["session"] = None

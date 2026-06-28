@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { useClicky } from "@/lib/clicky";
 import {
     LayoutDashboard,
     Users,
@@ -30,6 +31,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const pathname = usePathname();
     const router = useRouter();
     const { user, loading, logout } = useAuth();
+    const { enabled: clickyEnabled, setEnabled: setClickyEnabled } = useClicky();
     const [showNotifications, setShowNotifications] = useState(false);
     const [showProfileDropdown, setShowProfileDropdown] = useState(false);
     const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
@@ -160,6 +162,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                     {/* 3. Right Controls */}
                     <div className="topbar-controls">
+                        <label
+                            className={`topbar-clicky-switch ${clickyEnabled ? "is-on" : ""}`}
+                            title={clickyEnabled ? "Clicky is on — toggle off to disable" : "Clicky is off — toggle on to enable"}
+                        >
+                            <span className="topbar-clicky-switch-label">Clicky</span>
+                            <span className="topbar-clicky-switch-track">
+                                <span className="topbar-clicky-switch-thumb" />
+                            </span>
+                            <input
+                                type="checkbox"
+                                role="switch"
+                                aria-checked={clickyEnabled}
+                                checked={clickyEnabled}
+                                onChange={(e) => setClickyEnabled(e.target.checked)}
+                                className="topbar-clicky-switch-input"
+                            />
+                        </label>
+
                         <Link
                             href="/profile?tab=settings"
                             className={`topbar-icon-btn ${pathname === "/profile" ? "active" : ""}`}

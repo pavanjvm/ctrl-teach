@@ -1,8 +1,8 @@
 /**
  * useAudio — manages microphone capture (16 kHz PCM) and audio playback (24 kHz PCM).
  *
- * Uses AudioWorklet processors for low-latency, glitch-free audio processing
- * on separate audio threads (following the bidi-demo pattern).
+ * Uses an AudioWorklet for microphone capture and scheduled AudioBufferSource
+ * nodes for reliable streaming playback across Chrome and Safari.
  */
 
 import { useCallback, useRef, useState } from "react";
@@ -13,11 +13,13 @@ export function useAudio() {
   // Recorder refs
   const recorderCtxRef = useRef<AudioContext | null>(null);
   const recorderNodeRef = useRef<AudioWorkletNode | null>(null);
+  const recorderGainRef = useRef<GainNode | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
 
   // Player refs
   const playerCtxRef = useRef<AudioContext | null>(null);
-  const playerNodeRef = useRef<AudioWorkletNode | null>(null);
+  const playerSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const playerNextStartRef = useRef(0);
 
   // ── Start Microphone Recording ───────────────────────────────────────────
 
@@ -56,9 +58,16 @@ export function useAudio() {
 
       const source = ctx.createMediaStreamSource(stream);
       const node = new AudioWorkletNode(ctx, "pcm-recorder-processor");
+      const silentGain = ctx.createGain();
+      silentGain.gain.value = 0;
       recorderNodeRef.current = node;
+      recorderGainRef.current = silentGain;
 
       source.connect(node);
+      // Keep the worklet in the browser's active render graph. A dangling
+      // AudioWorkletNode may never be pulled, which yields zero mic chunks.
+      node.connect(silentGain);
+      silentGain.connect(ctx.destination);
 
       node.port.onmessage = (event: MessageEvent) => {
         const float32: Float32Array = event.data;
@@ -82,6 +91,8 @@ export function useAudio() {
     micStreamRef.current = null;
     recorderNodeRef.current?.disconnect();
     recorderNodeRef.current = null;
+    recorderGainRef.current?.disconnect();
+    recorderGainRef.current = null;
     recorderCtxRef.current?.close();
     recorderCtxRef.current = null;
     setIsRecording(false);
@@ -90,92 +101,102 @@ export function useAudio() {
   // ── Initialise Audio Player ──────────────────────────────────────────────
 
   const initPlayer = useCallback(async () => {
-    if (playerCtxRef.current) return;
+    if (playerCtxRef.current) {
+      if (playerCtxRef.current.state === "suspended") {
+        // This may be called outside a user gesture; Ctrl-down retries through
+        // resumeContexts(). A blocked resume must not prevent WS connection.
+        await playerCtxRef.current.resume().catch(() => undefined);
+      }
+      return;
+    }
 
     // Create AudioContext at 24 kHz (Live API output requirement)
     const ctx = new AudioContext({ sampleRate: 24000 });
     playerCtxRef.current = ctx;
 
-    // Ring-buffer PCM player worklet
-    const workletCode = `
-      class PCMPlayerProcessor extends AudioWorkletProcessor {
-        constructor() {
-          super();
-          this.bufferSize = 24000 * 180; // ~3 min ring buffer
-          this.buffer = new Float32Array(this.bufferSize);
-          this.writeIndex = 0;
-          this.readIndex = 0;
+    playerNextStartRef.current = ctx.currentTime;
+  }, []);
 
-          this.port.onmessage = (event) => {
-            if (event.data.command === "endOfAudio") {
-              this.readIndex = this.writeIndex;
-              return;
-            }
-            const int16 = new Int16Array(event.data);
-            for (let i = 0; i < int16.length; i++) {
-              this.buffer[this.writeIndex] = int16[i] / 32768;
-              this.writeIndex = (this.writeIndex + 1) % this.bufferSize;
-              if (this.writeIndex === this.readIndex) {
-                this.readIndex = (this.readIndex + 1) % this.bufferSize;
-              }
-            }
-          };
-        }
-
-        process(inputs, outputs, params) {
-          const output = outputs[0];
-          const len = output[0].length;
-          for (let i = 0; i < len; i++) {
-            output[0][i] = this.buffer[this.readIndex];
-            if (output.length > 1) output[1][i] = this.buffer[this.readIndex];
-            if (this.readIndex !== this.writeIndex) {
-              this.readIndex = (this.readIndex + 1) % this.bufferSize;
-            }
-          }
-          return true;
-        }
-      }
-      registerProcessor("pcm-player-processor", PCMPlayerProcessor);
-    `;
-    const blob = new Blob([workletCode], { type: "application/javascript" });
-    const url = URL.createObjectURL(blob);
-    await ctx.audioWorklet.addModule(url);
-    URL.revokeObjectURL(url);
-
-    const node = new AudioWorkletNode(ctx, "pcm-player-processor");
-    node.connect(ctx.destination);
-    playerNodeRef.current = node;
+  // Browser autoplay policies can leave contexts created from an async effect
+  // suspended. Call this directly from a keyboard/click handler to unlock both
+  // Clicky's microphone processing and speaker output.
+  const resumeContexts = useCallback(() => {
+    if (recorderCtxRef.current?.state === "suspended") {
+      void recorderCtxRef.current.resume();
+    }
+    if (playerCtxRef.current?.state === "suspended") {
+      void playerCtxRef.current.resume();
+    }
   }, []);
 
   // ── Play PCM audio chunk ─────────────────────────────────────────────────
 
   const playAudioChunk = useCallback((pcmArrayBuffer: ArrayBuffer) => {
-    playerNodeRef.current?.port.postMessage(pcmArrayBuffer);
+    const ctx = playerCtxRef.current;
+    if (!ctx || pcmArrayBuffer.byteLength < 2) return;
+
+    // Best effort for browsers that briefly suspend an already-unlocked
+    // context when the tab loses focus.
+    if (ctx.state === "suspended") void ctx.resume();
+
+    const pcm = new Int16Array(pcmArrayBuffer);
+    const audioBuffer = ctx.createBuffer(1, pcm.length, 24_000);
+    const channel = audioBuffer.getChannelData(0);
+    for (let i = 0; i < pcm.length; i++) {
+      channel[i] = pcm[i] / 32768;
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    playerSourcesRef.current.add(source);
+    source.onended = () => {
+      playerSourcesRef.current.delete(source);
+      source.disconnect();
+    };
+
+    // Schedule chunks back-to-back. A small initial lead avoids underruns
+    // without adding perceptible latency.
+    const startAt = Math.max(playerNextStartRef.current, ctx.currentTime + 0.025);
+    source.start(startAt);
+    playerNextStartRef.current = startAt + audioBuffer.duration;
   }, []);
 
   // ── Clear audio buffer (on interruption) ─────────────────────────────────
 
   const clearPlayback = useCallback(() => {
-    playerNodeRef.current?.port.postMessage({ command: "endOfAudio" });
+    for (const source of playerSourcesRef.current) {
+      try {
+        source.stop();
+      } catch {}
+    }
+    playerSourcesRef.current.clear();
+    playerNextStartRef.current = playerCtxRef.current?.currentTime ?? 0;
   }, []);
+
+  const getPlaybackState = useCallback(
+    () => playerCtxRef.current?.state ?? "uninitialized",
+    [],
+  );
 
   // ── Cleanup ──────────────────────────────────────────────────────────────
 
   const cleanup = useCallback(() => {
     stopRecording();
-    playerNodeRef.current?.disconnect();
+    clearPlayback();
     playerCtxRef.current?.close();
-    playerNodeRef.current = null;
     playerCtxRef.current = null;
-  }, [stopRecording]);
+  }, [clearPlayback, stopRecording]);
 
   return {
     isRecording,
     startRecording,
     stopRecording,
     initPlayer,
+    resumeContexts,
     playAudioChunk,
     clearPlayback,
+    getPlaybackState,
     cleanup,
   };
 }

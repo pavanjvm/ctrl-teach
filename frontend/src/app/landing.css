@@ -218,7 +218,7 @@ a.land-cta-primary {
 }
 
 .land-hero-text {
-  margin-left: calc(50% - 50vw - clamp(20px, 3vw, 48px));
+  margin-left: calc(-1 * max(0px, (100vw - 1360px) / 2));
   align-self: start;
 }
 

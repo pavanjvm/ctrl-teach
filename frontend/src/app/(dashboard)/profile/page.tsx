@@ -27,11 +27,13 @@ import {
     Volume2,
     Eye,
     LogOut,
+    Mic,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/components/AuthProvider";
+import { useClicky } from "@/lib/clicky";
 import { API_URL } from "@/lib/constants";
 import axios from "axios";
 import "../dashboard.css";
@@ -132,6 +134,7 @@ function ProfileContent() {
     const [notifications, setNotifications] = useState(true);
     const [soundEffects, setSoundEffects] = useState(true);
     const [sessionReminders, setSessionReminders] = useState(true);
+    const { enabled: clickyEnabled, setEnabled: setClickyEnabled, openTraining: openClickyTraining } = useClicky();
 
     // Read ?tab= query param on mount
     useEffect(() => {
@@ -716,6 +719,37 @@ function ProfileContent() {
                                         }}
                                     />
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="dash-sidebar-card" style={{ padding: "28px" }}>
+                            <h2 className="prof-section-title">
+                                <Mic size={20} /> Clicky AI Assistant
+                            </h2>
+                            <div className="prof-settings-list">
+                                <div className="prof-setting-row">
+                                    <div className="prof-setting-info">
+                                        <Mic size={18} />
+                                        <div>
+                                            <h4>Enable Clicky</h4>
+                                            <p>Turn the voice + screen assistant on or off (toggle also in the top-left)</p>
+                                        </div>
+                                    </div>
+                                    <ToggleSwitch
+                                        checked={clickyEnabled}
+                                        onChange={setClickyEnabled}
+                                    />
+                                </div>
+                                <button
+                                    type="button"
+                                    className="prof-setting-link"
+                                    onClick={openClickyTraining}
+                                >
+                                    <span>
+                                        <Mic size={16} /> Train wake phrase
+                                    </span>
+                                    <ChevronRight size={16} />
+                                </button>
                             </div>
                         </div>
 

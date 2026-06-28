@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { AuthProvider } from "@/components/AuthProvider";
 import GlobalClickyAssistant from "@/components/GlobalClickyAssistant";
 import { LearnerProvider } from "@/lib/learner";
+import { ClickyProvider } from "@/lib/clicky";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -32,8 +33,10 @@ export default function RootLayout({
       <body>
         <AuthProvider>
           <LearnerProvider>
-            {children}
-            <GlobalClickyAssistant />
+            <ClickyProvider>
+              {children}
+              <GlobalClickyAssistant />
+            </ClickyProvider>
           </LearnerProvider>
         </AuthProvider>
       </body>

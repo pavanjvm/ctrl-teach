@@ -37,8 +37,19 @@ export function useWebSocket() {
     label?: string;
     id: string;
   } | null>(null);
+  // Clicky-agent pointing events (from `?agent=clicky` sessions). Payload is
+  // either `{targetId}` for DOM-exact pointing or `{x,y}` for vision fallback.
+  const [clickyAgentPoint, setClickyAgentPoint] = useState<{
+    targetId?: string | null;
+    x?: number | null;
+    y?: number | null;
+    label?: string;
+    action?: "none" | "click";
+    id: string;
+  } | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isSavingProgress, setIsSavingProgress] = useState(false);
+  const [realtimeReady, setRealtimeReady] = useState(false);
 
   // Refs for mutable input/output transcription tracking
   const currentInputIdRef = useRef<string | null>(null);
@@ -54,6 +65,7 @@ export function useWebSocket() {
   const connect = useCallback((url: string, opts?: ConnectOptions) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
     setStatus("connecting");
+    setRealtimeReady(false);
 
     onAudioRef.current = opts?.onAudio;
     onInterruptRef.current = opts?.onInterrupt;
@@ -71,6 +83,7 @@ export function useWebSocket() {
 
     ws.onclose = () => {
       setStatus("disconnected");
+      setRealtimeReady(false);
       console.log("[WS] Disconnected");
     };
 
@@ -113,6 +126,7 @@ export function useWebSocket() {
       wsRef.current = null;
     }
     setStatus("disconnected");
+    setRealtimeReady(false);
   }, []);
 
   // ── Send helpers ─────────────────────────────────────────────────────────
@@ -189,6 +203,52 @@ export function useWebSocket() {
     []
   );
 
+  // Clicky-only: push a current-tab screenshot + lightweight DOM inventory as
+  // a side-channel message. The backend forwards this to the Realtime session
+  // as a conversation message the model can reason about when it decides
+  // whether to call `point_at(target_id=...)` (DOM-exact) or `point_at(x,y)`
+  // (vision fallback).
+  const sendClickyScreen = useCallback(
+    (
+      base64Data: string,
+      mimeType: string,
+      meta: {
+        width: number;
+        height: number;
+        elements?: Array<{
+          id: string;
+          role: string;
+          text: string;
+          actionable: boolean;
+        }>;
+        intentText?: string;
+      }
+    ) => {
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({
+            type: "clicky_screen",
+            data: base64Data,
+            mimeType,
+            width: meta.width,
+            height: meta.height,
+            elements: meta.elements ?? [],
+            intentText: meta.intentText,
+          })
+        );
+      }
+    },
+    []
+  );
+
+  const sendClickyCommitAudio = useCallback(() => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "clicky_commit_audio" }));
+    }
+  }, []);
+
   // ── ADK Event handler ───────────────────────────────────────────────────
 
   const handleADKEvent = useCallback(
@@ -212,6 +272,12 @@ export function useWebSocket() {
             timestamp: Date.now(),
           },
         ]);
+        return;
+      }
+
+      if (event.type === "realtime_ready") {
+        setRealtimeReady(true);
+        console.log("[WS] Realtime ready", event.agent);
         return;
       }
 
@@ -243,10 +309,27 @@ export function useWebSocket() {
         return;
       }
 
+      // ─ Clicky `point_at` envelope from clicky_agent ─
+      //   Shape: {type:"clicky_point", tool:"point_at", response:{targetId,x,y,label,action}}
+      if (event.type === "clicky_point" && event.response) {
+        const resp = event.response;
+        setClickyAgentPoint({
+          targetId: resp.targetId ?? null,
+          x: typeof resp.x === "number" ? resp.x : null,
+          y: typeof resp.y === "number" ? resp.y : null,
+          label: typeof resp.label === "string" ? resp.label : "right here",
+          action: resp.action === "click" ? "click" : "none",
+          id: crypto.randomUUID(),
+        });
+        console.log("[WS] Clicky point_at:", JSON.stringify(resp));
+        return;
+      }
+
       // ─ Input transcription (user speech → text) ─
       if (event.inputTranscription?.text) {
         const text = event.inputTranscription.text;
         const finished = event.inputTranscription.finished;
+        console.info("[WS] User transcript", { text, finished });
 
         if (currentInputIdRef.current) {
           const curId = currentInputIdRef.current;
@@ -446,8 +529,10 @@ export function useWebSocket() {
     messages,
     canvasCommands,
     clickyPoint,
+    clickyAgentPoint,
     isGeneratingImage,
     isSavingProgress,
+    realtimeReady,
     connect,
     disconnect,
     sendText,
@@ -455,6 +540,8 @@ export function useWebSocket() {
     sendImage,
     sendCanvasSnapshot,
     sendCanvasElements,
+    sendClickyScreen,
+    sendClickyCommitAudio,
   };
 }
 
