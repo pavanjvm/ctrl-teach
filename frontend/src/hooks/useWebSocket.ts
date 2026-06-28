@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { base64ToArrayBuffer } from "@/lib/utils";
+import type { ClickyDrawCommand } from "@/lib/clickyBoardBridge";
 import type {
   TranscriptEntry,
   CanvasCommand,
@@ -47,20 +48,7 @@ export function useWebSocket() {
     action?: "none" | "click";
     id: string;
   } | null>(null);
-  const [clickyAgentDraws, setClickyAgentDraws] = useState<Array<{
-    tool: "draw_on_screen" | "clear_screen_drawings";
-    shape?: "circle" | "rectangle" | "highlight" | "underline" | "arrow" | "line";
-    targetId?: string | null;
-    fromTargetId?: string | null;
-    toTargetId?: string | null;
-    x?: number | null;
-    y?: number | null;
-    endX?: number | null;
-    endY?: number | null;
-    label?: string;
-    color?: "blue" | "teal" | "red" | "amber" | "purple";
-    id: string;
-  }>>([]);
+  const [clickyAgentDraws, setClickyAgentDraws] = useState<ClickyDrawCommand[]>([]);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isSavingProgress, setIsSavingProgress] = useState(false);
   const [realtimeReady, setRealtimeReady] = useState(false);
@@ -72,37 +60,65 @@ export function useWebSocket() {
   // Store callbacks in refs so the message handler always sees the latest
   const onAudioRef = useRef<((pcm: ArrayBuffer) => void) | undefined>(undefined);
   const onInterruptRef = useRef<(() => void) | undefined>(undefined);
+  const onErrorRef = useRef<((message: string) => void) | undefined>(undefined);
   const onToolAudioRef = useRef<((base64: string, mimeType: string) => void) | undefined>(undefined);
 
   // ── Connect ──────────────────────────────────────────────────────────────
 
   const connect = useCallback((url: string, opts?: ConnectOptions) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (
+      wsRef.current?.readyState === WebSocket.OPEN ||
+      wsRef.current?.readyState === WebSocket.CONNECTING
+    ) return;
     setStatus("connecting");
     setRealtimeReady(false);
 
     onAudioRef.current = opts?.onAudio;
     onInterruptRef.current = opts?.onInterrupt;
+    onErrorRef.current = opts?.onError;
     onToolAudioRef.current = opts?.onToolAudio;
 
-    const ws = new WebSocket(url);
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(url);
+    } catch {
+      setStatus("disconnected");
+      onErrorRef.current?.("Could not open the realtime connection.");
+      console.warn("[WS] Could not create the realtime connection");
+      return;
+    }
     wsRef.current = ws;
 
     ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) {
+        ws.close();
+        return;
+      }
       setStatus("connected");
-      console.log("[WS] Connected to", url);
+      console.log("[WS] Realtime connection established");
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      if (wsRef.current !== ws) return;
+      wsRef.current = null;
       setStatus("disconnected");
       setRealtimeReady(false);
-      console.log("[WS] Disconnected");
+      if (event.code !== 1000 && event.code !== 1005) {
+        onErrorRef.current?.(event.reason || "Realtime backend unavailable.");
+      }
+      console.log("[WS] Realtime connection closed", event.code);
     };
 
-    ws.onerror = (e) => {
-      console.error("[WS] Error", e);
+    ws.onerror = () => {
+      if (wsRef.current !== ws) return;
+      setStatus("disconnected");
+      setRealtimeReady(false);
+      onErrorRef.current?.("Realtime backend unavailable.");
+      // Browser WebSocket error events intentionally contain no useful detail.
+      // Keep this recoverable condition out of Next.js' console-error overlay.
+      console.warn("[WS] Realtime backend unavailable");
     };
 
     ws.onmessage = (event: MessageEvent) => {

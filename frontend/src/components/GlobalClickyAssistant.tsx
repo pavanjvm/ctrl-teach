@@ -8,6 +8,10 @@ import { WS_URL } from "@/lib/constants";
 import { useAudio } from "@/hooks/useAudio";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import {
+  CLICKY_BOARD_DRAW_EVENT,
+  type ClickyDrawCommand,
+} from "@/lib/clickyBoardBridge";
+import {
   extractWakeVector,
   loadWakeTemplate,
   saveWakeTemplate,
@@ -572,11 +576,12 @@ export default function GlobalClickyAssistant() {
   const { enabled, setEnabled, status, setStatus, trainingOpen } = useClicky();
   const pathname = usePathname();
   const isLanding = pathname === "/";
-  // Decorative cursor visible on the landing page (no auth/WS) and wherever
-  // Clicky is actually enabled. Functionality (voice, pointing) only kicks in
-  // when `enabled && user`. Clicky's Realtime WS now connects once and stays
-  // connected across all authed page navigations — no per-page gating.
-  const showCursor = enabled || isLanding;
+  const isWhiteboardSession = pathname === "/board";
+  const globalClickyActive = enabled && !isWhiteboardSession;
+  // Decorative cursor is visible on the landing page and wherever Global
+  // Clicky is active. The board supplies its own Clicky cursor and owns the
+  // only Realtime voice session while that route is mounted.
+  const showCursor = globalClickyActive || isLanding;
 
   const [mounted, setMounted] = useState(false);
   const [bubble, setBubble] = useState("");
@@ -586,6 +591,7 @@ export default function GlobalClickyAssistant() {
   const [trainingPhraseIndex, setTrainingPhraseIndex] = useState(0);
   const [debugLine, setDebugLine] = useState("clicky debug: idle");
   const [screenAnnotations, setScreenAnnotations] = useState<ScreenAnnotation[]>([]);
+  const [boardDrawCommands, setBoardDrawCommands] = useState<ClickyDrawCommand[]>([]);
 
   // Cursor RAF refs
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -620,7 +626,6 @@ export default function GlobalClickyAssistant() {
   const processedDrawIdsRef = useRef<Set<string>>(new Set());
   const annotationTimersRef = useRef<Map<string, number>>(new Map());
   const trainingRecordingRef = useRef(false);
-  const enabledRef = useRef(false);
   const trainingOpenRef = useRef(false);
 
   // ── Cursor positioning & flight ────────────────────────────────────────
@@ -709,6 +714,24 @@ export default function GlobalClickyAssistant() {
       window.removeEventListener("scroll", clearScreenAnnotations, true);
     };
   }, [clearScreenAnnotations]);
+
+  useEffect(() => {
+    if (!isWhiteboardSession) {
+      setBoardDrawCommands([]);
+      return;
+    }
+    clearScreenAnnotations();
+    const handleBoardDraw = (event: Event) => {
+      const command = (event as CustomEvent<ClickyDrawCommand>).detail;
+      if (!command?.id) return;
+      setBoardDrawCommands((current) => [...current.slice(-31), command]);
+    };
+    window.addEventListener(CLICKY_BOARD_DRAW_EVENT, handleBoardDraw);
+    return () => {
+      window.removeEventListener(CLICKY_BOARD_DRAW_EVENT, handleBoardDraw);
+      clearScreenAnnotations();
+    };
+  }, [isWhiteboardSession, clearScreenAnnotations]);
 
   // ── Idle spring-follow loop ──────────────────────────────────────────────
   // Replicates SwiftUI `.animation(.spring(response: 0.2, dampingFraction: 0.6),
@@ -817,7 +840,6 @@ export default function GlobalClickyAssistant() {
   // voice is paused) MUST NOT tear it down. Only the WS connection toggles,
   // so switching pages doesn't re-prompt for tab share.
   useEffect(() => {
-    enabledRef.current = enabled;
     if (!enabled || !user) {
       if (screenStreamRef.current) {
         screenStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -826,6 +848,9 @@ export default function GlobalClickyAssistant() {
       viewportCalibrationRef.current = null;
       return;
     }
+    // The board tutor owns the active session. Preserve an existing capture so
+    // leaving the board does not prompt again, but never start one on /board.
+    if (isWhiteboardSession) return;
     let cancelled = false;
     if (screenStreamRef.current) return; // already capturing — reuse across navigations
     void (async () => {
@@ -856,21 +881,22 @@ export default function GlobalClickyAssistant() {
       // logged out — handled in the early-return branch above.
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, user]);
+  }, [enabled, user, isWhiteboardSession]);
 
-  // ── Realtime WS connection: independent of current page ─────────────────
-  // Clicky stays connected on every authed page (including /learn and
-  // /board where the Tutor companion also operates). The two sessions run in
-  // parallel — they use independent useAudio/useWebSocket hook instances.
+  // ── Realtime WS connection ───────────────────────────────────────────────
+  // The board owns a single tutor Realtime session. Global Clicky disconnects
+  // there to prevent duplicate microphones, replies, and audio playback.
   useEffect(() => {
-    if (!enabled || !user || trainingOpen) {
+    if (!globalClickyActive || !user || trainingOpen) {
       if (wsHook.status !== "disconnected") wsHook.disconnect();
       if (audioHook.isRecording) audioHook.stopRecording();
       audioHook.clearPlayback();
       ctrlHeldRef.current = false;
       upstreamMutedRef.current = true;
       setMode("idle");
-      if (enabled && !user) {
+      if (enabled && isWhiteboardSession) {
+        setStatus("Clicky is controlled by the whiteboard tutor");
+      } else if (enabled && !user) {
         setStatus("Sign in to use Clicky");
       } else if (enabled && trainingOpen) {
         setStatus("Clicky training mode");
@@ -894,6 +920,7 @@ export default function GlobalClickyAssistant() {
           );
         },
         onInterrupt: () => audioHook.clearPlayback(),
+        onError: (message) => setStatus(`Clicky unavailable — ${message}`),
       });
     })();
     return () => {
@@ -905,14 +932,14 @@ export default function GlobalClickyAssistant() {
       upstreamMutedRef.current = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, user, trainingOpen]);
+  }, [globalClickyActive, enabled, isWhiteboardSession, user, trainingOpen]);
 
   // ── When the server-side Realtime session is ready, start mic capture & push
   //    initial screen context. The browser WS can open before OpenAI Realtime is
   //    entered server-side; waiting for `realtime_ready` prevents dropped mic
   //    chunks / "send_audio failed: Not connected".
   useEffect(() => {
-    if (!enabled || !user || trainingOpen) return;
+    if (!globalClickyActive || !user || trainingOpen) return;
     if (wsHook.status !== "connected") return;
     if (!wsHook.realtimeReady) return;
     if (audioHook.isRecording) return;
@@ -946,11 +973,11 @@ export default function GlobalClickyAssistant() {
     // context is pushed after Ctrl release so it follows the user's spoken turn.
     void pushScreenContext();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsHook.status, wsHook.realtimeReady, enabled, user, trainingOpen]);
+  }, [wsHook.status, wsHook.realtimeReady, globalClickyActive, user, trainingOpen]);
 
   // ── Push-to-talk gating: Ctrl held = unmute upstream mic ────────────────────
   useEffect(() => {
-    if (!enabled || !user || trainingOpen) return;
+    if (!globalClickyActive || !user || trainingOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Control" || event.metaKey || event.altKey) return;
       if (ctrlHeldRef.current) return;
@@ -1009,7 +1036,7 @@ export default function GlobalClickyAssistant() {
       speechTailUntilRef.current = 0;
     };
   }, [
-    enabled,
+    globalClickyActive,
     user,
     trainingOpen,
     pushScreenContext,
@@ -1084,7 +1111,7 @@ export default function GlobalClickyAssistant() {
 
   // ── Handle Clicky screen-drawing tools ───────────────────────────────────
   useEffect(() => {
-    const processDraw = (draw: (typeof wsHook.clickyAgentDraws)[number]) => {
+    const processDraw = (draw: ClickyDrawCommand) => {
       if (draw.tool === "clear_screen_drawings") {
         clearScreenAnnotations();
         return;
@@ -1097,6 +1124,9 @@ export default function GlobalClickyAssistant() {
         return element?.isConnected ? element.getBoundingClientRect() : null;
       };
       const screenshotPoint = (x?: number | null, y?: number | null) => {
+        if (draw.coordinateSpace === "viewport") {
+          return typeof x === "number" && typeof y === "number" ? { x, y } : null;
+        }
         const dimensions = lastScreenDimRef.current;
         if (typeof x !== "number" || typeof y !== "number" || !dimensions?.calibrated) return null;
         return {
@@ -1168,19 +1198,20 @@ export default function GlobalClickyAssistant() {
       });
     };
 
-    for (const draw of wsHook.clickyAgentDraws) {
+    const pendingDraws = [...wsHook.clickyAgentDraws, ...boardDrawCommands];
+    for (const draw of pendingDraws) {
       if (processedDrawIdsRef.current.has(draw.id)) continue;
       processedDrawIdsRef.current.add(draw.id);
       processDraw(draw);
     }
     if (processedDrawIdsRef.current.size > 128) {
-      processedDrawIdsRef.current = new Set(wsHook.clickyAgentDraws.map((draw) => draw.id));
+      processedDrawIdsRef.current = new Set(pendingDraws.map((draw) => draw.id));
     }
-  }, [wsHook.clickyAgentDraws, addScreenAnnotation, clearScreenAnnotations]);
+  }, [wsHook.clickyAgentDraws, boardDrawCommands, addScreenAnnotation, clearScreenAnnotations]);
 
   // ── Mode transitions from WS events ───────────────────────────────────────
   useEffect(() => {
-    if (!enabled || !user) return;
+    if (!globalClickyActive || !user) return;
     // When the assistant starts streaming audio response, set mode to speaking.
     if (wsHook.messages.length > 0) {
       const last = wsHook.messages[wsHook.messages.length - 1];
@@ -1191,15 +1222,15 @@ export default function GlobalClickyAssistant() {
         setMode("speaking");
       }
     }
-  }, [wsHook.messages, enabled, user]);
+  }, [wsHook.messages, globalClickyActive, user]);
 
   useEffect(() => {
-    if (!enabled || !user) return;
+    if (!globalClickyActive || !user) return;
     // When upstream mic is unmuted (Ctrl held), we're listening.
     if (!ctrlHeldRef.current && wsHook.status === "connected") {
       setMode("idle");
     }
-  }, [wsHook.status, enabled, user]);
+  }, [wsHook.status, globalClickyActive, user]);
 
   // ── Training panel: still preserved for the settings page affordance ───────
   useEffect(() => {
@@ -1408,7 +1439,7 @@ export default function GlobalClickyAssistant() {
           )}
         </div>
       )}
-      {!isLanding && user && trainingOpen && (
+      {!isLanding && !isWhiteboardSession && user && trainingOpen && (
         <div style={{ pointerEvents: "auto", position: "fixed", right: 18, bottom: 108, width: 286, border: "1px solid rgba(0,0,0,0.12)", background: "rgba(255,255,255,0.98)", borderRadius: 14, padding: 14, color: "#1f2937", fontSize: 13, lineHeight: 1.35 }}>
           <div style={{ fontWeight: 800, marginBottom: 6 }}>Train your wake phrases</div>
           <div style={{ color: "#64748b", marginBottom: 10 }}>
@@ -1431,7 +1462,7 @@ export default function GlobalClickyAssistant() {
           </div>
         </div>
       )}
-      {enabled && user && (
+      {globalClickyActive && user && (
         <div style={{ pointerEvents: "none", position: "fixed", left: 14, bottom: 14, maxWidth: "min(560px, calc(100vw - 28px))", padding: "7px 9px", borderRadius: 10, background: "rgba(15,23,42,0.82)", color: "#dbeafe", fontSize: 11, lineHeight: 1.35, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", boxShadow: "0 8px 24px rgba(15,23,42,0.18)", zIndex: 2147483001 }}>
           {debugLine}
         </div>

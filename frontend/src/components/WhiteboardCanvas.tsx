@@ -123,6 +123,7 @@ export interface WhiteboardCanvasRef {
     viewWidth: number;
     viewHeight: number;
   } | null>;
+  getViewportRect: () => { left: number; top: number; width: number; height: number } | null;
   getSceneElements: () => any[];
 }
 
@@ -1054,6 +1055,12 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
     useImperativeHandle(ref, () => ({
       getSnapshot,
       getViewportSnapshot,
+      getViewportRect: () => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        return rect
+          ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+          : null;
+      },
       getSceneElements: () => apiRef.current?.getSceneElements() ?? [],
     }), [getSnapshot, getViewportSnapshot]);
 

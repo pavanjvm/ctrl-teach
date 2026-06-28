@@ -18,6 +18,7 @@ from agents.realtime import RealtimeAgent, realtime_handoff
 
 from app.agents.planner_agent import build_planner_agent
 from app.agents.progress_agent import build_progress_agent
+from app.agents.clicky_agent import draw_on_screen, clear_screen_drawings
 from app.tools.canvas_tools import canvas_tools as _canvas_tool_fns
 from app.tools.canvas_tools import (
     add_image_to_canvas,
@@ -210,6 +211,23 @@ This data feeds the student's dashboard — it powers "Suggested Topics" and
   NOT for transcribing what you are saying out loud.
 """
 
+BOARD_CLICKY_DRAWING_INSTRUCTION = """\
+
+## Clicky transient explanation layer
+Clicky's cursor is the visible tutor companion on the whiteboard. In addition
+to persistent Excalidraw canvas tools, you can draw temporary explanations over
+the current whiteboard viewport:
+- `draw_on_screen` supports circle, rectangle, highlight, underline, arrow, and line.
+- Use this for temporary emphasis while speaking. Use the normal canvas tools
+  for diagrams or content that should remain on the board.
+- Whiteboard screenshots provide their exact pixel dimensions. For temporary
+  annotations, pass raw x/y/end_x/end_y in that screenshot coordinate space.
+- For circle/rectangle/highlight, x/y is the top-left and end_x/end_y is the
+  bottom-right of the area. For underline/line/arrow, they are the two endpoints.
+- `target_id` is only available outside the whiteboard; do not invent one here.
+- Keep temporary marks minimal. Use `clear_screen_drawings` when they are no longer useful.
+"""
+
 
 # ── Builder ───────────────────────────────────────────────────────────────────
 
@@ -236,7 +254,8 @@ def build_tutor_agent(custom_instruction: str | None = None) -> RealtimeAgent:
     media_tools = MediaTools()
     generate_and_show_image = _wrap(media_tools.generate_and_show_image)
 
-    instruction = custom_instruction if custom_instruction else TUTOR_INSTRUCTION
+    instruction = (custom_instruction if custom_instruction else TUTOR_INSTRUCTION)
+    instruction += BOARD_CLICKY_DRAWING_INSTRUCTION
 
     # Direct function tools on the tutor
     direct_tools = [
@@ -246,6 +265,8 @@ def build_tutor_agent(custom_instruction: str | None = None) -> RealtimeAgent:
         _wrap(save_session_notes),
         _wrap(upload_canvas_snapshot),
         generate_and_show_image,
+        draw_on_screen,
+        clear_screen_drawings,
     ]
 
     root = RealtimeAgent(

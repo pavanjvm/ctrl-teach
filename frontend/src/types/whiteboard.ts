@@ -67,6 +67,7 @@ export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 export interface ConnectOptions {
     onAudio?: (pcmBytes: ArrayBuffer) => void;
     onInterrupt?: () => void;
+    onError?: (message: string) => void;
     /** When a tool returns audio_b64 (e.g. "image generated" confirmation), play it. */
     onToolAudio?: (base64Data: string, mimeType: string) => void;
 }
