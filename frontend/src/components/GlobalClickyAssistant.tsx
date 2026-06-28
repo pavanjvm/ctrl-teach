@@ -24,6 +24,33 @@ type DomTarget = {
   actionable: boolean;
   rect: { x: number; y: number; width: number; height: number };
 };
+type ViewportCalibration = {
+  signature: string;
+  sourceWidth: number;
+  sourceHeight: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+type CapturedViewportFrame = {
+  data: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  calibrated: boolean;
+  calibration: ViewportCalibration | null;
+};
+type ScreenAnnotation = {
+  id: string;
+  shape: "circle" | "rectangle" | "highlight" | "underline" | "arrow" | "line";
+  color: "blue" | "teal" | "red" | "amber" | "purple";
+  label: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -32,6 +59,15 @@ const CLICKY_SESSION_ID_KEY = "ctrlteach_clicky_session_id";
 const WAKE_TRAINING_PHRASES = ["chat", "hey chat"];
 const SHOW_CLICKY_BUBBLE = false;
 const CLICKY_SPEECH_TAIL_MS = 700;
+const MAX_DOM_TARGETS = 220;
+const ANNOTATION_LIFETIME_MS = 10_000;
+const ANNOTATION_COLORS: Record<ScreenAnnotation["color"], string> = {
+  blue: "#3380ff",
+  teal: "#14b8a6",
+  red: "#ef4444",
+  amber: "#f59e0b",
+  purple: "#8b5cf6",
+};
 
 function msSince(start: number) {
   return Math.round(performance.now() - start);
@@ -52,8 +88,15 @@ function loadClickySessionId() {
 // ── DOM inventory helpers (preserved from old path) ──────────────────────────
 
 function elementLabel(el: HTMLElement) {
-  const aria = el.getAttribute("aria-label") || el.getAttribute("title") || el.getAttribute("placeholder") || "";
-  const text = aria || el.innerText || el.textContent || "";
+  const semanticLabel =
+    el.getAttribute("aria-label") ||
+    el.getAttribute("title") ||
+    el.getAttribute("placeholder") ||
+    el.getAttribute("alt") ||
+    ("value" in el && typeof (el as HTMLInputElement).value === "string"
+      ? (el as HTMLInputElement).value
+      : "");
+  const text = semanticLabel || el.innerText || el.textContent || "";
   return text.replace(/\s+/g, " ").trim().slice(0, 120);
 }
 
@@ -73,12 +116,49 @@ function isActionableElement(el: HTMLElement) {
 function collectDomTargets(): { targets: DomTarget[]; elementsById: Map<string, HTMLElement> } {
   const selector = [
     "button", "a[href]", "input", "textarea", "select", "[role='button']", "[role='link']",
-    "[role='tab']", "[role='menuitem']", "[data-clicky-target]", "h1", "h2", "h3", "label",
+    "[role='tab']", "[role='menuitem']", "[role='option']", "[role='switch']", "[role='checkbox']",
+    "[aria-label]", "[title]", "[data-clicky-target]", "h1", "h2", "h3", "h4", "h5", "h6",
+    "label", "summary", "p", "li", "td", "th", "code",
   ].join(",");
+  const candidateElements = new Set<HTMLElement>(
+    Array.from(document.querySelectorAll<HTMLElement>(selector)),
+  );
+
+  // Include leaf text nodes (for example, a word inside a styled span). The
+  // old inventory omitted these, forcing the model to guess raw pixels even
+  // though the browser already knows their exact rectangles.
+  const textWalker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let textNode = textWalker.nextNode();
+  while (textNode) {
+    const text = textNode.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    const parent = textNode.parentElement;
+    if (
+      text.length >= 2 &&
+      parent &&
+      !parent.matches("script,style,noscript,textarea") &&
+      parent.childElementCount === 0
+    ) {
+      candidateElements.add(parent);
+    }
+    textNode = textWalker.nextNode();
+  }
+
+  const rankedElements = Array.from(candidateElements).sort((first, second) => {
+    const priority = (element: HTMLElement) => {
+      let score = 0;
+      if (element.hasAttribute("data-clicky-target")) score += 1000;
+      if (isActionableElement(element)) score += 800;
+      if (element.hasAttribute("aria-label") || element.hasAttribute("title")) score += 500;
+      if (element.childElementCount === 0) score += 250;
+      return score;
+    };
+    return priority(second) - priority(first);
+  });
+
   const targets: DomTarget[] = [];
   const elementsById = new Map<string, HTMLElement>();
-  const elements = Array.from(document.querySelectorAll<HTMLElement>(selector));
-  for (const el of elements) {
+  const seenTargets = new Set<string>();
+  for (const el of rankedElements) {
     if (el.closest("[data-global-clicky='true']")) continue;
     const style = window.getComputedStyle(el);
     if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) continue;
@@ -87,6 +167,14 @@ function collectDomTargets(): { targets: DomTarget[]; elementsById: Map<string, 
     if (rect.right < 0 || rect.bottom < 0 || rect.left > window.innerWidth || rect.top > window.innerHeight) continue;
     const text = elementLabel(el);
     if (!text && !el.matches("input,textarea,select,[data-clicky-target]")) continue;
+    const clippedLeft = Math.max(0, rect.left);
+    const clippedTop = Math.max(0, rect.top);
+    const clippedRight = Math.min(window.innerWidth, rect.right);
+    const clippedBottom = Math.min(window.innerHeight, rect.bottom);
+    const dedupeKey = `${elementRole(el)}|${text.toLowerCase()}|${Math.round(clippedLeft)}|${Math.round(clippedTop)}|${Math.round(clippedRight)}|${Math.round(clippedBottom)}`;
+    if (seenTargets.has(dedupeKey)) continue;
+    seenTargets.add(dedupeKey);
+
     const id = `dom-${targets.length}`;
     targets.push({
       id,
@@ -94,14 +182,14 @@ function collectDomTargets(): { targets: DomTarget[]; elementsById: Map<string, 
       text: text || elementRole(el),
       actionable: isActionableElement(el),
       rect: {
-        x: Math.max(0, rect.left),
-        y: Math.max(0, rect.top),
-        width: Math.min(rect.width, window.innerWidth - Math.max(0, rect.left)),
-        height: Math.min(rect.height, window.innerHeight - Math.max(0, rect.top)),
+        x: clippedLeft,
+        y: clippedTop,
+        width: clippedRight - clippedLeft,
+        height: clippedBottom - clippedTop,
       },
     });
     elementsById.set(id, el);
-    if (targets.length >= 100) break;
+    if (targets.length >= MAX_DOM_TARGETS) break;
   }
   return { targets, elementsById };
 }
@@ -113,45 +201,367 @@ function clickDomElement(el: HTMLElement) {
   return true;
 }
 
-// ── Capture a frame from the getDisplayMedia stream as a JPEG data URL ───────
+function pointForElement(el: HTMLElement, label?: string) {
+  const quotedText = label?.match(/['\"]([^'\"]+)['\"]/)?.[1]?.trim();
+  const cleanedLabel = (label ?? "")
+    .replace(/['\"]/g, "")
+    .replace(/\b(the|word|text|button|link|field|icon|right|here)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const textNeedles = [quotedText, cleanedLabel]
+    .filter((value): value is string => Boolean(value && value.length >= 2))
+    .sort((first, second) => second.length - first.length);
+
+  if (textNeedles.length) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      const rawText = node.textContent ?? "";
+      const lowerText = rawText.toLowerCase();
+      for (const needle of textNeedles) {
+        const start = lowerText.indexOf(needle.toLowerCase());
+        if (start < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, start);
+        range.setEnd(node, start + needle.length);
+        const textRect = range.getBoundingClientRect();
+        if (textRect.width >= 1 && textRect.height >= 1) {
+          return {
+            x: textRect.left + textRect.width / 2,
+            y: textRect.top + textRect.height / 2,
+          };
+        }
+      }
+      node = walker.nextNode();
+    }
+  }
+
+  const rect = el.getBoundingClientRect();
+  return {
+    x: rect.left + rect.width / 2,
+    y: rect.top + rect.height / 2,
+  };
+}
+
+function findClosestDomTarget(
+  x: number,
+  y: number,
+  elementsById: Map<string, HTMLElement>,
+): HTMLElement | null {
+  let best: { element: HTMLElement; score: number } | null = null;
+  const seen = new Set<HTMLElement>();
+  for (const element of elementsById.values()) {
+    if (!element.isConnected || seen.has(element)) continue;
+    seen.add(element);
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 4 || rect.height < 4) continue;
+    const deltaX = Math.max(rect.left - x, 0, x - rect.right);
+    const deltaY = Math.max(rect.top - y, 0, y - rect.bottom);
+    const distance = Math.hypot(deltaX, deltaY);
+    if (distance > 28) continue;
+    // Prefer the smallest element containing the point. This turns a visual
+    // estimate anywhere inside a button into the browser's exact button center.
+    const area = rect.width * rect.height;
+    const score = distance * 1_000_000 + area;
+    if (!best || score < best.score) best = { element, score };
+  }
+  return best?.element ?? null;
+}
+
+function findDomTargetByLabel(
+  label: string | undefined,
+  elementsById: Map<string, HTMLElement>,
+): HTMLElement | null {
+  const normalizedLabel = (label ?? "")
+    .toLowerCase()
+    .replace(/['\"]/g, "")
+    .replace(/\b(the|word|button|link|field|icon|right|here)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (normalizedLabel.length < 2) return null;
+  let best: { element: HTMLElement; score: number } | null = null;
+  for (const element of elementsById.values()) {
+    if (!element.isConnected) continue;
+    const text = elementLabel(element).toLowerCase();
+    if (!text) continue;
+    const exact = text === normalizedLabel;
+    const contained = text.includes(normalizedLabel) || normalizedLabel.includes(text);
+    if (!exact && !contained) continue;
+    const rect = element.getBoundingClientRect();
+    const score = (exact ? 0 : 1_000_000) + rect.width * rect.height;
+    if (!best || score < best.score) best = { element, score };
+  }
+  return best?.element ?? null;
+}
+
+// ── Calibrated viewport capture ─────────────────────────────────────────────
+
+const CALIBRATION_MARKERS = [
+  { key: "tl", color: [255, 0, 255] as const, style: { left: "0", top: "0" } },
+  { key: "tr", color: [0, 255, 255] as const, style: { right: "0", top: "0" } },
+  { key: "bl", color: [255, 128, 0] as const, style: { left: "0", bottom: "0" } },
+  { key: "br", color: [128, 0, 255] as const, style: { right: "0", bottom: "0" } },
+] as const;
+
+function createCalibrationOverlay() {
+  const overlay = document.createElement("div");
+  overlay.setAttribute("aria-hidden", "true");
+  Object.assign(overlay.style, {
+    position: "fixed",
+    inset: "0",
+    pointerEvents: "none",
+    zIndex: "2147483647",
+  });
+  for (const marker of CALIBRATION_MARKERS) {
+    const element = document.createElement("div");
+    element.dataset.clickyCalibrationMarker = marker.key;
+    Object.assign(element.style, {
+      position: "absolute",
+      width: "14px",
+      height: "14px",
+      background: `rgb(${marker.color.join(",")})`,
+      ...marker.style,
+    });
+    overlay.appendChild(element);
+  }
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function captureSignature(track: MediaStreamTrack, video: HTMLVideoElement) {
+  const settings = track.getSettings();
+  return [
+    settings.displaySurface ?? "unknown",
+    video.videoWidth,
+    video.videoHeight,
+    window.screenX,
+    window.screenY,
+    window.outerWidth,
+    window.outerHeight,
+    window.innerWidth,
+    window.innerHeight,
+    window.devicePixelRatio,
+  ].join(":");
+}
+
+function detectViewportCalibration(
+  canvas: HTMLCanvasElement,
+  signature: string,
+  expectedMarkerSize: number,
+): ViewportCalibration | null {
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return null;
+  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+  const labels = new Uint8Array(canvas.width * canvas.height);
+  const toleranceSquared = 75 * 75;
+
+  for (let pixelIndex = 0; pixelIndex < labels.length; pixelIndex++) {
+    const dataIndex = pixelIndex * 4;
+    const red = pixels[dataIndex];
+    const green = pixels[dataIndex + 1];
+    const blue = pixels[dataIndex + 2];
+    for (let markerIndex = 0; markerIndex < CALIBRATION_MARKERS.length; markerIndex++) {
+      const color = CALIBRATION_MARKERS[markerIndex].color;
+      const distance =
+        (red - color[0]) ** 2 +
+        (green - color[1]) ** 2 +
+        (blue - color[2]) ** 2;
+      if (distance <= toleranceSquared) {
+        labels[pixelIndex] = markerIndex + 1;
+        break;
+      }
+    }
+  }
+
+  type Bounds = { count: number; minX: number; minY: number; maxX: number; maxY: number; score: number };
+  const bestBounds: Array<Bounds | null> = CALIBRATION_MARKERS.map(() => null);
+  const stack: number[] = [];
+  for (let start = 0; start < labels.length; start++) {
+    const label = labels[start];
+    if (!label) continue;
+    labels[start] = 0;
+    stack.push(start);
+    let count = 0;
+    let minX = canvas.width;
+    let minY = canvas.height;
+    let maxX = 0;
+    let maxY = 0;
+    while (stack.length) {
+      const current = stack.pop()!;
+      const x = current % canvas.width;
+      const y = Math.floor(current / canvas.width);
+      count++;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+      const neighbours = [current - 1, current + 1, current - canvas.width, current + canvas.width];
+      for (const neighbour of neighbours) {
+        if (neighbour < 0 || neighbour >= labels.length || labels[neighbour] !== label) continue;
+        const neighbourX = neighbour % canvas.width;
+        if (Math.abs(neighbourX - x) > 1) continue;
+        labels[neighbour] = 0;
+        stack.push(neighbour);
+      }
+    }
+    const componentWidth = maxX - minX + 1;
+    const componentHeight = maxY - minY + 1;
+    const density = count / (componentWidth * componentHeight);
+    const minimumSize = Math.max(2, expectedMarkerSize * 0.4);
+    const maximumSize = expectedMarkerSize * 2.2;
+    const score =
+      Math.abs(componentWidth - expectedMarkerSize) +
+      Math.abs(componentHeight - expectedMarkerSize) +
+      (1 - density) * expectedMarkerSize * 4;
+    const existing = bestBounds[label - 1];
+    if (
+      count >= 8 &&
+      componentWidth >= minimumSize &&
+      componentHeight >= minimumSize &&
+      componentWidth <= maximumSize &&
+      componentHeight <= maximumSize &&
+      density >= 0.45 &&
+      (!existing || score < existing.score)
+    ) {
+      bestBounds[label - 1] = { count, minX, minY, maxX, maxY, score };
+    }
+  }
+
+  const [topLeft, topRight, bottomLeft, bottomRight] = bestBounds;
+  if (!topLeft || !topRight || !bottomLeft || !bottomRight) return null;
+  const x = Math.min(topLeft.minX, bottomLeft.minX);
+  const y = Math.min(topLeft.minY, topRight.minY);
+  const right = Math.max(topRight.maxX, bottomRight.maxX) + 1;
+  const bottom = Math.max(bottomLeft.maxY, bottomRight.maxY) + 1;
+  const width = right - x;
+  const height = bottom - y;
+  if (width < 240 || height < 180 || right > canvas.width || bottom > canvas.height) return null;
+  const detectedAspectRatio = width / height;
+  const viewportAspectRatio = window.innerWidth / Math.max(1, window.innerHeight);
+  const rowTolerance = Math.max(4, expectedMarkerSize * 1.5);
+  if (
+    Math.abs(topLeft.minY - topRight.minY) > rowTolerance ||
+    Math.abs(bottomLeft.maxY - bottomRight.maxY) > rowTolerance ||
+    Math.abs(topLeft.minX - bottomLeft.minX) > rowTolerance ||
+    Math.abs(topRight.maxX - bottomRight.maxX) > rowTolerance ||
+    Math.abs(detectedAspectRatio - viewportAspectRatio) > 0.08
+  ) {
+    return null;
+  }
+
+  return {
+    signature,
+    sourceWidth: canvas.width,
+    sourceHeight: canvas.height,
+    x,
+    y,
+    width,
+    height,
+  };
+}
 
 async function captureFrameFromStream(
   stream: MediaStream,
+  cachedCalibration: ViewportCalibration | null,
   maxW = 1600,
   maxH = 1000,
-): Promise<{ data: string; mimeType: string; width: number; height: number } | null> {
+): Promise<CapturedViewportFrame | null> {
   const track = stream.getVideoTracks()[0];
   if (!track) return null;
+  let calibrationOverlay: HTMLElement | null = null;
+  const hiddenClickyOverlays: Array<{ element: HTMLElement; visibility: string }> = [];
+  const video = document.createElement("video");
   try {
     // ImageCapture is unreliably supported; we use a hidden <video> + canvas
     // + MediaStreamTrackProcessor would be cleaner, but a video element is
     // the simplest portable path.
-    const video = document.createElement("video");
     video.srcObject = new MediaStream([track]);
     video.muted = true;
     video.playsInline = true;
     await video.play();
-    // Wait a single frame so the video has the latest pixel buffer.
-    await new Promise((r) => requestAnimationFrame(() => r(null)));
     const vw = video.videoWidth || window.innerWidth;
     const vh = video.videoHeight || window.innerHeight;
-    const scale = Math.min(1, maxW / vw, maxH / vh);
-    const w = Math.max(1, Math.round(vw * scale));
-    const h = Math.max(1, Math.round(vh * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(video, 0, 0, w, h);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
-    video.pause();
-    video.srcObject = null;
+    const sourceScale = Math.min(1, 1920 / vw, 1200 / vh);
+    const sourceWidth = Math.max(1, Math.round(vw * sourceScale));
+    const sourceHeight = Math.max(1, Math.round(vh * sourceScale));
+    const signature = captureSignature(track, video);
+    const canReuseCalibration =
+      cachedCalibration?.signature === signature &&
+      cachedCalibration.sourceWidth === sourceWidth &&
+      cachedCalibration.sourceHeight === sourceHeight;
+
+    if (!canReuseCalibration) {
+      document.querySelectorAll<HTMLElement>("[data-global-clicky='true']").forEach((element) => {
+        hiddenClickyOverlays.push({ element, visibility: element.style.visibility });
+        element.style.visibility = "hidden";
+      });
+      calibrationOverlay = createCalibrationOverlay();
+      const frameRate = track.getSettings().frameRate || 5;
+      await new Promise((resolve) => window.setTimeout(resolve, Math.min(650, Math.max(180, 1000 / frameRate + 80))));
+    } else {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    }
+
+    const sourceCanvas = document.createElement("canvas");
+    sourceCanvas.width = sourceWidth;
+    sourceCanvas.height = sourceHeight;
+    const sourceContext = sourceCanvas.getContext("2d");
+    if (!sourceContext) return null;
+    sourceContext.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+
+    const detectedCalibration = canReuseCalibration
+      ? cachedCalibration
+      : detectViewportCalibration(
+          sourceCanvas,
+          signature,
+          14 * window.devicePixelRatio * sourceScale,
+        );
+    const crop = detectedCalibration ?? {
+      x: 0,
+      y: 0,
+      width: sourceWidth,
+      height: sourceHeight,
+    };
+    const outputScale = Math.min(1, maxW / crop.width, maxH / crop.height);
+    const outputWidth = Math.max(1, Math.round(crop.width * outputScale));
+    const outputHeight = Math.max(1, Math.round(crop.height * outputScale));
+    const outputCanvas = document.createElement("canvas");
+    outputCanvas.width = outputWidth;
+    outputCanvas.height = outputHeight;
+    const outputContext = outputCanvas.getContext("2d");
+    if (!outputContext) return null;
+    outputContext.drawImage(
+      sourceCanvas,
+      crop.x,
+      crop.y,
+      crop.width,
+      crop.height,
+      0,
+      0,
+      outputWidth,
+      outputHeight,
+    );
+    const dataUrl = outputCanvas.toDataURL("image/jpeg", 0.84);
     const b64 = dataUrl.split(",")[1] || "";
-    return { data: b64, mimeType: "image/jpeg", width: w, height: h };
+    const displaySurface = track.getSettings().displaySurface;
+    return {
+      data: b64,
+      mimeType: "image/jpeg",
+      width: outputWidth,
+      height: outputHeight,
+      calibrated: Boolean(detectedCalibration) || displaySurface === "browser",
+      calibration: detectedCalibration,
+    };
   } catch (err) {
     console.warn(CLICKY_LOG, "captureFrame failed", err);
     return null;
+  } finally {
+    calibrationOverlay?.remove();
+    for (const { element, visibility } of hiddenClickyOverlays) {
+      element.style.visibility = visibility;
+    }
+    video.pause();
+    video.srcObject = null;
   }
 }
 
@@ -175,6 +585,7 @@ export default function GlobalClickyAssistant() {
   const [trainingStatus, setTrainingStatus] = useState("Train Clicky with your pronunciation.");
   const [trainingPhraseIndex, setTrainingPhraseIndex] = useState(0);
   const [debugLine, setDebugLine] = useState("clicky debug: idle");
+  const [screenAnnotations, setScreenAnnotations] = useState<ScreenAnnotation[]>([]);
 
   // Cursor RAF refs
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -187,9 +598,11 @@ export default function GlobalClickyAssistant() {
   const audioHook = useAudio();
   const wsHook = useWebSocket();
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const screenCapturePromiseRef = useRef<Promise<CapturedViewportFrame | null> | null>(null);
   // Last-sent screenshot dimensions, so we can scale the model's vision fallback
   // {x,y} back to the live viewport when no DOM targetId was matched.
-  const lastScreenDimRef = useRef<{ width: number; height: number } | null>(null);
+  const lastScreenDimRef = useRef<{ width: number; height: number; calibrated: boolean } | null>(null);
+  const viewportCalibrationRef = useRef<ViewportCalibration | null>(null);
   // Map of dom-N id → live HTMLElement captured at the most recent screen push.
   // Used to resolve `targetId` to a fresh rect for sub-pixel flyTo.
   const domIdToElementRef = useRef<Map<string, HTMLElement>>(new Map());
@@ -204,6 +617,8 @@ export default function GlobalClickyAssistant() {
   const replyAudioStatsRef = useRef({ chunks: 0, bytes: 0 });
   // Last clicky_point id processed, to avoid double-handling the same event.
   const lastPointIdRef = useRef<string | null>(null);
+  const processedDrawIdsRef = useRef<Set<string>>(new Set());
+  const annotationTimersRef = useRef<Map<string, number>>(new Map());
   const trainingRecordingRef = useRef(false);
   const enabledRef = useRef(false);
   const trainingOpenRef = useRef(false);
@@ -267,6 +682,34 @@ export default function GlobalClickyAssistant() {
     requestAnimationFrame(step);
   }, [setCursor]);
 
+  const clearScreenAnnotations = useCallback(() => {
+    for (const timer of annotationTimersRef.current.values()) {
+      window.clearTimeout(timer);
+    }
+    annotationTimersRef.current.clear();
+    setScreenAnnotations([]);
+  }, []);
+
+  const addScreenAnnotation = useCallback((annotation: ScreenAnnotation) => {
+    setScreenAnnotations((current) => [...current.slice(-11), annotation]);
+    const timer = window.setTimeout(() => {
+      setScreenAnnotations((current) => current.filter((item) => item.id !== annotation.id));
+      annotationTimersRef.current.delete(annotation.id);
+    }, ANNOTATION_LIFETIME_MS);
+    annotationTimersRef.current.set(annotation.id, timer);
+  }, []);
+
+  useEffect(() => clearScreenAnnotations, [clearScreenAnnotations]);
+
+  useEffect(() => {
+    window.addEventListener("resize", clearScreenAnnotations);
+    window.addEventListener("scroll", clearScreenAnnotations, true);
+    return () => {
+      window.removeEventListener("resize", clearScreenAnnotations);
+      window.removeEventListener("scroll", clearScreenAnnotations, true);
+    };
+  }, [clearScreenAnnotations]);
+
   // ── Idle spring-follow loop ──────────────────────────────────────────────
   // Replicates SwiftUI `.animation(.spring(response: 0.2, dampingFraction: 0.6),
   // value: cursorPosition)` updated at 60fps. We integrate a spring toward the
@@ -314,31 +757,55 @@ export default function GlobalClickyAssistant() {
     async (intentText?: string) => {
       const stream = screenStreamRef.current;
       if (!stream) return;
-      const frame = await captureFrameFromStream(stream);
+      if (screenCapturePromiseRef.current) {
+        await screenCapturePromiseRef.current;
+      }
+      const capturePromise = captureFrameFromStream(stream, viewportCalibrationRef.current);
+      screenCapturePromiseRef.current = capturePromise;
+      let frame: CapturedViewportFrame | null;
+      try {
+        frame = await capturePromise;
+      } finally {
+        if (screenCapturePromiseRef.current === capturePromise) {
+          screenCapturePromiseRef.current = null;
+        }
+      }
       if (!frame) return;
+      viewportCalibrationRef.current = frame.calibration;
       const { targets, elementsById } = collectDomTargets();
       domIdToElementRef.current = elementsById;
-      lastScreenDimRef.current = { width: frame.width, height: frame.height };
-      // Note: we send the DOM inventory *without* the rect — the model only
-      // needs id + role + text + actionable for matching. The frontend holds
-      // the live rect mapping (sub-pixel exact) on its end.
+      lastScreenDimRef.current = {
+        width: frame.width,
+        height: frame.height,
+        calibrated: frame.calibrated,
+      };
+      const screenshotScaleX = frame.width / Math.max(1, window.innerWidth);
+      const screenshotScaleY = frame.height / Math.max(1, window.innerHeight);
       const slim = targets.map((t) => ({
         id: t.id,
         role: t.role,
         text: t.text,
         actionable: t.actionable,
+        rect: {
+          x: Math.round(t.rect.x * screenshotScaleX),
+          y: Math.round(t.rect.y * screenshotScaleY),
+          width: Math.max(1, Math.round(t.rect.width * screenshotScaleX)),
+          height: Math.max(1, Math.round(t.rect.height * screenshotScaleY)),
+        },
       }));
       wsHook.sendClickyScreen(frame.data, frame.mimeType, {
         width: frame.width,
         height: frame.height,
         elements: slim,
         intentText: intentText,
+        calibrated: frame.calibrated,
       });
       console.info(CLICKY_LOG, "screen context pushed", {
         width: frame.width,
         height: frame.height,
         targets: targets.length,
         intent: !!intentText,
+        calibrated: frame.calibrated,
       });
     },
     [wsHook.sendClickyScreen],
@@ -356,6 +823,7 @@ export default function GlobalClickyAssistant() {
         screenStreamRef.current.getTracks().forEach((t) => t.stop());
         screenStreamRef.current = null;
       }
+      viewportCalibrationRef.current = null;
       return;
     }
     let cancelled = false;
@@ -363,7 +831,7 @@ export default function GlobalClickyAssistant() {
     void (async () => {
       try {
         const displayStream = await navigator.mediaDevices.getDisplayMedia({
-          video: { displaySurface: "browser", frameRate: 2 } as MediaTrackConstraints,
+          video: { displaySurface: "browser", frameRate: 5 } as MediaTrackConstraints,
           audio: false,
         });
         if (cancelled) {
@@ -490,6 +958,7 @@ export default function GlobalClickyAssistant() {
       // suspended AudioContext under Chrome/Safari autoplay policies.
       void audioHook.initPlayer();
       audioHook.resumeContexts();
+      clearScreenAnnotations();
       replyAudioStatsRef.current = { chunks: 0, bytes: 0 };
       ctrlHeldRef.current = true;
       speechTailUntilRef.current = 0;
@@ -546,6 +1015,7 @@ export default function GlobalClickyAssistant() {
     pushScreenContext,
     audioHook.initPlayer,
     audioHook.resumeContexts,
+    clearScreenAnnotations,
     wsHook.sendClickyCommitAudio,
   ]);
 
@@ -560,11 +1030,10 @@ export default function GlobalClickyAssistant() {
     // Cascade: DOM-exact first, vision fallback second.
     if (pt.targetId) {
       const el = domIdToElementRef.current.get(pt.targetId);
-      if (el) {
-        const rect = el.getBoundingClientRect();
+      if (el?.isConnected) {
+        const point = pointForElement(el, pt.label);
         flyTo({
-          x: rect.left + rect.width / 2,
-          y: rect.top + rect.height / 2,
+          ...point,
           label: pt.label,
         });
         if (pt.action === "click") {
@@ -578,16 +1047,136 @@ export default function GlobalClickyAssistant() {
       console.warn(CLICKY_LOG, "targetId not found in DOM map", pt.targetId);
     }
 
-    if (typeof pt.x === "number" && typeof pt.y === "number" && lastScreenDimRef.current) {
-      const { width: imgW, height: imgH } = lastScreenDimRef.current;
-      const x = (pt.x / imgW) * window.innerWidth;
-      const y = (pt.y / imgH) * window.innerHeight;
-      flyTo({ x, y, label: pt.label });
+    // A React rerender can replace an element between capture and response.
+    // Recover by matching the model's short label against the current targets.
+    const labelMatchedElement = findDomTargetByLabel(pt.label, domIdToElementRef.current);
+    if (labelMatchedElement) {
+      flyTo({ ...pointForElement(labelMatchedElement, pt.label), label: pt.label });
+      if (pt.action === "click") {
+        window.setTimeout(() => clickDomElement(labelMatchedElement), 750);
+      }
       return;
     }
 
-    // No usable coordinate — leave the cursor where it is.
+    if (
+      typeof pt.x === "number" &&
+      typeof pt.y === "number" &&
+      lastScreenDimRef.current?.calibrated
+    ) {
+      const { width: imgW, height: imgH } = lastScreenDimRef.current;
+      const x = (pt.x / imgW) * window.innerWidth;
+      const y = (pt.y / imgH) * window.innerHeight;
+      const snappedElement = findClosestDomTarget(x, y, domIdToElementRef.current);
+      if (snappedElement) {
+        flyTo({ ...pointForElement(snappedElement, pt.label), label: pt.label });
+        if (pt.action === "click") {
+          window.setTimeout(() => clickDomElement(snappedElement), 750);
+        }
+      } else {
+        flyTo({ x, y, label: pt.label });
+      }
+      return;
+    }
+
+    // Never apply a raw vision coordinate from an uncalibrated full-screen
+    // capture; a confidently wrong pointer is worse than not pointing.
   }, [wsHook.clickyAgentPoint, flyTo]);
+
+  // ── Handle Clicky screen-drawing tools ───────────────────────────────────
+  useEffect(() => {
+    const processDraw = (draw: (typeof wsHook.clickyAgentDraws)[number]) => {
+      if (draw.tool === "clear_screen_drawings") {
+        clearScreenAnnotations();
+        return;
+      }
+
+      const shape = draw.shape ?? "rectangle";
+      const color = draw.color ?? "blue";
+      const elementRect = (targetId?: string | null) => {
+        const element = targetId ? domIdToElementRef.current.get(targetId) : null;
+        return element?.isConnected ? element.getBoundingClientRect() : null;
+      };
+      const screenshotPoint = (x?: number | null, y?: number | null) => {
+        const dimensions = lastScreenDimRef.current;
+        if (typeof x !== "number" || typeof y !== "number" || !dimensions?.calibrated) return null;
+        return {
+          x: (x / dimensions.width) * window.innerWidth,
+          y: (y / dimensions.height) * window.innerHeight,
+        };
+      };
+
+      let x1: number;
+      let y1: number;
+      let x2: number;
+      let y2: number;
+      const targetRect = elementRect(draw.targetId);
+      const fromRect = elementRect(draw.fromTargetId);
+      const toRect = elementRect(draw.toTargetId);
+
+      if ((shape === "arrow" || shape === "line") && (fromRect || toRect)) {
+        const start = fromRect
+          ? { x: fromRect.left + fromRect.width / 2, y: fromRect.top + fromRect.height / 2 }
+          : posRef.current;
+        const endRect = toRect ?? targetRect;
+        if (!endRect) return;
+        const end = { x: endRect.left + endRect.width / 2, y: endRect.top + endRect.height / 2 };
+        ({ x: x1, y: y1 } = start);
+        ({ x: x2, y: y2 } = end);
+      } else if (targetRect) {
+        const padding = shape === "highlight" ? 3 : 8;
+        x1 = targetRect.left - padding;
+        y1 = targetRect.top - padding;
+        x2 = targetRect.right + padding;
+        y2 = targetRect.bottom + padding;
+        if (shape === "underline") {
+          y1 = targetRect.bottom + 5;
+          y2 = y1;
+        } else if (shape === "arrow" || shape === "line") {
+          x1 = posRef.current.x;
+          y1 = posRef.current.y;
+          x2 = targetRect.left + targetRect.width / 2;
+          y2 = targetRect.top + targetRect.height / 2;
+        }
+      } else {
+        const start = screenshotPoint(draw.x, draw.y);
+        const end = screenshotPoint(draw.endX, draw.endY);
+        if (!start) return;
+        if (end) {
+          ({ x: x1, y: y1 } = start);
+          ({ x: x2, y: y2 } = end);
+        } else {
+          x1 = start.x - 34;
+          y1 = start.y - 34;
+          x2 = start.x + 34;
+          y2 = start.y + 34;
+          if (shape === "underline") {
+            y1 = start.y;
+            y2 = start.y;
+          }
+        }
+      }
+
+      addScreenAnnotation({
+        id: draw.id,
+        shape,
+        color,
+        label: draw.label ?? "",
+        x1,
+        y1,
+        x2,
+        y2,
+      });
+    };
+
+    for (const draw of wsHook.clickyAgentDraws) {
+      if (processedDrawIdsRef.current.has(draw.id)) continue;
+      processedDrawIdsRef.current.add(draw.id);
+      processDraw(draw);
+    }
+    if (processedDrawIdsRef.current.size > 128) {
+      processedDrawIdsRef.current = new Set(wsHook.clickyAgentDraws.map((draw) => draw.id));
+    }
+  }, [wsHook.clickyAgentDraws, addScreenAnnotation, clearScreenAnnotations]);
 
   // ── Mode transitions from WS events ───────────────────────────────────────
   useEffect(() => {
@@ -703,6 +1292,101 @@ export default function GlobalClickyAssistant() {
 
   return (
     <div data-global-clicky="true" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 2147483000 }}>
+      {screenAnnotations.length > 0 && (
+        <svg
+          aria-hidden="true"
+          style={{ position: "fixed", inset: 0, width: "100vw", height: "100vh", overflow: "visible" }}
+        >
+          <defs>
+            {(Object.keys(ANNOTATION_COLORS) as ScreenAnnotation["color"][]).map((color) => (
+              <marker
+                key={color}
+                id={`clicky-arrow-${color}`}
+                markerWidth="10"
+                markerHeight="10"
+                refX="8"
+                refY="5"
+                orient="auto"
+                markerUnits="strokeWidth"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" fill={ANNOTATION_COLORS[color]} />
+              </marker>
+            ))}
+          </defs>
+          {screenAnnotations.map((annotation) => {
+            const stroke = ANNOTATION_COLORS[annotation.color];
+            const left = Math.min(annotation.x1, annotation.x2);
+            const top = Math.min(annotation.y1, annotation.y2);
+            const width = Math.max(2, Math.abs(annotation.x2 - annotation.x1));
+            const height = Math.max(2, Math.abs(annotation.y2 - annotation.y1));
+            const commonStroke = {
+              fill: "none",
+              stroke,
+              strokeWidth: 4,
+              strokeLinecap: "round" as const,
+              strokeLinejoin: "round" as const,
+              vectorEffect: "non-scaling-stroke" as const,
+              pathLength: 1,
+              className: "clicky-annotation-stroke",
+              style: { filter: `drop-shadow(0 2px 4px ${stroke}55)` },
+            };
+            return (
+              <g key={annotation.id}>
+                {annotation.shape === "circle" && (
+                  <ellipse
+                    {...commonStroke}
+                    cx={left + width / 2}
+                    cy={top + height / 2}
+                    rx={width / 2}
+                    ry={height / 2}
+                  />
+                )}
+                {annotation.shape === "rectangle" && (
+                  <rect {...commonStroke} x={left} y={top} width={width} height={height} rx={9} />
+                )}
+                {annotation.shape === "highlight" && (
+                  <rect
+                    x={left}
+                    y={top}
+                    width={width}
+                    height={height}
+                    rx={8}
+                    fill={stroke}
+                    stroke={stroke}
+                    strokeWidth={2}
+                    className="clicky-annotation-highlight"
+                  />
+                )}
+                {(annotation.shape === "underline" || annotation.shape === "line" || annotation.shape === "arrow") && (
+                  <line
+                    {...commonStroke}
+                    x1={annotation.x1}
+                    y1={annotation.y1}
+                    x2={annotation.x2}
+                    y2={annotation.y2}
+                    markerEnd={annotation.shape === "arrow" ? `url(#clicky-arrow-${annotation.color})` : undefined}
+                  />
+                )}
+                {!!annotation.label && (
+                  <text
+                    x={annotation.x2 + 8}
+                    y={annotation.y2 - 8}
+                    fill={stroke}
+                    stroke="white"
+                    strokeWidth={4}
+                    paintOrder="stroke"
+                    fontSize={13}
+                    fontWeight={800}
+                    className="clicky-annotation-label"
+                  >
+                    {annotation.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      )}
       {renderCursor && (
         <div
           ref={cursorRef}
@@ -755,6 +1439,12 @@ export default function GlobalClickyAssistant() {
       <style jsx global>{`
         @keyframes clicky-wave { from { transform: scaleY(0.65); opacity: 0.7; } to { transform: scaleY(1.22); opacity: 1; } }
         @keyframes clicky-spin { to { transform: rotate(360deg); } }
+        @keyframes clicky-draw-stroke { from { stroke-dashoffset: 1; opacity: 0.35; } to { stroke-dashoffset: 0; opacity: 1; } }
+        @keyframes clicky-draw-highlight { from { opacity: 0; } to { opacity: 0.2; } }
+        @keyframes clicky-draw-label { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        .clicky-annotation-stroke { stroke-dasharray: 1; stroke-dashoffset: 1; animation: clicky-draw-stroke 0.6s cubic-bezier(.22,.8,.24,1) forwards; }
+        .clicky-annotation-highlight { opacity: 0; animation: clicky-draw-highlight 0.35s ease-out forwards; }
+        .clicky-annotation-label { animation: clicky-draw-label 0.3s ease-out 0.35s both; }
       `}</style>
     </div>
   );

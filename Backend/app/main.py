@@ -571,29 +571,42 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                         width = json_msg.get("width")
                         height = json_msg.get("height")
                         elements = json_msg.get("elements", []) or []
+                        calibrated = bool(json_msg.get("calibrated"))
                         intent_text = (json_msg.get("intentText") or "").strip()
                         data_url = f"data:{mime};base64,{b64}"
                         dims = f"{width}x{height}" if width and height else "the provided image dimensions"
-                        dom_summary = json.dumps(elements[:120], ensure_ascii=False)[:16000]
+                        dom_summary = json.dumps(elements[:220], ensure_ascii=False)[:30000]
+                        coordinate_note = (
+                            "The image is calibrated to the browser viewport, so raw x,y "
+                            "coordinates map exactly back to it. Ignore the four tiny colored "
+                            "corner calibration markers if they are visible."
+                            if calibrated
+                            else
+                            "The image could not be calibrated to the browser viewport. Prefer "
+                            "a DOM target_id and do not emit raw x,y coordinates."
+                        )
                         if intent_text:
                             nudge = (
-                                f"Current tab screenshot (image dimensions: {dims} pixels, "
+                                f"Current browser viewport screenshot (image dimensions: {dims} pixels, "
                                 "origin top-left, x right, y down). "
                                 f"User just asked: {intent_text}\n\n"
+                                f"{coordinate_note}\n\n"
                                 f"Visible DOM inventory JSON:\n{dom_summary}\n\n"
-                                "Decide whether to call point_at. Prefer target_id from the "
-                                "inventory when a matching element exists. Fall back to raw "
+                                "Decide whether to call point_at and/or draw_on_screen based on "
+                                "the request. Prefer target_id from the inventory when a matching "
+                                "element exists. Fall back to raw "
                                 "x,y only for things visible in the screenshot but absent "
                                 "from the inventory. Do not say coordinates or ids aloud."
                             )
                         else:
                             nudge = (
                                 f"Context only — do NOT answer. Just remember this is the "
-                                f"latest current tab screenshot (image dimensions: {dims} "
+                                f"latest browser viewport screenshot (image dimensions: {dims} "
                                 "pixels, origin top-left, x right, y down) for future turns.\n\n"
+                                f"{coordinate_note}\n\n"
                                 f"Visible DOM inventory JSON:\n{dom_summary}\n\n"
-                                "If you later call point_at, prefer target_id from this "
-                                "inventory; fall back to raw x,y only for non-DOM pixels. "
+                                "If you later call point_at or draw_on_screen, prefer target_id "
+                                "from this inventory; fall back to raw x,y only for non-DOM pixels. "
                                 "Do not say coordinates or ids aloud."
                             )
                         # `session.send_message()` automatically starts a new
@@ -751,6 +764,17 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             tool = getattr(event, "tool", None)
                             tool_name = getattr(tool, "name", "") or ""
                             output = getattr(event, "output", None)
+
+                            # ── Clicky screen annotations ─────────────────
+                            if tool_name in {"draw_on_screen", "clear_screen_drawings"}:
+                                payload = output if isinstance(output, dict) else {}
+                                await _send_json(websocket, {
+                                    "type": "clicky_draw",
+                                    "tool": tool_name,
+                                    "response": payload,
+                                })
+                                logger.info("Clicky drawing tool=%s payload=%s", tool_name, payload)
+                                continue
 
                             # ── Clicky point_at → emit a lightweight envelope ─
                             if tool_name == "point_at":

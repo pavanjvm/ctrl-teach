@@ -62,25 +62,25 @@ element pointing:
   if the user is looking for a button, an icon, a setting, a word, a letter, \
   a heading, a tab, or anything else visible on screen.
 - the DOM inventory carries entries like \
-  `{"id":"dom-3","role":"button","text":"Submit","actionable":true}`. \
+  `{"id":"dom-3","role":"button","text":"Submit","actionable":true,\
+  "rect":{"x":420,"y":180,"width":90,"height":34}}`. the rect is in the \
+  screenshot's exact pixel coordinate space. \
   when a visible element in that inventory matches what the user means, \
-  call `point_at(targetId="dom-3", action="none"|"click", label="...")`.
+  call `point_at(target_id="dom-3", action="none"|"click", label="...")`.
 - set `action="click"` ONLY if the user clearly asks to click, open, or \
   toggle AND the element's `actionable` field is true. otherwise `action="none"`.
-- text inside an element (a specific word or letter) usually will not have \
-  its own DOM entry. in that case, use the vision fallback: estimate where \
-  the text sits inside the element's bounding box from the screenshot and \
-  call `point_at(x=<integer>, y=<integer>, action="none", label="...")`. \
-  the precision target is ~±15-25px — aim for the word or letter's \
-  visual center in the screenshot's pixel coordinate space.
+- for a specific visible word or phrase, use the target_id of its containing \
+  text element when available and put the exact word or phrase in `label`. the \
+  browser will resolve that text range precisely inside the element. use raw \
+  x,y only when the text has no matching DOM inventory entry.
 - for things visible on screen but NOT in the DOM inventory (e.g. pixels \
   inside a cross-origin iframe, canvas drawings, video content), fall back \
   to vision: call `point_at(x=<integer>, y=<integer>, action="none", \
   label="...")`. use the screenshot's pixel dimensions as the coordinate \
   space — they're provided with each new screen context message. origin is \
   top-left, x increases rightward, y increases downward.
-- keep x between 10% and 90% of the image width and y between 10% and 90% \
-  of the image height to avoid obvious edge errors.
+- elements near screen edges are valid targets. use the full image dimensions; \
+  never pull an accurate edge coordinate inward.
 - pass `label` as a short 1-3 word description ("search bar", "play button", \
   "the word 'submit'").
 - never read the coordinates, ids, or any tag-like markup aloud.
@@ -90,6 +90,21 @@ don't call `point_at` — just answer.
 
 remember: the audio you output is streamed back to the user live. speak \
 naturally and stop when you're done.
+
+screen drawing:
+- you also have `draw_on_screen` and `clear_screen_drawings` tools. use them \
+  when the user asks you to draw, circle, box, underline, highlight, connect, \
+  trace, or visually explain something on the screen.
+- supported shapes are `circle`, `rectangle`, `highlight`, `underline`, \
+  `arrow`, and `line`.
+- for circle/rectangle/highlight/underline around a DOM element, pass its \
+  `target_id`; the browser uses the live element rectangle.
+- for an arrow or line between DOM elements, pass `from_target_id` and \
+  `to_target_id`.
+- only use raw `x`, `y`, `end_x`, `end_y` for content missing from the DOM \
+  inventory, using the calibrated screenshot pixel space.
+- use multiple draw calls when a visual explanation needs multiple marks, but \
+  keep it clean and minimal. never read ids or coordinates aloud.
 """
 
 
@@ -124,6 +139,47 @@ def point_at(
     }
 
 
+@function_tool(strict_mode=False)
+def draw_on_screen(
+    shape: str,
+    target_id: Optional[str] = None,
+    from_target_id: Optional[str] = None,
+    to_target_id: Optional[str] = None,
+    x: Optional[float] = None,
+    y: Optional[float] = None,
+    end_x: Optional[float] = None,
+    end_y: Optional[float] = None,
+    label: str = "",
+    color: str = "blue",
+) -> dict:
+    """Draw a transient annotation over the user's browser viewport.
+
+    Prefer target_id for a shape around one DOM element. For arrows or lines
+    between elements, use from_target_id and to_target_id. Raw coordinates are
+    only for calibrated screenshot content that has no DOM target.
+    """
+    supported_shapes = {"circle", "rectangle", "highlight", "underline", "arrow", "line"}
+    supported_colors = {"blue", "teal", "red", "amber", "purple"}
+    return {
+        "shape": shape if shape in supported_shapes else "rectangle",
+        "target_id": target_id,
+        "from_target_id": from_target_id,
+        "to_target_id": to_target_id,
+        "x": x,
+        "y": y,
+        "end_x": end_x,
+        "end_y": end_y,
+        "label": label[:80],
+        "color": color if color in supported_colors else "blue",
+    }
+
+
+@function_tool(strict_mode=False)
+def clear_screen_drawings() -> dict:
+    """Clear all Clicky annotations currently visible on the screen."""
+    return {"action": "clear"}
+
+
 # ── Builder ─────────────────────────────────────────────────────────────────
 
 
@@ -132,8 +188,11 @@ def build_clicky_agent() -> RealtimeAgent:
     root = RealtimeAgent(
         name="clicky_agent",
         instructions=CLICKY_INSTRUCTION,
-        tools=[point_at],
+        tools=[point_at, draw_on_screen, clear_screen_drawings],
         handoffs=[],
     )
-    logger.info("Clicky realtime agent built: root=%s tools=point_at", root.name)
+    logger.info(
+        "Clicky realtime agent built: root=%s tools=point_at,draw_on_screen,clear_screen_drawings",
+        root.name,
+    )
     return root

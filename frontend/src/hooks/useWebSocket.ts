@@ -47,6 +47,20 @@ export function useWebSocket() {
     action?: "none" | "click";
     id: string;
   } | null>(null);
+  const [clickyAgentDraws, setClickyAgentDraws] = useState<Array<{
+    tool: "draw_on_screen" | "clear_screen_drawings";
+    shape?: "circle" | "rectangle" | "highlight" | "underline" | "arrow" | "line";
+    targetId?: string | null;
+    fromTargetId?: string | null;
+    toTargetId?: string | null;
+    x?: number | null;
+    y?: number | null;
+    endX?: number | null;
+    endY?: number | null;
+    label?: string;
+    color?: "blue" | "teal" | "red" | "amber" | "purple";
+    id: string;
+  }>>([]);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isSavingProgress, setIsSavingProgress] = useState(false);
   const [realtimeReady, setRealtimeReady] = useState(false);
@@ -220,8 +234,10 @@ export function useWebSocket() {
           role: string;
           text: string;
           actionable: boolean;
+          rect: { x: number; y: number; width: number; height: number };
         }>;
         intentText?: string;
+        calibrated?: boolean;
       }
     ) => {
       const ws = wsRef.current;
@@ -235,6 +251,7 @@ export function useWebSocket() {
             height: meta.height,
             elements: meta.elements ?? [],
             intentText: meta.intentText,
+            calibrated: meta.calibrated ?? false,
           })
         );
       }
@@ -322,6 +339,28 @@ export function useWebSocket() {
           id: crypto.randomUUID(),
         });
         console.log("[WS] Clicky point_at:", JSON.stringify(resp));
+        return;
+      }
+
+      if (event.type === "clicky_draw" && event.response) {
+        const response = event.response;
+        const allowedShapes = new Set(["circle", "rectangle", "highlight", "underline", "arrow", "line"]);
+        const allowedColors = new Set(["blue", "teal", "red", "amber", "purple"]);
+        const drawEvent = {
+          tool: event.tool === "clear_screen_drawings" ? "clear_screen_drawings" : "draw_on_screen",
+          shape: allowedShapes.has(response.shape) ? response.shape : undefined,
+          targetId: response.target_id ?? null,
+          fromTargetId: response.from_target_id ?? null,
+          toTargetId: response.to_target_id ?? null,
+          x: typeof response.x === "number" ? response.x : null,
+          y: typeof response.y === "number" ? response.y : null,
+          endX: typeof response.end_x === "number" ? response.end_x : null,
+          endY: typeof response.end_y === "number" ? response.end_y : null,
+          label: typeof response.label === "string" ? response.label : "",
+          color: allowedColors.has(response.color) ? response.color : "blue",
+          id: crypto.randomUUID(),
+        } as const;
+        setClickyAgentDraws((current) => [...current.slice(-31), drawEvent]);
         return;
       }
 
@@ -530,6 +569,7 @@ export function useWebSocket() {
     canvasCommands,
     clickyPoint,
     clickyAgentPoint,
+    clickyAgentDraws,
     isGeneratingImage,
     isSavingProgress,
     realtimeReady,
