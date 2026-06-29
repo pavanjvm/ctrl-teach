@@ -1,0 +1,709 @@
+(() => {
+  if (window.__ctrlTeachClickyExtensionLoaded) return;
+  window.__ctrlTeachClickyExtensionLoaded = true;
+
+  // A reloaded unpacked extension leaves its old closed-shadow host in tabs
+  // that were already open. A newly injected content-script world removes that
+  // orphan before mounting the live overlay.
+  document.getElementById("ctrlteach-clicky-extension")?.remove();
+
+  const CTRLTEACH_ORIGINS = new Set([
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+  ]);
+  const CONTENT_INSTANCE_ID = crypto.randomUUID();
+  const MAX_TARGETS = 240;
+  const BUDDY_OFFSET_X = 35;
+  const BUDDY_OFFSET_Y = 25;
+  const DEFAULT_ROTATION = -35;
+  // A slower, more-damped spring keeps a smooth trailing motion without the
+  // cursor bouncing around its target.
+  const SPRING_RESPONSE = 0.38;
+  const SPRING_DAMPING = 0.68;
+  const SPRING_OMEGA = (2 * Math.PI) / SPRING_RESPONSE;
+  const SPRING_K = SPRING_OMEGA ** 2;
+  const SPRING_C = 2 * SPRING_DAMPING * SPRING_OMEGA;
+  const SENSITIVE_TEXT = /\b(buy|purchase|pay|checkout|place order|delete|remove|erase|send|submit|publish|post|sign out|log out|change password|reset password|upload|download|allow|grant|confirm booking|book now)\b/i;
+
+  let extensionState = { enabled: false, suspended: false, active: false, cursor: { x: 80, y: 120 } };
+  let mode = "idle";
+  let pttHeld = false;
+  let currentContextId = "";
+  let currentTargets = new Map();
+  let mouse = { x: 45, y: 95 };
+  let position = { x: 80, y: 120 };
+  let velocity = { x: 0, y: 0 };
+  let activePoint = false;
+  let lastFrame = 0;
+  let cursorReportAt = 0;
+  let statusText = "";
+  let transcriptText = "";
+
+  const host = document.createElement("div");
+  host.id = "ctrlteach-clicky-extension";
+  Object.assign(host.style, {
+    position: "fixed",
+    inset: "0",
+    zIndex: "2147483646",
+    pointerEvents: "none",
+    display: "none",
+  });
+  const shadow = host.attachShadow({ mode: "closed" });
+  shadow.innerHTML = `
+    <style>
+      :host { all: initial; }
+      #layer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      #drawings { position: fixed; inset: 0; width: 100vw; height: 100vh; overflow: visible; pointer-events: none; }
+      #cursor { position: fixed; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
+      #triangle { position: absolute; left: -8px; top: 0; width: 16px; height: 13.856px; background: #4f46e5; clip-path: polygon(50% 0, 100% 100%, 0 100%); opacity: 1; transition: opacity .13s ease, background-color .13s ease; filter: drop-shadow(0 0 7px rgba(79,70,229,.55)); }
+      #waveform { position: absolute; left: -7px; top: -6px; height: 18px; display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity .16s ease; filter: drop-shadow(0 0 5px rgba(20,184,166,.6)); }
+      #waveform span { width: 2px; border-radius: 999px; background: #14b8a6; transform-origin: center; animation: wave .78s ease-in-out infinite alternate; }
+      #waveform span:nth-child(1), #waveform span:nth-child(5) { height: 5px; }
+      #waveform span:nth-child(2), #waveform span:nth-child(4) { height: 9px; animation-delay: .09s; }
+      #waveform span:nth-child(3) { height: 13px; animation-delay: .18s; }
+      #ring { position: absolute; left: -8px; top: -8px; width: 12px; height: 12px; border: 2px solid rgba(79,70,229,.2); border-top-color: #4f46e5; border-right-color: rgba(79,70,229,.72); border-radius: 999px; opacity: 0; transition: opacity .16s ease; filter: drop-shadow(0 0 5px rgba(79,70,229,.44)); }
+      #cursor[data-mode="listening"] #triangle, #cursor[data-mode="thinking"] #triangle { opacity: 0; }
+      #cursor[data-mode="listening"] #waveform { opacity: 1; }
+      #cursor[data-mode="thinking"] #ring { opacity: 1; animation: spin .9s linear infinite; }
+      #bubble-anchor { position: absolute; left: 20px; top: 24px; transform-origin: 0 0; will-change: transform; }
+      #bubble { width: max-content; max-width: 320px; padding: 8px 11px; border-radius: 10px; background: #111827; color: white; font: 600 12px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; font-style: normal; letter-spacing: 0; text-align: left; box-shadow: 0 12px 34px rgba(0,0,0,.22); opacity: 0; transform: translateY(3px) scale(.96); transform-origin: 0 0; transition: opacity .16s ease, transform .16s ease; }
+      #bubble.visible { opacity: 1; transform: translateY(0) scale(1); }
+      #status { position: fixed; right: 18px; bottom: 18px; max-width: 320px; padding: 8px 11px; border: 1px solid rgba(79,70,229,.18); border-radius: 999px; background: rgba(255,255,255,.94); color: #4338ca; font: 650 11px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; box-shadow: 0 8px 25px rgba(27,24,18,.12); opacity: 0; transition: opacity .2s ease; }
+      #status.visible { opacity: 1; }
+      #confirm { position: fixed; inset: 0; display: none; place-items: center; background: rgba(17,24,39,.2); pointer-events: auto; }
+      #confirm.visible { display: grid; }
+      #confirm-card { width: min(360px, calc(100vw - 40px)); padding: 20px; border: 1px solid #e5e7eb; border-radius: 16px; background: white; color: #111827; box-shadow: 0 24px 70px rgba(0,0,0,.2); }
+      #confirm-title { margin: 0 0 8px; font: 700 16px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; }
+      #confirm-copy { margin: 0; color: #6b7280; font: 500 13px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; }
+      #confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+      .confirm-button { border: 0; border-radius: 10px; padding: 9px 13px; font: 700 12px Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
+      #confirm-cancel { background: #f3f4f6; color: #374151; }
+      #confirm-accept { background: #4f46e5; color: white; }
+      .stroke { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .55s cubic-bezier(.22,.8,.24,1) forwards; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes wave { from { transform: scaleY(.58); opacity: .72; } to { transform: scaleY(1.18); opacity: 1; } }
+      @keyframes draw { to { stroke-dashoffset: 0; } }
+    </style>
+    <div id="layer">
+      <svg id="drawings" aria-hidden="true"></svg>
+      <div id="cursor" data-mode="idle">
+        <div id="triangle"></div>
+        <div id="waveform" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+        <div id="ring"></div>
+        <div id="bubble-anchor"><div id="bubble"></div></div>
+      </div>
+      <div id="status"></div>
+      <div id="confirm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div id="confirm-card">
+          <h2 id="confirm-title">Confirm Clicky action</h2>
+          <p id="confirm-copy"></p>
+          <div id="confirm-actions">
+            <button id="confirm-cancel" class="confirm-button" type="button">Cancel</button>
+            <button id="confirm-accept" class="confirm-button" type="button">Continue</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  const cursor = shadow.getElementById("cursor");
+  const bubble = shadow.getElementById("bubble");
+  const bubbleAnchor = shadow.getElementById("bubble-anchor");
+  const status = shadow.getElementById("status");
+  const drawings = shadow.getElementById("drawings");
+  const confirmLayer = shadow.getElementById("confirm");
+  const confirmCopy = shadow.getElementById("confirm-copy");
+  const confirmAccept = shadow.getElementById("confirm-accept");
+  const confirmCancel = shadow.getElementById("confirm-cancel");
+  let pendingConfirmation = null;
+
+  function mount() {
+    // Fullscreen hides siblings outside the fullscreen top-layer element. Move
+    // Clicky's overlay inside a fullscreen player container so annotations stay
+    // visible over YouTube and other HTML video players.
+    const parent = document.fullscreenElement || document.documentElement || document;
+    if (host.parentNode !== parent) parent.appendChild(host);
+  }
+
+  document.addEventListener("fullscreenchange", mount, true);
+
+  function visible() {
+    return extensionState.enabled && extensionState.active && !extensionState.suspended;
+  }
+
+  function renderVisibility() {
+    mount();
+    host.style.display = visible() ? "block" : "none";
+    if (!visible()) {
+      pttHeld = false;
+      activePoint = false;
+      setBubble("");
+      setMode("idle");
+    }
+  }
+
+  function setMode(next) {
+    const previous = mode;
+    mode = next || "idle";
+    if (mode === "listening" && previous !== "listening") {
+      transcriptText = "";
+      setBubble("");
+    }
+    cursor.dataset.mode = mode;
+  }
+
+  function setBubble(text) {
+    const clean = String(text || "").replace(/\s+/g, " ").trim().slice(0, 260);
+    bubble.textContent = clean;
+    bubble.classList.toggle("visible", Boolean(clean));
+  }
+
+  function setStatus(text, temporary = false) {
+    statusText = String(text || "").trim();
+    status.textContent = statusText;
+    status.classList.toggle("visible", Boolean(statusText));
+    if (temporary && statusText) {
+      const expected = statusText;
+      setTimeout(() => {
+        if (statusText === expected) setStatus("");
+      }, 2200);
+    }
+  }
+
+  function transformCursor(x, y, rotation = DEFAULT_ROTATION, scale = 1) {
+    position = { x, y };
+    cursor.style.transform = `translate3d(${x}px,${y}px,0) rotate(${rotation}deg) scale(${scale})`;
+    // The pointer rotates to face its movement. Counter-rotate the bubble so
+    // Clicky's response text always remains level and readable.
+    bubbleAnchor.style.transform = `rotate(${-rotation}deg)`;
+  }
+
+  function animateFrame(timestamp) {
+    if (!lastFrame) lastFrame = timestamp;
+    const dt = Math.min(32, timestamp - lastFrame) / 1000;
+    lastFrame = timestamp;
+    if (visible() && !activePoint) {
+      const target = { x: mouse.x + BUDDY_OFFSET_X, y: mouse.y + BUDDY_OFFSET_Y };
+      velocity.x += (-SPRING_K * (position.x - target.x) - SPRING_C * velocity.x) * dt;
+      velocity.y += (-SPRING_K * (position.y - target.y) - SPRING_C * velocity.y) * dt;
+      position.x += velocity.x * dt;
+      position.y += velocity.y * dt;
+      transformCursor(position.x, position.y);
+    }
+    requestAnimationFrame(animateFrame);
+  }
+
+  function flyTo(point) {
+    activePoint = true;
+    const from = { ...position };
+    const to = { x: point.x, y: point.y };
+    const distance = Math.hypot(to.x - from.x, to.y - from.y);
+    const duration = Math.min(Math.max(distance / 800, 0.6), 1.4) * 1000;
+    const arc = Math.min(distance * 0.2, 80);
+    const control = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - arc };
+    const started = performance.now();
+    const step = (now) => {
+      const raw = Math.min((now - started) / duration, 1);
+      const t = raw * raw * (3 - 2 * raw);
+      const m = 1 - t;
+      const x = m * m * from.x + 2 * m * t * control.x + t * t * to.x;
+      const y = m * m * from.y + 2 * m * t * control.y + t * t * to.y;
+      const tx = 2 * m * (control.x - from.x) + 2 * t * (to.x - control.x);
+      const ty = 2 * m * (control.y - from.y) + 2 * t * (to.y - control.y);
+      transformCursor(x, y, (Math.atan2(ty, tx) * 180) / Math.PI + 90, 1 + Math.sin(raw * Math.PI) * 0.3);
+      if (raw < 1) requestAnimationFrame(step);
+      else {
+        setBubble(point.label || "right here");
+        setTimeout(() => {
+          activePoint = false;
+          if (mode !== "speaking") setBubble("");
+        }, 2600);
+      }
+    };
+    requestAnimationFrame(step);
+  }
+
+  function elementLabel(element) {
+    if (element.matches("input[type='password'],input[type='file']")) return element.getAttribute("aria-label") || element.getAttribute("placeholder") || "protected input";
+    const semantic = element.getAttribute("aria-label") || element.getAttribute("title") || element.getAttribute("placeholder") || element.getAttribute("alt") || "";
+    return String(semantic || element.innerText || element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 160);
+  }
+
+  function elementRole(element) {
+    return element.getAttribute("role") || element.tagName.toLowerCase();
+  }
+
+  function isActionable(element) {
+    if (element.getAttribute("aria-disabled") === "true" || element.matches(":disabled")) return false;
+    return element.matches("button,a[href],input:not([type='password']):not([type='file']),textarea,select,[role='button'],[role='link'],[role='tab'],[role='menuitem'],[role='switch'],[role='checkbox']");
+  }
+
+  function collectDomTargets(contextId) {
+    const selector = [
+      "button", "a[href]", "input", "textarea", "select", "[role='button']", "[role='link']",
+      "[role='tab']", "[role='menuitem']", "[role='option']", "[role='switch']", "[role='checkbox']",
+      "[aria-label]", "[title]", "h1", "h2", "h3", "h4", "h5", "h6", "label", "summary", "p", "li", "td", "th", "code",
+    ].join(",");
+    const candidates = new Set(document.querySelectorAll(selector));
+    if (document.body) {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        const parent = node.parentElement;
+        const text = node.textContent?.replace(/\s+/g, " ").trim() || "";
+        if (text.length >= 2 && parent && parent.childElementCount === 0 && !parent.matches("script,style,noscript,textarea")) candidates.add(parent);
+      }
+    }
+    const ranked = [...candidates].sort((a, b) => {
+      const score = (element) => (isActionable(element) ? 800 : 0) + (element.hasAttribute("aria-label") || element.hasAttribute("title") ? 500 : 0) + (element.childElementCount === 0 ? 250 : 0);
+      return score(b) - score(a);
+    });
+    const elements = [];
+    const targetMap = new Map();
+    const seen = new Set();
+    for (const element of ranked) {
+      if (!(element instanceof HTMLElement) || element === host || host.contains(element)) continue;
+      const style = getComputedStyle(element);
+      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.width < 4 || rect.height < 4 || rect.right < 0 || rect.bottom < 0 || rect.left > innerWidth || rect.top > innerHeight) continue;
+      const text = elementLabel(element);
+      if (!text && !element.matches("input,textarea,select")) continue;
+      const clipped = {
+        x: Math.max(0, rect.left),
+        y: Math.max(0, rect.top),
+        width: Math.max(1, Math.min(innerWidth, rect.right) - Math.max(0, rect.left)),
+        height: Math.max(1, Math.min(innerHeight, rect.bottom) - Math.max(0, rect.top)),
+      };
+      const dedupe = `${elementRole(element)}|${text.toLowerCase()}|${Math.round(clipped.x)}|${Math.round(clipped.y)}|${Math.round(clipped.width)}|${Math.round(clipped.height)}`;
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
+      const id = `dom-${contextId.slice(0, 8)}-${elements.length}`;
+      elements.push({ id, role: elementRole(element), text: text || elementRole(element), actionable: isActionable(element), rect: clipped });
+      targetMap.set(id, element);
+      if (elements.length >= MAX_TARGETS) break;
+    }
+    currentTargets = targetMap;
+    currentContextId = contextId;
+    return elements;
+  }
+
+  function visibleMedia() {
+    return [...document.querySelectorAll("video,audio")]
+      .filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 8 && rect.height > 8 && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth;
+      })
+      .sort((a, b) => {
+        const first = a.getBoundingClientRect();
+        const second = b.getBoundingClientRect();
+        return second.width * second.height - first.width * first.height;
+      })[0] || null;
+  }
+
+  function mediaContext() {
+    const media = visibleMedia();
+    if (!media) return {};
+    const mediaRect = media.getBoundingClientRect();
+    const left = Math.max(0, mediaRect.left);
+    const top = Math.max(0, mediaRect.top);
+    const right = Math.min(innerWidth, mediaRect.right);
+    const bottom = Math.min(innerHeight, mediaRect.bottom);
+    const captions = [...document.querySelectorAll(".ytp-caption-segment")]
+      .map((element) => element.textContent?.trim())
+      .filter(Boolean)
+      .join(" ")
+      .slice(0, 1600);
+    const transcript = document.querySelector("ytd-transcript-segment-list-renderer, [target-id='engagement-panel-searchable-transcript']")?.textContent
+      ?.replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 5000) || "";
+    return {
+      kind: media.tagName.toLowerCase(),
+      currentTime: Number.isFinite(media.currentTime) ? Number(media.currentTime.toFixed(2)) : null,
+      duration: Number.isFinite(media.duration) ? Number(media.duration.toFixed(2)) : null,
+      paused: media.paused,
+      muted: media.muted,
+      playbackRate: media.playbackRate,
+      rect: {
+        x: left,
+        y: top,
+        width: Math.max(1, right - left),
+        height: Math.max(1, bottom - top),
+      },
+      intrinsicWidth: media instanceof HTMLVideoElement ? media.videoWidth : 0,
+      intrinsicHeight: media instanceof HTMLVideoElement ? media.videoHeight : 0,
+      visibleCaptions: captions,
+      transcript,
+    };
+  }
+
+  function preparePtt() {
+    const media = visibleMedia();
+    if (media && !media.paused) media.pause();
+    clearDrawings();
+    transcriptText = "";
+    setBubble("");
+  }
+
+  function collectContext(contextId) {
+    const elements = collectDomTargets(contextId);
+    return {
+      ok: true,
+      context: {
+        contextId,
+        viewport: { width: innerWidth, height: innerHeight, devicePixelRatio },
+        page: {
+          title: document.title.slice(0, 240),
+          url: location.href.slice(0, 1200),
+          language: document.documentElement.lang || navigator.language,
+        },
+        media: mediaContext(),
+        elements,
+      },
+    };
+  }
+
+  function pointForElement(element, label) {
+    const quoted = label?.match(/['\"]([^'\"]+)['\"]/)?.[1]?.trim();
+    const cleaned = String(label || "").replace(/['\"]/g, "").replace(/\b(the|word|text|button|link|field|icon|right|here)\b/gi, " ").replace(/\s+/g, " ").trim();
+    const needles = [quoted, cleaned].filter((value) => value && value.length >= 2).sort((a, b) => b.length - a.length);
+    if (needles.length) {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        const text = node.textContent || "";
+        for (const needle of needles) {
+          const start = text.toLowerCase().indexOf(needle.toLowerCase());
+          if (start < 0) continue;
+          const range = document.createRange();
+          range.setStart(node, start);
+          range.setEnd(node, start + needle.length);
+          const rect = range.getBoundingClientRect();
+          if (rect.width >= 1 && rect.height >= 1) return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        }
+      }
+    }
+    const rect = element.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  }
+
+  function sensitiveReason(element, label) {
+    const text = `${label || ""} ${elementLabel(element)}`;
+    if (element.matches("input[type='password'],input[type='file']")) return "This action uses a protected password or file field.";
+    if (element.matches("button[type='submit'],input[type='submit']")) return "This action submits a form.";
+    if (element.matches("button:not([type])") && element.closest("form")) return "This button may submit a form.";
+    if (SENSITIVE_TEXT.test(text)) return `This may perform a sensitive action: “${elementLabel(element) || label}”.`;
+    return "";
+  }
+
+  function confirmAction(element, reason) {
+    pendingConfirmation = element;
+    confirmCopy.textContent = reason;
+    confirmLayer.classList.add("visible");
+  }
+
+  confirmCancel.addEventListener("click", () => {
+    pendingConfirmation = null;
+    confirmLayer.classList.remove("visible");
+  });
+  confirmAccept.addEventListener("click", () => {
+    const element = pendingConfirmation;
+    pendingConfirmation = null;
+    confirmLayer.classList.remove("visible");
+    if (element?.isConnected) {
+      element.focus({ preventScroll: true });
+      element.click();
+    }
+  });
+
+  function maybeClick(element, label) {
+    if (!element?.isConnected || !isActionable(element)) return;
+    const reason = sensitiveReason(element, label);
+    if (reason) confirmAction(element, reason);
+    else {
+      element.focus({ preventScroll: true });
+      element.click();
+    }
+  }
+
+  function validContext(context) {
+    return visible() && context?.contextId === currentContextId && context?.tabId != null;
+  }
+
+  function handlePoint(context, response) {
+    if (!validContext(context)) return;
+    const target = response?.targetId ? currentTargets.get(response.targetId) : null;
+    if (target?.isConnected) {
+      const point = pointForElement(target, response.label);
+      flyTo({ ...point, label: response.label });
+      if (response.action === "click") setTimeout(() => maybeClick(target, response.label), 750);
+      return;
+    }
+    if (typeof response?.x === "number" && typeof response?.y === "number" && context.screenshotWidth && context.screenshotHeight) {
+      const point = responsePoint(context, response.x, response.y, response.coordinate_space);
+      if (point) flyTo({ ...point, label: response.label });
+    }
+  }
+
+  function mediaAction(action, value) {
+    const media = visibleMedia();
+    if (!media) return;
+    if (action === "pause_media") media.pause();
+    else if (action === "play_media") void media.play().catch(() => setStatus("Click the page once, then ask Clicky to resume", true));
+    else if (action === "seek_media" && Number.isFinite(Number(value))) {
+      media.currentTime = Math.max(0, Math.min(Number.isFinite(media.duration) ? media.duration : Number(value), Number(value)));
+    }
+  }
+
+  function handleAction(context, response) {
+    if (!validContext(context)) return;
+    const action = response?.action;
+    if (action === "scroll_up") scrollBy({ top: -Math.max(320, innerHeight * 0.72), behavior: "smooth" });
+    else if (action === "scroll_down") scrollBy({ top: Math.max(320, innerHeight * 0.72), behavior: "smooth" });
+    else if (["pause_media", "play_media", "seek_media"].includes(action)) mediaAction(action, response.value);
+  }
+
+  function svgElement(name, attributes) {
+    const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+    for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
+    return element;
+  }
+
+  function clearDrawings() {
+    drawings.replaceChildren();
+  }
+
+  function screenshotPoint(context, x, y) {
+    if (typeof x !== "number" || typeof y !== "number" || !context.screenshotWidth || !context.screenshotHeight) return null;
+    return {
+      x: Math.max(0, Math.min(innerWidth, (x / context.screenshotWidth) * innerWidth)),
+      y: Math.max(0, Math.min(innerHeight, (y / context.screenshotHeight) * innerHeight)),
+    };
+  }
+
+  function responsePoint(context, x, y, coordinateSpace) {
+    if (coordinateSpace === "media" && context.mediaRect) {
+      if (typeof x !== "number" || typeof y !== "number") return null;
+      const mediaX = context.mediaRect.x + (Math.max(0, Math.min(1000, x)) / 1000) * context.mediaRect.width;
+      const mediaY = context.mediaRect.y + (Math.max(0, Math.min(1000, y)) / 1000) * context.mediaRect.height;
+      return screenshotPoint(context, mediaX, mediaY);
+    }
+    return screenshotPoint(context, x, y);
+  }
+
+  function targetRect(targetId) {
+    const element = targetId ? currentTargets.get(targetId) : null;
+    return element?.isConnected ? element.getBoundingClientRect() : null;
+  }
+
+  function handleDraw(context, tool, response) {
+    if (!validContext(context)) return;
+    if (tool === "clear_screen_drawings") {
+      clearDrawings();
+      return;
+    }
+    const colors = { blue: "#3380ff", teal: "#14b8a6", red: "#ef4444", amber: "#f59e0b", purple: "#8b5cf6" };
+    const color = colors[response.color] || colors.blue;
+    const shape = response.shape || "rectangle";
+    const rect = targetRect(response.target_id);
+    const fromRect = targetRect(response.from_target_id);
+    const toRect = targetRect(response.to_target_id);
+    const rawStart = responsePoint(context, response.x, response.y, response.coordinate_space);
+    const rawEnd = responsePoint(context, response.end_x, response.end_y, response.coordinate_space);
+    let element = null;
+    if (["rectangle", "highlight", "circle", "underline"].includes(shape) && rect) {
+      if (shape === "circle") {
+        element = svgElement("ellipse", { cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2, rx: rect.width / 2 + 8, ry: rect.height / 2 + 8, fill: "none", stroke: color, "stroke-width": 3, "pathLength": 1, class: "stroke" });
+      } else if (shape === "underline") {
+        element = svgElement("line", { x1: rect.left, y1: rect.bottom + 4, x2: rect.right, y2: rect.bottom + 4, stroke: color, "stroke-width": 4, "stroke-linecap": "round", "pathLength": 1, class: "stroke" });
+      } else {
+        element = svgElement("rect", { x: rect.left - 6, y: rect.top - 6, width: rect.width + 12, height: rect.height + 12, rx: 8, fill: shape === "highlight" ? color : "none", "fill-opacity": shape === "highlight" ? .18 : 0, stroke: color, "stroke-width": shape === "highlight" ? 1.5 : 3, "pathLength": 1, class: "stroke" });
+      }
+    } else if (["rectangle", "highlight", "circle", "underline"].includes(shape) && rawStart) {
+      // Pixels inside videos, canvas elements, and cross-origin iframes have no
+      // DOM target. Draw directly in the calibrated screenshot coordinate
+      // space instead of silently dropping the annotation.
+      if (shape === "underline") {
+        const end = rawEnd || { x: rawStart.x + 72, y: rawStart.y };
+        element = svgElement("line", {
+          x1: rawStart.x,
+          y1: rawStart.y,
+          x2: end.x,
+          y2: end.y,
+          stroke: color,
+          "stroke-width": 4,
+          "stroke-linecap": "round",
+          pathLength: 1,
+          class: "stroke",
+        });
+      } else {
+        const end = rawEnd || { x: rawStart.x + 68, y: rawStart.y + 68 };
+        const left = Math.min(rawStart.x, end.x);
+        const top = Math.min(rawStart.y, end.y);
+        const width = Math.max(12, Math.abs(end.x - rawStart.x));
+        const height = Math.max(12, Math.abs(end.y - rawStart.y));
+        if (shape === "circle") {
+          element = svgElement("ellipse", {
+            cx: left + width / 2,
+            cy: top + height / 2,
+            rx: width / 2,
+            ry: height / 2,
+            fill: "none",
+            stroke: color,
+            "stroke-width": 3,
+            pathLength: 1,
+            class: "stroke",
+          });
+        } else {
+          element = svgElement("rect", {
+            x: left,
+            y: top,
+            width,
+            height,
+            rx: 8,
+            fill: shape === "highlight" ? color : "none",
+            "fill-opacity": shape === "highlight" ? .18 : 0,
+            stroke: color,
+            "stroke-width": shape === "highlight" ? 1.5 : 3,
+            pathLength: 1,
+            class: "stroke",
+          });
+        }
+      }
+    } else if (["arrow", "line"].includes(shape)) {
+      const start = fromRect ? { x: fromRect.left + fromRect.width / 2, y: fromRect.top + fromRect.height / 2 } : rawStart;
+      const end = toRect ? { x: toRect.left + toRect.width / 2, y: toRect.top + toRect.height / 2 } : rawEnd;
+      if (start && end) {
+        element = svgElement("line", { x1: start.x, y1: start.y, x2: end.x, y2: end.y, stroke: color, "stroke-width": 3, "stroke-linecap": "round", "pathLength": 1, class: "stroke" });
+      }
+    }
+    if (!element) {
+      setStatus("Clicky couldn't place that annotation", true);
+      return;
+    }
+    drawings.appendChild(element);
+  }
+
+  window.addEventListener("mousemove", (event) => {
+    mouse = { x: event.clientX, y: event.clientY };
+    if (visible() && performance.now() - cursorReportAt > 120) {
+      cursorReportAt = performance.now();
+      void chrome.runtime.sendMessage({ type: "CLICKY_CURSOR_POSITION", x: mouse.x, y: mouse.y });
+    }
+  }, true);
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Control" || event.metaKey || event.altKey || event.repeat || !visible() || pttHeld) return;
+    pttHeld = true;
+    setMode("listening");
+    setStatus("Clicky listening — release Ctrl");
+    void chrome.runtime.sendMessage({ type: "CLICKY_PTT_START" });
+  }, true);
+
+  window.addEventListener("keyup", (event) => {
+    if (event.key !== "Control" || !pttHeld) return;
+    pttHeld = false;
+    setMode("thinking");
+    setStatus("Clicky thinking");
+    void chrome.runtime.sendMessage({ type: "CLICKY_PTT_STOP" });
+  }, true);
+
+  window.addEventListener("blur", () => {
+    if (!pttHeld) return;
+    pttHeld = false;
+    void chrome.runtime.sendMessage({ type: "CLICKY_PTT_STOP" });
+  });
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window || !CTRLTEACH_ORIGINS.has(event.origin)) return;
+    if (event.data?.type === "CTRLTEACH_CLICKY_PROBE") {
+      window.postMessage({
+        type: "CTRLTEACH_CLICKY_EXTENSION_READY",
+        requestId: event.data.requestId,
+        instanceId: CONTENT_INSTANCE_ID,
+      }, event.origin);
+    } else if (event.data?.type === "CTRLTEACH_CLICKY_CONFIG") {
+      void chrome.runtime.sendMessage({ type: "CTRLTEACH_CLICKY_CONFIG", config: event.data.config }).then((response) => {
+        // Apply the returned state immediately. The service worker also
+        // broadcasts it, but this direct path avoids a first-enable race where
+        // the cursor otherwise waits for a page refresh.
+        if (response?.state) {
+          extensionState = { ...extensionState, ...response.state };
+          renderVisibility();
+        }
+        window.postMessage({ type: "CTRLTEACH_CLICKY_CONFIG_ACK", requestId: event.data.requestId, response }, event.origin);
+      });
+    }
+  });
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type === "CLICKY_EXTENSION_PING") {
+      sendResponse({ ok: true });
+      return false;
+    }
+    if (message.type === "CLICKY_STATE") {
+      extensionState = { ...extensionState, ...message.state };
+      if (message.state?.cursor) {
+        mouse = { ...message.state.cursor };
+        position = { x: mouse.x + BUDDY_OFFSET_X, y: mouse.y + BUDDY_OFFSET_Y };
+      }
+      renderVisibility();
+    } else if (message.type === "CLICKY_PREPARE_PTT") {
+      preparePtt();
+    } else if (message.type === "CLICKY_COLLECT_CONTEXT") {
+      sendResponse(collectContext(message.contextId));
+      return false;
+    } else if (message.type === "CLICKY_MODE") {
+      // A delayed start acknowledgement must not put the cursor back into the
+      // listening waveform after Ctrl has already been released.
+      if (message.mode !== "listening" || pttHeld || message.trigger === "toolbar") setMode(message.mode);
+    } else if (message.type === "CLICKY_STATUS") {
+      // Ctrl owns the visual state while it is held. In particular, the
+      // acknowledgement for interrupting old playback must not hide the live
+      // listening waveform.
+      if (pttHeld && ["idle", "thinking", "speaking"].includes(message.mode)) {
+        sendResponse({ ok: true });
+        return false;
+      }
+      if (message.mode === "listening" && !pttHeld && mode !== "listening") {
+        sendResponse({ ok: true });
+        return false;
+      }
+      setMode(message.mode);
+      if (message.mode === "speaking" && message.append) {
+        transcriptText = `${transcriptText}${message.text || ""}`.slice(-420);
+        setBubble(transcriptText);
+      } else if (message.text) {
+        setStatus(message.text, message.delayed);
+        if (message.mode === "idle" && !activePoint) setTimeout(() => setBubble(""), 1400);
+      }
+    } else if (message.type === "CLICKY_POINT") {
+      handlePoint(message.context, message.response);
+    } else if (message.type === "CLICKY_DRAW") {
+      handleDraw(message.context, message.tool, message.response);
+    } else if (message.type === "CLICKY_ACTION") {
+      handleAction(message.context, message.response);
+    }
+    sendResponse({ ok: true });
+    return false;
+  });
+
+  mount();
+  requestAnimationFrame(animateFrame);
+  if (CTRLTEACH_ORIGINS.has(window.location.origin)) {
+    window.postMessage({
+      type: "CTRLTEACH_CLICKY_EXTENSION_ATTACHED",
+      instanceId: CONTENT_INSTANCE_ID,
+    }, window.location.origin);
+  }
+  chrome.runtime.sendMessage({ type: "CLICKY_PAGE_READY" }).then((response) => {
+    if (response?.state) {
+      extensionState = { ...extensionState, ...response.state };
+      const initial = response.state.cursor || position;
+      mouse = { x: initial.x, y: initial.y };
+      position = { x: initial.x + BUDDY_OFFSET_X, y: initial.y + BUDDY_OFFSET_Y };
+      transformCursor(position.x, position.y);
+      renderVisibility();
+    }
+  }).catch(() => undefined);
+})();

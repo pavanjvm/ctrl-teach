@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     realtime_voice: str = "ash"
     transcription_model: str = "gpt-4o-mini-transcribe"
     image_model: str = "gpt-image-1"
+    clicky_visual_locator_enabled: bool = True
+    clicky_visual_locator_model: str = "gpt-5.4"
+    clicky_visual_locator_trial_models: str = "gpt-5.4,gpt-5.5"
+    clicky_visual_locator_reasoning_effort: str = "xhigh"
+    clicky_visual_locator_timeout_seconds: float = 20.0
 
     # ── Firecrawl (web search for /api/discover) ───────────────────────────
     firecrawl_api_key: str = ""
@@ -41,6 +46,11 @@ class Settings(BaseSettings):
     app_users: str = "[]"
     # Bcrypt rounds used when hashing passwords for new registrations.
     bcrypt_rounds: int = 12
+    # HMAC secret for short-lived browser-extension sessions. When omitted a
+    # process-local secret is generated, which is safe for development but
+    # invalidates extension sessions whenever the backend restarts.
+    clicky_extension_token_secret: str = ""
+    clicky_extension_token_ttl_seconds: int = 43_200
 
     # ── Local file storage (replaces GCS) ──────────────────────────────────
     # Directory where canvas snapshots / generated images are written.

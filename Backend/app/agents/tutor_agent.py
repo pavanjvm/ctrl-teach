@@ -127,6 +127,12 @@ board auto-places each new text block below the previous one.  Only pass an
 explicit `y` if you need to position text at a specific location (e.g. next to
 a diagram).  The cursor resets automatically when you call `clear_canvas`.
 
+## Diagram placement
+Use `draw_diagram` for structured flowcharts, mind maps, and lists instead of
+manually positioning their boxes and labels with `draw_on_canvas`. Keep each
+node label concise, and omit `y` so the diagram is placed below existing
+content without overlap.
+
 ## Canvas awareness
 The student has an Excalidraw whiteboard in front of them.  You can:
 - See what they draw (images arrive as canvas snapshots).

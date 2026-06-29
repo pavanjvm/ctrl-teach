@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import textwrap
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,13 @@ _TEXT_SPACING = 20          # vertical gap between consecutive text blocks
 _cursor_y: float = 60.0    # current vertical cursor position
 _CURSOR_Y_INIT: float = 60.0
 _CURSOR_MARGIN: float = 40.0  # gap between existing content and new tutor text
+
+# Diagram labels are wrapped before they reach Excalidraw. This keeps the
+# renderer deterministic: each shape is sized from the exact lines it will
+# display instead of relying on Excalidraw to reflow text after placement.
+_FLOW_LABEL_MAX_WIDTH = 320.0
+_MINDMAP_LABEL_MAX_WIDTH = 300.0
+_GENERIC_LABEL_MAX_WIDTH = 560.0
 
 
 def update_cursor_from_canvas(elements: List[Dict[str, Any]]) -> None:
@@ -251,6 +259,25 @@ def _measure_text_width(text: str, font_size: int) -> float:
     return max(longest * font_size * _CHAR_WIDTH_RATIO, font_size)
 
 
+def _wrap_text(text: str, font_size: int, max_width: float) -> str:
+    """Wrap *text* to a predictable pixel width while preserving newlines."""
+    max_chars = max(8, int(max_width / (font_size * _CHAR_WIDTH_RATIO)))
+    wrapper = textwrap.TextWrapper(
+        width=max_chars,
+        break_long_words=True,
+        break_on_hyphens=False,
+        replace_whitespace=False,
+        drop_whitespace=True,
+    )
+    wrapped: List[str] = []
+    for source_line in text.splitlines() or [text]:
+        if not source_line.strip():
+            wrapped.append("")
+            continue
+        wrapped.extend(wrapper.wrap(source_line) or [source_line])
+    return "\n".join(wrapped)
+
+
 def _box_size(
     text: str,
     font_size: int,
@@ -269,6 +296,15 @@ def _box_size(
         min_height,
     )
     return w, h
+
+
+def _text_block_size(text: str, font_size: int) -> tuple[float, float]:
+    """Return the rendered size of already-wrapped text without box padding."""
+    lines = text.splitlines() or [text]
+    return (
+        max((_measure_text_width(line, font_size) for line in lines), default=font_size),
+        max(font_size * _LINE_HEIGHT_RATIO, len(lines) * font_size * _LINE_HEIGHT_RATIO),
+    )
 
 
 # ── Canvas Element Bridge ─────────────────────────────────────────────────────
@@ -445,7 +481,7 @@ def draw_diagram(
     title: str = "",
     items: Optional[List[str]] = None,
     x: float = 100.0,
-    y: float = 100.0,
+    y: float = -1.0,
 ) -> Dict[str, Any]:
     """Draw a structured diagram on the canvas.
 
@@ -461,8 +497,11 @@ def draw_diagram(
     x:
         Starting X position.
     y:
-        Starting Y position.
+        Starting Y position. Leave at default (-1) to place the diagram below
+        the existing canvas content.
     """
+    global _cursor_y
+
     items = items or []
     elements: List[Dict[str, Any]] = []
     # Animation groups — each entry records (start_idx, end_idx_exclusive)
@@ -475,176 +514,261 @@ def draw_diagram(
     _TITLE_DELAY = 0             # title appears immediately
     _FIRST_ITEM_DELAY = 250      # small pause between title and first item
 
-    # Normalise math symbols in title and all items
+    # Normalise math symbols in title and all items.
     title = _normalize_math_text(title)
     items = [_normalize_math_text(it) for it in items]
 
-    # Title element
-    if title:
+    if y < 0:
+        y = _cursor_y
+
+    diagram_bottom = y
+    content_y = y
+
+    # Mind maps use the title as their central node. Other diagram types get a
+    # standalone, wrapped heading above the content.
+    if title and diagram_type != "mindmap":
+        wrapped_title = _wrap_text(title, 28, 620)
+        title_w, title_h = _text_block_size(wrapped_title, 28)
         _title_start = len(elements)
         elements.append({
             "type": "text",
             "x": x,
             "y": y,
-            "text": title,
+            "text": wrapped_title,
             "fontSize": 28,
             "strokeColor": "#1864ab",
             "fontFamily": 1,
+            "width": min(title_w, 620),
+            "height": title_h,
+            "autoResize": False,
         })
         _anim_groups.append((_title_start, len(elements)))
+        content_y = y + title_h + 32
+        diagram_bottom = content_y
 
     # Generate elements based on diagram type
     if diagram_type == "flowchart":
-        # Pre-compute the widest box so all flowchart steps are the same width
         fc_font = 18
-        max_box_w = max((_box_size(it, fc_font)[0] for it in items), default=200)
-        box_h = 50  # fixed height per step
-        row_gap = 100  # vertical distance between box tops
+        arrow_gap = 48.0
+        prepared = []
+        for item in items:
+            wrapped = _wrap_text(item, fc_font, _FLOW_LABEL_MAX_WIDTH)
+            text_w, text_h = _text_block_size(wrapped, fc_font)
+            box_w, box_h = _box_size(wrapped, fc_font, min_width=200, min_height=60)
+            prepared.append((wrapped, text_w, text_h, box_w, box_h))
 
-        for i, item in enumerate(items):
+        uniform_width = max((entry[3] for entry in prepared), default=240.0)
+        box_y = content_y
+        for i, (wrapped, _text_w, text_h, _box_w, box_h) in enumerate(prepared):
             step_start = len(elements)
-            box_y = y + 60 + i * row_gap
-            item_w, _ = _box_size(item, fc_font)
-            bw = max(item_w, max_box_w)  # uniform width across all steps
-            cx = x + bw / 2             # centre-x for the arrow
+            cx = x + uniform_width / 2
             elements.append({
                 "type": "rectangle",
                 "x": x,
                 "y": box_y,
-                "width": bw,
+                "width": uniform_width,
                 "height": box_h,
                 "strokeColor": "#1864ab",
                 "backgroundColor": "#d0ebff",
                 "fillStyle": "solid",
             })
-            _, th = _box_size(item, fc_font, min_width=0, min_height=0)
             elements.append({
                 "type": "text",
                 "x": x + _H_PAD,
-                "y": box_y + (box_h - th) / 2,
-                "text": item,
+                "y": box_y + (box_h - text_h) / 2,
+                "text": wrapped,
                 "fontSize": fc_font,
                 "strokeColor": "#1e1e1e",
-                # Use full box interior so long labels are never clipped
-                "width": bw - _H_PAD * 2,
-                "height": th,
+                "fontFamily": 1,
+                "width": uniform_width - _H_PAD * 2,
+                "height": text_h,
+                "textAlign": "center",
+                "verticalAlign": "middle",
+                "autoResize": False,
             })
-            if i < len(items) - 1:
+            diagram_bottom = max(diagram_bottom, box_y + box_h)
+            if i < len(prepared) - 1:
                 elements.append({
                     "type": "arrow",
                     "x": cx,
                     "y": box_y + box_h,
                     "width": 0,
-                    "height": row_gap - box_h,
+                    "height": arrow_gap,
+                    "points": [[0, 0], [0, arrow_gap]],
                     "strokeColor": "#1864ab",
                 })
-            # One animation group per flowchart step (box + label + arrow)
             _anim_groups.append((step_start, len(elements)))
+            box_y += box_h + arrow_gap
 
     elif diagram_type == "mindmap":
-        import math
         mm_font = 16
-        # Size the central node to fit the title text
-        centre_text = title or "Topic"
-        centre_w = max(_measure_text_width(centre_text, mm_font) + _H_PAD * 2, 160)
-        centre_h = max(mm_font * _LINE_HEIGHT_RATIO + _V_PAD * 2, 60)
-        cx_centre = x + 50 + centre_w / 2
-        cy_centre = y + 90 + centre_h / 2
+        centre_text = _wrap_text(title or "Topic", mm_font, 220)
+        centre_text_w, centre_text_h = _text_block_size(centre_text, mm_font)
+        centre_w, centre_h = _box_size(centre_text, mm_font, min_width=180, min_height=70)
+
+        branches = []
+        for item in items:
+            wrapped = _wrap_text(item, mm_font, _MINDMAP_LABEL_MAX_WIDTH)
+            text_w, text_h = _text_block_size(wrapped, mm_font)
+            box_w, box_h = _box_size(wrapped, mm_font, min_width=180, min_height=58)
+            branches.append((wrapped, text_w, text_h, box_w, box_h))
+
+        branch_width = max((entry[3] for entry in branches), default=220.0)
+        branch_gap = 28.0
+        branch_top = content_y
+        branch_total_h = sum(entry[4] for entry in branches)
+        if len(branches) > 1:
+            branch_total_h += branch_gap * (len(branches) - 1)
+
+        centre_x = x
+        centre_y = branch_top + max(0.0, (branch_total_h - centre_h) / 2)
+        branch_x = centre_x + centre_w + 110
+
         _centre_start = len(elements)
         elements.append({
             "type": "ellipse",
-            "x": x + 50,
-            "y": y + 60,
+            "x": centre_x,
+            "y": centre_y,
             "width": centre_w,
             "height": centre_h,
             "strokeColor": "#e67700",
             "backgroundColor": "#fff3bf",
             "fillStyle": "solid",
         })
+        elements.append({
+            "type": "text",
+            "x": centre_x + _H_PAD,
+            "y": centre_y + (centre_h - centre_text_h) / 2,
+            "text": centre_text,
+            "fontSize": mm_font,
+            "strokeColor": "#1e1e1e",
+            "fontFamily": 1,
+            "width": centre_w - _H_PAD * 2,
+            "height": centre_text_h,
+            "textAlign": "center",
+            "verticalAlign": "middle",
+            "autoResize": False,
+        })
         _anim_groups.append((_centre_start, len(elements)))
+        diagram_bottom = max(diagram_bottom, centre_y + centre_h)
 
-        for i, item in enumerate(items):
+        next_branch_y = branch_top
+        for wrapped, _text_w, text_h, _box_w, box_h in branches:
             branch_start = len(elements)
-            angle = (2 * math.pi * i) / max(len(items), 1)
-            bw, bh = _box_size(item, mm_font)
-            # Radiate branches further out when items are wider
-            radius_x = max(centre_w / 2 + bw + 40, 220)
-            radius_y = max(centre_h / 2 + bh + 40, 175)
-            bx = int(cx_centre + radius_x * math.cos(angle) - bw / 2)
-            by = int(cy_centre + radius_y * math.sin(angle) - bh / 2)
+            source_x = centre_x + centre_w
+            source_y = centre_y + centre_h / 2
+            target_y = next_branch_y + box_h / 2
+            elements.append({
+                "type": "arrow",
+                "x": source_x,
+                "y": source_y,
+                "width": branch_x - source_x,
+                "height": target_y - source_y,
+                "points": [[0, 0], [branch_x - source_x, target_y - source_y]],
+                "strokeColor": "#2b8a3e",
+            })
             elements.append({
                 "type": "rectangle",
-                "x": bx,
-                "y": by,
-                "width": bw,
-                "height": bh,
+                "x": branch_x,
+                "y": next_branch_y,
+                "width": branch_width,
+                "height": box_h,
                 "strokeColor": "#2b8a3e",
                 "backgroundColor": "#d3f9d8",
                 "fillStyle": "solid",
             })
-            _, th = _box_size(item, mm_font, min_width=0, min_height=0)
             elements.append({
                 "type": "text",
-                "x": bx + _H_PAD,
-                "y": by + (bh - th) / 2,
-                "text": item,
+                "x": branch_x + _H_PAD,
+                "y": next_branch_y + (box_h - text_h) / 2,
+                "text": wrapped,
                 "fontSize": mm_font,
                 "strokeColor": "#1e1e1e",
-                "width": bw - _H_PAD * 2,
-                "height": th,
+                "fontFamily": 1,
+                "width": branch_width - _H_PAD * 2,
+                "height": text_h,
+                "textAlign": "center",
+                "verticalAlign": "middle",
+                "autoResize": False,
             })
             _anim_groups.append((branch_start, len(elements)))
+            diagram_bottom = max(diagram_bottom, next_branch_y + box_h)
+            next_branch_y += box_h + branch_gap
 
     elif diagram_type == "list":
-        for i, item in enumerate(items):
+        list_font = 20
+        next_item_y = content_y
+        for item in items:
+            wrapped_body = _wrap_text(item, list_font, _GENERIC_LABEL_MAX_WIDTH - 30)
+            body_lines = wrapped_body.splitlines() or [wrapped_body]
+            wrapped = "\n".join(
+                ("• " if index == 0 else "  ") + line
+                for index, line in enumerate(body_lines)
+            )
+            _text_w, text_h = _text_block_size(wrapped, list_font)
             _item_start = len(elements)
             elements.append({
                 "type": "text",
                 "x": x + 10,
-                "y": y + 60 + i * 36,
-                "text": f"• {item}",
-                "fontSize": 20,
+                "y": next_item_y,
+                "text": wrapped,
+                "fontSize": list_font,
                 "strokeColor": "#1e1e1e",
+                "fontFamily": 1,
+                "width": _GENERIC_LABEL_MAX_WIDTH,
+                "height": text_h,
+                "autoResize": False,
             })
             _anim_groups.append((_item_start, len(elements)))
+            diagram_bottom = max(diagram_bottom, next_item_y + text_h)
+            next_item_y += text_h + 14
 
     else:
-        # Generic: render items as text list inside a border rectangle.
-        # Size the rectangle to the widest item so nothing overflows.
         gen_font = 18
-        inner_w = max(
-            (_measure_text_width(it, gen_font) for it in items),
-            default=300,
-        )
-        box_w = inner_w + _H_PAD * 2 + 20
-        row_px = gen_font * _LINE_HEIGHT_RATIO + 6
-        box_h = 60 + len(items) * row_px + 20
+        rows = []
+        for item in items:
+            wrapped = _wrap_text(item, gen_font, _GENERIC_LABEL_MAX_WIDTH)
+            text_w, text_h = _text_block_size(wrapped, gen_font)
+            rows.append((wrapped, text_w, text_h))
+
+        inner_w = max((row[1] for row in rows), default=300.0)
+        inner_w = min(max(inner_w, 300.0), _GENERIC_LABEL_MAX_WIDTH)
+        row_gap = 12.0
+        rows_h = sum(row[2] for row in rows)
+        if len(rows) > 1:
+            rows_h += row_gap * (len(rows) - 1)
+        box_w = inner_w + _H_PAD * 2
+        box_h = max(76.0, rows_h + _V_PAD * 2)
+        border_y = content_y
         _border_start = len(elements)
         elements.append({
             "type": "rectangle",
-            "x": x - 10,
-            "y": y - 10,
+            "x": x,
+            "y": border_y,
             "width": box_w,
             "height": box_h,
             "strokeColor": "#868e96",
         })
         _anim_groups.append((_border_start, len(elements)))
 
-        for i, item in enumerate(items):
+        row_y = border_y + _V_PAD
+        for wrapped, _text_w, text_h in rows:
             _row_start = len(elements)
-            _, th = _box_size(item, gen_font, min_width=0, min_height=0)
             elements.append({
                 "type": "text",
                 "x": x + _H_PAD,
-                "y": y + 50 + i * row_px,
-                "text": item,
+                "y": row_y,
+                "text": wrapped,
                 "fontSize": gen_font,
                 "strokeColor": "#1e1e1e",
-                # Full box interior so nothing clips
-                "width": box_w - _H_PAD * 2 - 20,
-                "height": th,
+                "fontFamily": 1,
+                "width": inner_w,
+                "height": text_h,
+                "autoResize": False,
             })
             _anim_groups.append((_row_start, len(elements)))
+            row_y += text_h + row_gap
+        diagram_bottom = max(diagram_bottom, border_y + box_h)
 
     # ── Build animation metadata ──────────────────────────────────────────
     # Each animation group gets a staggered delay so elements cascade
@@ -659,10 +783,13 @@ def draw_diagram(
                 delay = _FIRST_ITEM_DELAY + (idx - 1) * _STEP_DELAY
             animation.append({"start": start, "end": end, "delay": delay})
 
+    # Keep subsequent tutor content below the complete diagram, including
+    # variable-height wrapped labels.
+    _cursor_y = max(_cursor_y, diagram_bottom + _TEXT_SPACING)
+
     logger.info(
-        "draw_diagram: type=%s title=%s items=%d elements=%d anim_groups=%d",
-        diagram_type, title, len(items), len(elements),
-        len(_anim_groups),
+        "draw_diagram: type=%s title=%s items=%d elements=%d anim_groups=%d bottom=%.0f",
+        diagram_type, title, len(items), len(elements), len(_anim_groups), diagram_bottom,
     )
     return _defer_elements("draw_diagram", "add", elements, animation=animation)
 

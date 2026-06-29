@@ -52,7 +52,12 @@ export function useAudio() {
 
       // Get microphone
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1 },
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
       });
       micStreamRef.current = stream;
 

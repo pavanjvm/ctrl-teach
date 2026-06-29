@@ -56,6 +56,7 @@ export function useWebSocket() {
   // Refs for mutable input/output transcription tracking
   const currentInputIdRef = useRef<string | null>(null);
   const currentOutputIdRef = useRef<string | null>(null);
+  const audioSuppressedRef = useRef(false);
 
   // Store callbacks in refs so the message handler always sees the latest
   const onAudioRef = useRef<((pcm: ArrayBuffer) => void) | undefined>(undefined);
@@ -72,6 +73,7 @@ export function useWebSocket() {
     ) return;
     setStatus("connecting");
     setRealtimeReady(false);
+    audioSuppressedRef.current = false;
 
     onAudioRef.current = opts?.onAudio;
     onInterruptRef.current = opts?.onInterrupt;
@@ -105,6 +107,7 @@ export function useWebSocket() {
       wsRef.current = null;
       setStatus("disconnected");
       setRealtimeReady(false);
+      audioSuppressedRef.current = false;
       if (event.code !== 1000 && event.code !== 1005) {
         onErrorRef.current?.(event.reason || "Realtime backend unavailable.");
       }
@@ -124,7 +127,7 @@ export function useWebSocket() {
     ws.onmessage = (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
         // Binary audio from server
-        onAudioRef.current?.(event.data);
+        if (!audioSuppressedRef.current) onAudioRef.current?.(event.data);
         return;
       }
 
@@ -161,9 +164,21 @@ export function useWebSocket() {
 
   // ── Send helpers ─────────────────────────────────────────────────────────
 
+  const interruptResponse = useCallback(() => {
+    const ws = wsRef.current;
+    if (ws?.readyState !== WebSocket.OPEN) return;
+
+    // Stop already-scheduled browser audio synchronously. The backend signal
+    // prevents any additional audio chunks from the old response arriving.
+    audioSuppressedRef.current = true;
+    onInterruptRef.current?.();
+    ws.send(JSON.stringify({ type: "interrupt" }));
+  }, []);
+
   const sendText = useCallback((text: string) => {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
+      interruptResponse();
       ws.send(JSON.stringify({ type: "text", text }));
 
       setMessages((prev) => [
@@ -177,7 +192,7 @@ export function useWebSocket() {
         },
       ]);
     }
-  }, []);
+  }, [interruptResponse]);
 
   const sendAudio = useCallback((pcmData: ArrayBuffer) => {
     const ws = wsRef.current;
@@ -279,6 +294,13 @@ export function useWebSocket() {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "clicky_commit_audio" }));
+    }
+  }, []);
+
+  const sendClickyCancelAudio = useCallback(() => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "clicky_cancel_audio" }));
     }
   }, []);
 
@@ -476,7 +498,7 @@ export function useWebSocket() {
         for (const part of event.content.parts) {
           if (part.inlineData?.mimeType?.startsWith("audio/pcm")) {
             const audioB64 = part.inlineData.data;
-            if (audioB64) {
+            if (audioB64 && !audioSuppressedRef.current) {
               onAudioRef.current?.(base64ToArrayBuffer(audioB64));
             }
           }
@@ -533,7 +555,11 @@ export function useWebSocket() {
               }
             }
             // Play optional tool-supplied audio (e.g. "image generated successfully")
-            if (resp?.audio_b64 && typeof resp.audio_b64 === "string") {
+            if (
+              resp?.audio_b64 &&
+              typeof resp.audio_b64 === "string" &&
+              !audioSuppressedRef.current
+            ) {
               const mime = (resp.audio_mime as string) || "audio/pcm;rate=16000";
               onToolAudioRef.current?.(resp.audio_b64, mime);
             }
@@ -566,6 +592,7 @@ export function useWebSocket() {
         if (event.interrupted) {
           console.log("[ADK] User interrupted agent!");
           onInterruptRef.current?.();
+          audioSuppressedRef.current = false;
         }
       }
     },
@@ -591,6 +618,7 @@ export function useWebSocket() {
     realtimeReady,
     connect,
     disconnect,
+    interruptResponse,
     sendText,
     sendAudio,
     sendImage,
@@ -598,6 +626,7 @@ export function useWebSocket() {
     sendCanvasElements,
     sendClickyScreen,
     sendClickyCommitAudio,
+    sendClickyCancelAudio,
   };
 }
 

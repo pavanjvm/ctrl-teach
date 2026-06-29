@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Ctrl+Teach Clicky",
+  "version": "0.1.0",
+  "description": "Browser-wide Clicky voice, pointing, and page assistance.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "tabs", "offscreen", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "action": {
+    "default_title": "Talk to Clicky"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "options_page": "setup.html"
+}

@@ -96,6 +96,7 @@ export default function Page() {
     isSavingProgress,
     connect,
     disconnect,
+    interruptResponse,
     sendText,
     sendAudio,
     sendImage,
@@ -308,11 +309,14 @@ export default function Page() {
   }, [connected, sendWhiteboardVisionTurn]);
 
   const handleSendText = useCallback((text: string) => {
+    // Snapshot-backed questions bypass sendText, so interrupt here as well.
+    // This also clears locally queued audio before the async capture begins.
+    interruptResponse();
     void (async () => {
       const sentVisionTurn = await maybeSendVisualContext(text);
       if (!sentVisionTurn) sendText(text);
     })();
-  }, [maybeSendVisualContext, sendText]);
+  }, [interruptResponse, maybeSendVisualContext, sendText]);
 
   // ── Auto-start mic when session connects ─────────────────────────────────
 

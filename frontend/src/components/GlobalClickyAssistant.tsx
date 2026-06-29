@@ -573,15 +573,15 @@ async function captureFrameFromStream(
 
 export default function GlobalClickyAssistant() {
   const { user, getToken } = useAuth();
-  const { enabled, setEnabled, status, setStatus, trainingOpen } = useClicky();
+  const { enabled, setEnabled, extensionAvailable, status, setStatus, trainingOpen } = useClicky();
   const pathname = usePathname();
   const isLanding = pathname === "/";
   const isWhiteboardSession = pathname === "/board";
-  const globalClickyActive = enabled && !isWhiteboardSession;
+  const globalClickyActive = enabled && !isWhiteboardSession && extensionAvailable === false;
   // Decorative cursor is visible on the landing page and wherever Global
   // Clicky is active. The board supplies its own Clicky cursor and owns the
   // only Realtime voice session while that route is mounted.
-  const showCursor = globalClickyActive || isLanding;
+  const showCursor = globalClickyActive || (isLanding && extensionAvailable !== true);
 
   const [mounted, setMounted] = useState(false);
   const [bubble, setBubble] = useState("");
@@ -595,6 +595,8 @@ export default function GlobalClickyAssistant() {
 
   // Cursor RAF refs
   const cursorRef = useRef<HTMLDivElement>(null);
+  const bubbleAnchorRef = useRef<HTMLDivElement>(null);
+  const cursorRotationRef = useRef(-35);
   const posRef = useRef({ x: 90, y: 90 });
   const mouseRef = useRef({ x: 90, y: 90 });
   const activePointRef = useRef(false);
@@ -619,7 +621,21 @@ export default function GlobalClickyAssistant() {
   const ctrlHeldRef = useRef(false);
   const upstreamMutedRef = useRef(true); // start muted; Ctrl unmutes
   const speechTailUntilRef = useRef(0);
-  const speechStatsRef = useRef({ startedAt: 0, chunks: 0, bytes: 0, peak: 0, rmsSum: 0 });
+  const ambientNoiseRef = useRef({ rms: 0.004, flux: 0.0025, peak: 0.012 });
+  const previousMicSampleRef = useRef(0);
+  const speechStatsRef = useRef({
+    startedAt: 0,
+    chunks: 0,
+    bytes: 0,
+    peak: 0,
+    rmsSum: 0,
+    voicedSamples: 0,
+    currentVoiceSamples: 0,
+    maxContinuousVoiceSamples: 0,
+    noiseRms: 0.004,
+    noiseFlux: 0.0025,
+    noisePeak: 0.012,
+  });
   const replyAudioStatsRef = useRef({ chunks: 0, bytes: 0 });
   // Last clicky_point id processed, to avoid double-handling the same event.
   const lastPointIdRef = useRef<string | null>(null);
@@ -632,16 +648,19 @@ export default function GlobalClickyAssistant() {
   // Matches the real Clicky macOS overlay (OverlayWindow.swift). The buddy:
   //   - sits +35px right / +25px below the real pointer (a "helper" buddy)
   //   - defaults to a -35° tilt (cursor-like arrow)
-  //   - springs toward the mouse with SwiftUI spring(response:0.2, damping:0.6)
+  //   - springs toward the mouse with a deliberately visible follow-through
   //   - flies to targets along a quadratic bezier, smoothstep easeInOut,
   //     duration = clamp(dist/800, 0.6s, 1.4s), arc height = min(dist*0.2, 80)
   const BUDDY_OFFSET_X = 35;
   const BUDDY_OFFSET_Y = 25;
   const BUDDY_DEFAULT_ROT = -35;
-  // Spring constants for response=0.2, dampingFraction=0.6 (SwiftUI critically-ish damped).
+  // A slower response with stronger damping keeps a smooth visible trail while
+  // avoiding excessive bounce around the real cursor.
+  const SPRING_RESPONSE = 0.38;
+  const SPRING_DAMPING = 0.68;
   // ω = 2π/response; k = ω²; c = 2·dampingFraction·√k (mass=1).
-  const SPRING_K = (2 * Math.PI / 0.2) ** 2;            // ≈ 986.96
-  const SPRING_C = 2 * 0.6 * Math.sqrt(SPRING_K);       // ≈ 37.7
+  const SPRING_K = (2 * Math.PI / SPRING_RESPONSE) ** 2;
+  const SPRING_C = 2 * SPRING_DAMPING * Math.sqrt(SPRING_K);
   // Velocity carried across frames for the idle spring follower.
   const velRef = useRef({ x: 0, y: 0 });
   // Last timestamp for the spring RAF loop (dt in seconds).
@@ -651,6 +670,8 @@ export default function GlobalClickyAssistant() {
     const el = cursorRef.current;
     if (el) el.style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${rot}deg) scale(${scale})`;
     el?.style.setProperty("opacity", String(opacity));
+    cursorRotationRef.current = rot;
+    if (bubbleAnchorRef.current) bubbleAnchorRef.current.style.transform = `rotate(${-rot}deg)`;
     posRef.current = { x, y };
   }, []);
 
@@ -734,10 +755,7 @@ export default function GlobalClickyAssistant() {
   }, [isWhiteboardSession, clearScreenAnnotations]);
 
   // ── Idle spring-follow loop ──────────────────────────────────────────────
-  // Replicates SwiftUI `.animation(.spring(response: 0.2, dampingFraction: 0.6),
-  // value: cursorPosition)` updated at 60fps. We integrate a spring toward the
-  // last mouse position + offset; the buddy trails the real cursor with the
-  // same lag-and-overshoot feel as the real macOS Clicky.
+  // Integrates a spring toward the last mouse position + offset at 60fps.
   useEffect(() => {
     if (!showCursor) return;
     const onMove = (e: MouseEvent) => {
@@ -746,7 +764,7 @@ export default function GlobalClickyAssistant() {
     window.addEventListener("mousemove", onMove);
     const raf = (ts: number) => {
       if (lastSpringTsRef.current == null) lastSpringTsRef.current = ts;
-      const dtMs = Math.min(ts - lastSpringTsRef.current, 64);
+      const dtMs = Math.min(ts - lastSpringTsRef.current, 32);
       lastSpringTsRef.current = ts;
       const dt = dtMs / 1000;
       if (!activePointRef.current) {
@@ -912,6 +930,9 @@ export default function GlobalClickyAssistant() {
       if (cancelled) return;
       wsHook.connect(url, {
         onAudio: (pcm) => {
+          // The first response audio chunk is the authoritative transition out
+          // of the thinking spinner and back to the normal Clicky pointer.
+          setMode("speaking");
           audioHook.playAudioChunk(pcm);
           replyAudioStatsRef.current.chunks += 1;
           replyAudioStatsRef.current.bytes += pcm.byteLength;
@@ -944,23 +965,50 @@ export default function GlobalClickyAssistant() {
     if (!wsHook.realtimeReady) return;
     if (audioHook.isRecording) return;
     audioHook.startRecording((pcm) => {
+      const samples = new Int16Array(pcm);
+      let sumSquares = 0;
+      let differenceSquares = 0;
+      let peak = 0;
+      let previous = previousMicSampleRef.current;
+      for (let i = 0; i < samples.length; i++) {
+        const sample = samples[i];
+        const abs = Math.abs(sample);
+        if (abs > peak) peak = abs;
+        sumSquares += sample * sample;
+        const difference = sample - previous;
+        differenceSquares += difference * difference;
+        previous = sample;
+      }
+      previousMicSampleRef.current = previous;
+      const rms = samples.length ? Math.sqrt(sumSquares / samples.length) / 32768 : 0;
+      const flux = samples.length ? Math.sqrt(differenceSquares / samples.length) / 32768 : 0;
+      const normalizedPeak = peak / 32768;
+
       if (!upstreamMutedRef.current) {
-        const samples = new Int16Array(pcm);
-        let sumSquares = 0;
-        let peak = 0;
-        for (let i = 0; i < samples.length; i++) {
-          const abs = Math.abs(samples[i]);
-          if (abs > peak) peak = abs;
-          sumSquares += samples[i] * samples[i];
+        const stats = speechStatsRef.current;
+        const speechLike = rms >= Math.max(0.007, stats.noiseRms * 1.85)
+          && flux >= Math.max(0.0035, stats.noiseFlux * 1.65)
+          && normalizedPeak >= Math.max(0.022, stats.noisePeak * 1.5);
+        stats.chunks += 1;
+        stats.bytes += pcm.byteLength;
+        stats.peak = Math.max(stats.peak, normalizedPeak);
+        stats.rmsSum += rms;
+        if (speechLike) {
+          stats.voicedSamples += samples.length;
+          stats.currentVoiceSamples += samples.length;
+          stats.maxContinuousVoiceSamples = Math.max(stats.maxContinuousVoiceSamples, stats.currentVoiceSamples);
+        } else {
+          stats.currentVoiceSamples = 0;
         }
-        const rms = samples.length ? Math.sqrt(sumSquares / samples.length) / 32768 : 0;
-        speechStatsRef.current.chunks += 1;
-        speechStatsRef.current.bytes += pcm.byteLength;
-        speechStatsRef.current.peak = Math.max(speechStatsRef.current.peak, peak / 32768);
-        speechStatsRef.current.rmsSum += rms;
         wsHook.sendAudio(pcm);
         return;
       }
+
+      const ambient = ambientNoiseRef.current;
+      const smooth = (current: number, next: number) => current + (next - current) * (next < current ? 0.08 : 0.012);
+      ambient.rms = smooth(ambient.rms, Math.min(rms, 0.08));
+      ambient.flux = smooth(ambient.flux, Math.min(flux, 0.08));
+      ambient.peak = smooth(ambient.peak, Math.min(normalizedPeak, 0.2));
       // Preserve a short silence tail so the manually committed buffer does
       // not end on a clipped phoneme. After the tail we go fully quiet.
       if (performance.now() < speechTailUntilRef.current) {
@@ -989,7 +1037,19 @@ export default function GlobalClickyAssistant() {
       replyAudioStatsRef.current = { chunks: 0, bytes: 0 };
       ctrlHeldRef.current = true;
       speechTailUntilRef.current = 0;
-      speechStatsRef.current = { startedAt: performance.now(), chunks: 0, bytes: 0, peak: 0, rmsSum: 0 };
+      speechStatsRef.current = {
+        startedAt: performance.now(),
+        chunks: 0,
+        bytes: 0,
+        peak: 0,
+        rmsSum: 0,
+        voicedSamples: 0,
+        currentVoiceSamples: 0,
+        maxContinuousVoiceSamples: 0,
+        noiseRms: ambientNoiseRef.current.rms,
+        noiseFlux: ambientNoiseRef.current.flux,
+        noisePeak: ambientNoiseRef.current.peak,
+      };
       upstreamMutedRef.current = false;
       setMode("listening");
       setStatus("Clicky listening — release Ctrl when done");
@@ -1003,7 +1063,10 @@ export default function GlobalClickyAssistant() {
       upstreamMutedRef.current = true;
       const stats = speechStatsRef.current;
       const avgRms = stats.chunks ? stats.rmsSum / stats.chunks : 0;
-      const statsLine = `mic ${Math.round(performance.now() - stats.startedAt)}ms chunks=${stats.chunks} peak=${stats.peak.toFixed(3)} rms=${avgRms.toFixed(3)}`;
+      const voicedMs = (stats.voicedSamples / 16_000) * 1000;
+      const continuousVoiceMs = (stats.maxContinuousVoiceSamples / 16_000) * 1000;
+      const hasSpeech = voicedMs >= 72 && continuousVoiceMs >= 32;
+      const statsLine = `mic ${Math.round(performance.now() - stats.startedAt)}ms chunks=${stats.chunks} peak=${stats.peak.toFixed(3)} rms=${avgRms.toFixed(3)} voiced=${Math.round(voicedMs)}ms continuous=${Math.round(continuousVoiceMs)}ms`;
       console.info(CLICKY_LOG, "mic turn captured", {
         durationMs: Math.round(performance.now() - stats.startedAt),
         chunks: stats.chunks,
@@ -1012,8 +1075,15 @@ export default function GlobalClickyAssistant() {
         avgRms: Number(avgRms.toFixed(4)),
       });
       setDebugLine(statsLine);
-      setMode("speaking");
-      setStatus("Clicky ready — hold Ctrl to talk");
+      if (!hasSpeech) {
+        speechTailUntilRef.current = 0;
+        wsHook.sendClickyCancelAudio();
+        setMode("idle");
+        setStatus("Clicky ready — hold Ctrl to talk");
+        return;
+      }
+      setMode("thinking");
+      setStatus("Clicky thinking");
       // Wait for the trailing silence, then insert visual context and commit.
       window.setTimeout(async () => {
         if (ctrlHeldRef.current) return;
@@ -1044,6 +1114,7 @@ export default function GlobalClickyAssistant() {
     audioHook.resumeContexts,
     clearScreenAnnotations,
     wsHook.sendClickyCommitAudio,
+    wsHook.sendClickyCancelAudio,
   ]);
 
   // ── Handle incoming Clicky `point_at` envelope ─────────────────────────────
@@ -1423,18 +1494,23 @@ export default function GlobalClickyAssistant() {
           ref={cursorRef}
           style={{ position: "fixed", left: 0, top: 0, width: 0, height: 0, opacity: 0, willChange: "transform, opacity" }}
         >
-          <div style={{ position: "absolute", left: 0, top: 0, opacity: mode === "idle" || mode === "speaking" ? 1 : 0, transition: "opacity 0.15s ease" }}>
-            <div style={{ width: 0, height: 0, borderLeft: "9px solid transparent", borderRight: "9px solid transparent", borderBottom: "16px solid #6366f1", filter: "drop-shadow(0 0 8px rgba(99,102,241,0.55))" }} />
+          <div style={{ position: "absolute", left: 0, top: 0, opacity: mode === "idle" || mode === "speaking" ? 1 : 0, transition: "opacity 0.13s ease" }}>
+            <div style={{ position: "absolute", left: -8, top: 0, width: 16, height: 13.856, background: "#6366f1", clipPath: "polygon(50% 0, 100% 100%, 0 100%)", filter: "drop-shadow(0 0 7px rgba(99,102,241,0.55))" }} />
           </div>
-          <div style={{ position: "absolute", left: -6, top: -8, display: "flex", alignItems: "center", gap: 2, opacity: mode === "listening" ? 1 : 0, transition: "opacity 0.15s ease", filter: "drop-shadow(0 0 6px rgba(99,102,241,0.6))" }}>
-            {[0.4, 0.7, 1, 0.7, 0.4].map((profile, i) => (
-              <span key={i} style={{ width: 2, height: 3 + profile * 10, borderRadius: 2, background: mode === "speaking" ? "#14b8a6" : "#6366f1", animation: `clicky-wave 0.72s ease-in-out ${i * 0.08}s infinite alternate` }} />
+          <div style={{ position: "absolute", left: -7, top: -6, height: 18, display: "flex", alignItems: "center", gap: 1, opacity: mode === "listening" ? 1 : 0, transition: "opacity 0.16s ease", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.55))" }}>
+            {[0.25, 0.55, 1, 0.55, 0.25].map((profile, i) => (
+              <span key={i} style={{ width: 2, height: 4 + profile * 9, borderRadius: 2, background: "#6366f1", animation: `clicky-wave 0.78s ease-in-out ${i * 0.09}s infinite alternate` }} />
             ))}
           </div>
-          <div style={{ position: "absolute", left: -7, top: -7, width: 14, height: 14, borderRadius: 999, border: "2.5px solid rgba(99,102,241,0.12)", borderTopColor: "#6366f1", opacity: mode === "thinking" ? 1 : 0, transition: "opacity 0.15s ease", animation: "clicky-spin 0.8s linear infinite", filter: "drop-shadow(0 0 6px rgba(99,102,241,0.6))" }} />
+          <div style={{ position: "absolute", left: -8, top: -8, width: 12, height: 12, borderRadius: 999, border: "2px solid rgba(99,102,241,0.12)", borderTopColor: "#6366f1", borderRightColor: "rgba(99,102,241,0.7)", opacity: mode === "thinking" ? 1 : 0, transition: "opacity 0.16s ease", animation: "clicky-spin 0.9s linear infinite", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.52))" }} />
           {SHOW_CLICKY_BUBBLE && !!bubble && (
-            <div style={{ position: "absolute", left: 18, top: -8, maxWidth: 280, padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.96)", border: "1px solid rgba(0,0,0,0.12)", color: "#1f2937", fontSize: 13, lineHeight: 1.35, pointerEvents: "none" }}>
-              {bubble}
+            <div
+              ref={bubbleAnchorRef}
+              style={{ position: "absolute", left: 18, top: -8, transform: `rotate(${-cursorRotationRef.current}deg)`, transformOrigin: "0 0" }}
+            >
+              <div style={{ maxWidth: 280, padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.96)", border: "1px solid rgba(0,0,0,0.12)", color: "#1f2937", fontSize: 13, fontStyle: "normal", letterSpacing: 0, lineHeight: 1.35, textAlign: "left", pointerEvents: "none" }}>
+                {bubble}
+              </div>
             </div>
           )}
         </div>

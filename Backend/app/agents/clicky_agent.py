@@ -79,6 +79,10 @@ element pointing:
   label="...")`. use the screenshot's pixel dimensions as the coordinate \
   space — they're provided with each new screen context message. origin is \
   top-left, x increases rightward, y increases downward.
+- when a second gridded media crop is provided, use that image for anything \
+  inside the video. set `coordinate_space="media"` and read x/y on its labeled \
+  0-1000 grid; the browser maps those local coordinates through the exact \
+  live video rectangle. otherwise use `coordinate_space="viewport"`.
 - elements near screen edges are valid targets. use the full image dimensions; \
   never pull an accurate edge coordinate inward.
 - pass `label` as a short 1-3 word description ("search bar", "play button", \
@@ -103,8 +107,29 @@ screen drawing:
   `to_target_id`.
 - only use raw `x`, `y`, `end_x`, `end_y` for content missing from the DOM \
   inventory, using the calibrated screenshot pixel space.
+- never use the DOM id of an entire video, iframe, or canvas when the user \
+  wants a mark around an object inside its pixels; use raw coordinates.
+- for raw circle/rectangle/highlight coordinates, x/y is the top-left and \
+  end_x/end_y is the bottom-right of the marked area. for raw underline, \
+  line, or arrow coordinates, they are the exact two endpoints. always pass \
+  both endpoints for video/canvas annotations.
+- when the gridded media crop is present, video annotations must set \
+  `coordinate_space="media"` and use its 0-1000 grid for both axes.
 - use multiple draw calls when a visual explanation needs multiple marks, but \
   keep it clean and minimal. never read ids or coordinates aloud.
+
+browser interaction:
+- use `interact_with_page` for scrolling, video playback, seeking, or switching \
+  to a tab that the user explicitly names.
+- supported actions are `scroll_up`, `scroll_down`, `pause_media`, \
+  `play_media`, `seek_media`, and `activate_tab`.
+- for `seek_media`, pass the desired absolute time in seconds as `value`.
+- for `activate_tab`, use a tab id from the provided browser tab inventory as \
+  `target_id`. never invent a tab id.
+- never use a page interaction unless the user asked for it, except that the \
+  browser automatically pauses playing media when push-to-talk begins.
+- the browser enforces confirmation for submissions, purchases, deletes, \
+  messages, account changes, file actions, and permission prompts.
 """
 
 
@@ -116,6 +141,7 @@ def point_at(
     target_id: Optional[str] = None,
     x: Optional[float] = None,
     y: Optional[float] = None,
+    coordinate_space: str = "viewport",
     label: str = "right here",
     action: str = "none",
 ) -> dict:
@@ -134,6 +160,7 @@ def point_at(
         "target_id": target_id,
         "x": x,
         "y": y,
+        "coordinate_space": "media" if coordinate_space == "media" else "viewport",
         "label": label,
         "action": action if action in {"none", "click"} else "none",
     }
@@ -149,6 +176,7 @@ def draw_on_screen(
     y: Optional[float] = None,
     end_x: Optional[float] = None,
     end_y: Optional[float] = None,
+    coordinate_space: str = "viewport",
     label: str = "",
     color: str = "blue",
 ) -> dict:
@@ -156,7 +184,10 @@ def draw_on_screen(
 
     Prefer target_id for a shape around one DOM element. For arrows or lines
     between elements, use from_target_id and to_target_id. Raw coordinates are
-    only for calibrated screenshot content that has no DOM target.
+    only for calibrated screenshot content that has no DOM target. For raw
+    circle/rectangle/highlight coordinates, x/y is the top-left and end_x/end_y
+    is the bottom-right. For raw underline/line/arrow coordinates, they are the
+    two endpoints.
     """
     supported_shapes = {"circle", "rectangle", "highlight", "underline", "arrow", "line"}
     supported_colors = {"blue", "teal", "red", "amber", "purple"}
@@ -169,6 +200,7 @@ def draw_on_screen(
         "y": y,
         "end_x": end_x,
         "end_y": end_y,
+        "coordinate_space": "media" if coordinate_space == "media" else "viewport",
         "label": label[:80],
         "color": color if color in supported_colors else "blue",
     }
@@ -180,6 +212,34 @@ def clear_screen_drawings() -> dict:
     return {"action": "clear"}
 
 
+@function_tool(strict_mode=False)
+def interact_with_page(
+    action: str,
+    target_id: Optional[str] = None,
+    value: Optional[float] = None,
+    label: str = "",
+) -> dict:
+    """Request a constrained browser or media action.
+
+    Tab ids and DOM target ids must come from the most recent browser context.
+    The extension rejects stale contexts and applies its own safety policy.
+    """
+    supported = {
+        "scroll_up",
+        "scroll_down",
+        "pause_media",
+        "play_media",
+        "seek_media",
+        "activate_tab",
+    }
+    return {
+        "action": action if action in supported else "none",
+        "target_id": target_id,
+        "value": value,
+        "label": label[:80],
+    }
+
+
 # ── Builder ─────────────────────────────────────────────────────────────────
 
 
@@ -188,11 +248,11 @@ def build_clicky_agent() -> RealtimeAgent:
     root = RealtimeAgent(
         name="clicky_agent",
         instructions=CLICKY_INSTRUCTION,
-        tools=[point_at, draw_on_screen, clear_screen_drawings],
+        tools=[point_at, draw_on_screen, clear_screen_drawings, interact_with_page],
         handoffs=[],
     )
     logger.info(
-        "Clicky realtime agent built: root=%s tools=point_at,draw_on_screen,clear_screen_drawings",
+        "Clicky realtime agent built: root=%s tools=point_at,draw_on_screen,clear_screen_drawings,interact_with_page",
         root.name,
     )
     return root
