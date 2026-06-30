@@ -28,10 +28,11 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.auth.dependencies import get_current_user
 from app.config import settings
+from app.services.learning_path import compose_learning_path
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,9 @@ PLATFORM_DOMAINS: Dict[str, str] = {
 
 class DiscoverRequest(BaseModel):
     query: str
-    platforms: List[str] = []
+    platforms: List[str] = Field(default_factory=list)
     level: Optional[str] = None
+    time_budget: str = "2 weeks"
 
 
 def _openai() -> OpenAI:
@@ -94,7 +96,12 @@ def _firecrawl():
 
 def _sig(req: DiscoverRequest) -> str:
     raw = json.dumps(
-        {"q": req.query.lower().strip(), "p": sorted(req.platforms), "l": req.level},
+        {
+            "q": req.query.lower().strip(),
+            "p": sorted(req.platforms),
+            "l": req.level,
+            "t": req.time_budget,
+        },
         sort_keys=True,
     )
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()
@@ -322,6 +329,65 @@ def _platform_from_url(url: str) -> str:
     return host.replace("www.", "").split(".")[0].capitalize() or "Web"
 
 
+def _collect_live_hits(req: DiscoverRequest) -> tuple[List[Dict[str, Any]], List[str]]:
+    """Collect grounded URLs from the configured search connectors."""
+
+    import concurrent.futures as _cf
+
+    query = _build_query(req)
+    firecrawl_hits: List[Dict[str, Any]] = []
+    openai_hits: List[Dict[str, Any]] = []
+    with _cf.ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            ("firecrawl", pool.submit(_firecrawl_search, query)),
+            ("openai-websearch", pool.submit(_openai_web_search, req)),
+        ]
+        for source, future in futures:
+            try:
+                result = future.result(timeout=45)
+            except Exception as exc:
+                logger.warning("%s discovery source failed: %s", source, exc)
+                result = []
+            if source == "firecrawl":
+                firecrawl_hits = result
+            else:
+                openai_hits = result
+
+    used_sources: List[str] = []
+    if firecrawl_hits:
+        used_sources.append("firecrawl")
+    if openai_hits:
+        used_sources.append("openai-websearch")
+    return _dedupe_hits(firecrawl_hits + openai_hits), used_sources
+
+
+@router.post("/path")
+async def build_path(req: DiscoverRequest, user: dict = Depends(get_current_user)):
+    """Build one grounded, multi-modal learning path for a learner goal."""
+
+    if not req.query.strip():
+        return {"path": None, "source": "empty"}
+
+    sig = f"path:{_sig(req)}"
+    cached = _cache.get(sig)
+    if cached and time.time() - cached["t"] < _CACHE_TTL:
+        return {"path": cached["path"], "source": "cache"}
+
+    hits, used_sources = _collect_live_hits(req)
+    client = _openai() if settings.openai_api_key else None
+    path = compose_learning_path(
+        client=client,
+        query=req.query.strip(),
+        level=req.level or "Beginner",
+        time_budget=req.time_budget,
+        hits=hits,
+    )
+    source = "+".join(used_sources) or ("openai-only" if client else "local-fallback")
+    _cache[sig] = {"t": time.time(), "path": path}
+    return {"path": path, "source": source}
+
+
+
 @router.post("")
 async def discover(req: DiscoverRequest, user: dict = Depends(get_current_user)):
     if not req.query.strip():
@@ -332,22 +398,7 @@ async def discover(req: DiscoverRequest, user: dict = Depends(get_current_user))
     if cached and time.time() - cached["t"] < _CACHE_TTL:
         return {"courses": cached["courses"], "source": "cache"}
 
-    # 1. Live web search via two sources, run concurrently for latency.
-    query = _build_query(req)
-    import concurrent.futures as _cf
-
-    with _cf.ThreadPoolExecutor(max_workers=2) as pool:
-        fc_future = pool.submit(_firecrawl_search, query)
-        oai_future = pool.submit(_openai_web_search, req)
-        firecrawl_hits = fc_future.result(timeout=45)
-        openai_hits = oai_future.result(timeout=45)
-
-    hits = _dedupe_hits(firecrawl_hits + openai_hits)
-    used_sources: List[str] = []
-    if firecrawl_hits:
-        used_sources.append("firecrawl")
-    if openai_hits:
-        used_sources.append("openai-websearch")
+    hits, used_sources = _collect_live_hits(req)
 
     if hits:
         # 2. Normalize/rank the merged live hits via OpenAI.

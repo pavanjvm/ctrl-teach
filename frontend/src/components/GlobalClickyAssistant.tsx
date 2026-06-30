@@ -64,7 +64,6 @@ const WAKE_TRAINING_PHRASES = ["chat", "hey chat"];
 const SHOW_CLICKY_BUBBLE = false;
 const CLICKY_SPEECH_TAIL_MS = 700;
 const MAX_DOM_TARGETS = 220;
-const ANNOTATION_LIFETIME_MS = 10_000;
 const ANNOTATION_COLORS: Record<ScreenAnnotation["color"], string> = {
   blue: "#3380ff",
   teal: "#14b8a6",
@@ -578,10 +577,12 @@ export default function GlobalClickyAssistant() {
   const isLanding = pathname === "/";
   const isWhiteboardSession = pathname === "/board";
   const globalClickyActive = enabled && !isWhiteboardSession && extensionAvailable === false;
-  // Decorative cursor is visible on the landing page and wherever Global
-  // Clicky is active. The board supplies its own Clicky cursor and owns the
-  // only Realtime voice session while that route is mounted.
-  const showCursor = globalClickyActive || (isLanding && extensionAvailable !== true);
+  // Signed-out visitors get the decorative cursor on every route, but none of
+  // Clicky's authenticated voice, screen-capture, or action functionality.
+  // The board supplies its own cursor for authenticated whiteboard sessions.
+  const showCursor =
+    globalClickyActive ||
+    (!user && extensionAvailable !== true && !isWhiteboardSession);
 
   const [mounted, setMounted] = useState(false);
   const [bubble, setBubble] = useState("");
@@ -640,7 +641,6 @@ export default function GlobalClickyAssistant() {
   // Last clicky_point id processed, to avoid double-handling the same event.
   const lastPointIdRef = useRef<string | null>(null);
   const processedDrawIdsRef = useRef<Set<string>>(new Set());
-  const annotationTimersRef = useRef<Map<string, number>>(new Map());
   const trainingRecordingRef = useRef(false);
   const trainingOpenRef = useRef(false);
 
@@ -709,20 +709,13 @@ export default function GlobalClickyAssistant() {
   }, [setCursor]);
 
   const clearScreenAnnotations = useCallback(() => {
-    for (const timer of annotationTimersRef.current.values()) {
-      window.clearTimeout(timer);
-    }
-    annotationTimersRef.current.clear();
     setScreenAnnotations([]);
   }, []);
 
   const addScreenAnnotation = useCallback((annotation: ScreenAnnotation) => {
-    setScreenAnnotations((current) => [...current.slice(-11), annotation]);
-    const timer = window.setTimeout(() => {
-      setScreenAnnotations((current) => current.filter((item) => item.id !== annotation.id));
-      annotationTimersRef.current.delete(annotation.id);
-    }, ANNOTATION_LIFETIME_MS);
-    annotationTimersRef.current.set(annotation.id, timer);
+    // Keep the visual explanation intact until Clicky explicitly clears it or
+    // the viewport moves and invalidates its coordinates.
+    setScreenAnnotations((current) => [...current, annotation].slice(-32));
   }, []);
 
   useEffect(() => clearScreenAnnotations, [clearScreenAnnotations]);
@@ -1381,7 +1374,7 @@ export default function GlobalClickyAssistant() {
 
   if (!mounted) return null;
 
-  if (!user && !isLanding) {
+  if (!user && !showCursor) {
     return (
       <div data-global-clicky="true" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 2147483000 }} />
     );

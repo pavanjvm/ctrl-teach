@@ -265,6 +265,8 @@ async function routeOffscreenEvent(message) {
     await sendToTab(context.tabId, { type: "CLICKY_POINT", context, response: message.response });
   } else if (message.type === "CLICKY_DRAW") {
     await sendToTab(context.tabId, { type: "CLICKY_DRAW", context, tool: message.tool, response: message.response });
+  } else if (message.type === "CLICKY_DRAW_BATCH") {
+    await sendToTab(context.tabId, { type: "CLICKY_DRAW_BATCH", context, tool: message.tool, responses: message.responses });
   } else if (message.type === "CLICKY_ACTION") {
     const action = message.response?.action;
     if (action === "activate_tab") {

@@ -37,6 +37,7 @@ interface PersistedState {
   activeCourseId: string | null;
   activeLessonId: string | null;
   progress: ProgressState;
+  savedCourses: Course[];
 }
 
 const DEFAULT_BADGES: Badge[] = [
@@ -66,6 +67,7 @@ function loadState(): PersistedState {
     activeCourseId: null,
     activeLessonId: null,
     progress: defaultProgress(),
+    savedCourses: [],
   };
   if (typeof window === "undefined") return base;
   try {
@@ -107,7 +109,6 @@ const LearnerContext = createContext<LearnerContextValue | null>(null);
 export function LearnerProvider({ children }: { children: React.ReactNode }) {
   const { user, getToken } = useAuth();
   const [state, setState] = useState<PersistedState>(loadState);
-  const [extraCourses, setExtraCourses] = useState<Course[]>([]);
   const lastSyncRef = useRef<string>("");
 
   // Persist to localStorage on every change.
@@ -159,7 +160,7 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.prefs, user]);
 
-  const courses = [...SEED_COURSES, ...extraCourses];
+  const courses = [...SEED_COURSES, ...state.savedCourses];
 
   const value: LearnerContextValue = {
     prefs: state.prefs,
@@ -186,9 +187,10 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
     setActiveLesson: (lessonId) =>
       setState((s) => ({ ...s, activeLessonId: lessonId })),
     addCourse: (course) =>
-      setExtraCourses((prev) =>
-        prev.some((c) => c.id === course.id) ? prev : [course, ...prev]
-      ),
+      setState((s) => ({
+        ...s,
+        savedCourses: [course, ...s.savedCourses.filter((c) => c.id !== course.id)],
+      })),
     addXp: (amount) =>
       setState((s) => ({
         ...s,
@@ -243,6 +245,7 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
         activeCourseId: null,
         activeLessonId: null,
         progress: defaultProgress(),
+        savedCourses: [],
       });
     },
   };

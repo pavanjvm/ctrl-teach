@@ -2,7 +2,8 @@
 
 ## Clicky visual-grounding trials
 
-Clicky's production visual locator defaults to `gpt-5.4`. Configure it in
+Clicky's production visual locator defaults to `gpt-5.5` with `medium`
+reasoning effort. Configure it in
 `.env` with `CLICKY_VISUAL_LOCATOR_MODEL`; candidate trial models are listed in
 `CLICKY_VISUAL_LOCATOR_TRIAL_MODELS`.
 

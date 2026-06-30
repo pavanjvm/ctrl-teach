@@ -28,9 +28,9 @@ class Settings(BaseSettings):
     transcription_model: str = "gpt-4o-mini-transcribe"
     image_model: str = "gpt-image-1"
     clicky_visual_locator_enabled: bool = True
-    clicky_visual_locator_model: str = "gpt-5.4"
+    clicky_visual_locator_model: str = "gpt-5.5"
     clicky_visual_locator_trial_models: str = "gpt-5.4,gpt-5.5"
-    clicky_visual_locator_reasoning_effort: str = "xhigh"
+    clicky_visual_locator_reasoning_effort: str = "medium"
     clicky_visual_locator_timeout_seconds: float = 20.0
 
     # ── Firecrawl (web search for /api/discover) ───────────────────────────

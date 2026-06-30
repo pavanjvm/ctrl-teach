@@ -380,25 +380,32 @@ export function useWebSocket() {
         return;
       }
 
-      if (event.type === "clicky_draw" && event.response) {
-        const response = event.response;
+      if (
+        (event.type === "clicky_draw" && event.response) ||
+        (event.type === "clicky_draw_batch" && Array.isArray(event.responses))
+      ) {
         const allowedShapes = new Set(["circle", "rectangle", "highlight", "underline", "arrow", "line"]);
         const allowedColors = new Set(["blue", "teal", "red", "amber", "purple"]);
-        const drawEvent = {
+        const responses = event.type === "clicky_draw_batch" ? event.responses : [event.response];
+        const drawEvents = responses.map((response: Record<string, unknown>) => ({
           tool: event.tool === "clear_screen_drawings" ? "clear_screen_drawings" : "draw_on_screen",
-          shape: allowedShapes.has(response.shape) ? response.shape : undefined,
-          targetId: response.target_id ?? null,
-          fromTargetId: response.from_target_id ?? null,
-          toTargetId: response.to_target_id ?? null,
+          shape: typeof response.shape === "string" && allowedShapes.has(response.shape)
+            ? response.shape
+            : undefined,
+          targetId: typeof response.target_id === "string" ? response.target_id : null,
+          fromTargetId: typeof response.from_target_id === "string" ? response.from_target_id : null,
+          toTargetId: typeof response.to_target_id === "string" ? response.to_target_id : null,
           x: typeof response.x === "number" ? response.x : null,
           y: typeof response.y === "number" ? response.y : null,
           endX: typeof response.end_x === "number" ? response.end_x : null,
           endY: typeof response.end_y === "number" ? response.end_y : null,
           label: typeof response.label === "string" ? response.label : "",
-          color: allowedColors.has(response.color) ? response.color : "blue",
+          color: typeof response.color === "string" && allowedColors.has(response.color)
+            ? response.color
+            : "blue",
           id: crypto.randomUUID(),
-        } as const;
-        setClickyAgentDraws((current) => [...current.slice(-31), drawEvent]);
+        } as ClickyDrawCommand));
+        setClickyAgentDraws((current) => [...current, ...drawEvents].slice(-32));
         return;
       }
 

@@ -804,37 +804,99 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                 return
 
             pending_clicky_drawings: list[
-                tuple[asyncio.Task[dict[str, Any]], dict[str, Any]]
+                tuple[asyncio.Task[None], dict[str, Any]]
             ] = []
+            # Strong references for fire-and-forget point tasks so the GC cannot
+            # cancel them mid-localization. Each task removes itself on completion.
+            pending_clicky_points: set[asyncio.Task[None]] = set()
 
             def _cancel_pending_clicky_drawings() -> None:
                 while pending_clicky_drawings:
                     task, _ = pending_clicky_drawings.pop()
                     task.cancel()
 
+            async def _deliver_clicky_drawing(
+                original_payload: dict[str, Any], grounding_state: dict[str, Any]
+            ) -> None:
+                """Ground one annotation and ship it the moment the result exists.
+
+                Mirrors the Swift Clicky: the drawing action starts as soon as
+                the visual locator resolves, instead of being held until turn
+                end. A multi-shape diagram therefore paints progressively as
+                each shape's coordinates are grounded, which feels far snappier
+                than waiting for the whole turn to finish.
+                """
+                from app.services.clicky_visual_locator import refine_clicky_payload
+                try:
+                    refined = await refine_clicky_payload(
+                        original_payload,
+                        grounding_state,
+                        tool_name="draw_on_screen",
+                    )
+                except Exception as exc:
+                    logger.warning("Clicky drawing localization failed: %s", exc)
+                    refined = original_payload
+                await _send_json(websocket, {
+                    "type": "clicky_draw",
+                    "tool": "draw_on_screen",
+                    "response": refined,
+                })
+                logger.info("Clicky drawing delivered payload=%s", refined)
+
+            async def _deliver_clicky_point(
+                original_payload: dict[str, Any], grounding_state: dict[str, Any]
+            ) -> None:
+                """Ground a vision point without blocking the realtime audio stream.
+
+                The model already receives the tool's echoed return value, so
+                this refinement is browser-facing only. Running it as a detached
+                task means ElevenLabs/Realtime voice keeps streaming while the
+                GPT computer-use locator resolves — the cursor flies as soon as
+                the visual result exists, exactly like production Clicky.
+                """
+                from app.services.clicky_visual_locator import refine_clicky_payload
+                try:
+                    refined = await refine_clicky_payload(
+                        original_payload,
+                        grounding_state,
+                        tool_name="point_at",
+                    )
+                except Exception as exc:
+                    logger.warning("Clicky point localization failed: %s", exc)
+                    refined = original_payload
+                await _send_json(websocket, {
+                    "type": "clicky_point",
+                    "tool": "point_at",
+                    "response": {
+                        "targetId": refined.get("target_id"),
+                        "x": refined.get("x"),
+                        "y": refined.get("y"),
+                        "coordinate_space": refined.get("coordinate_space") or "viewport",
+                        "label": refined.get("label") or "right here",
+                        "action": refined.get("action") or "none",
+                    },
+                })
+                logger.info(
+                    "Clicky point delivered target_id=%s x=%s y=%s action=%s",
+                    refined.get("target_id"),
+                    refined.get("x"),
+                    refined.get("y"),
+                    refined.get("action"),
+                )
+
             async def _flush_pending_clicky_drawings() -> None:
                 if not pending_clicky_drawings:
                     return
                 batch = pending_clicky_drawings[:]
                 pending_clicky_drawings.clear()
-                results = await asyncio.gather(
+                # Each drawing task self-delivers its clicky_draw event the
+                # moment its localization completes. At turn end we only await
+                # any stragglers still in flight so nothing is dropped when the
+                # session tears down — we do not re-batch or re-send.
+                await asyncio.gather(
                     *(task for task, _ in batch),
                     return_exceptions=True,
                 )
-                # All localization calls run concurrently, then the completed
-                # shapes are delivered together in their original tool order.
-                for (_, original_payload), result in zip(batch, results):
-                    if isinstance(result, BaseException):
-                        logger.warning("Clicky drawing localization failed: %s", result)
-                        payload = original_payload
-                    else:
-                        payload = result
-                    await _send_json(websocket, {
-                        "type": "clicky_draw",
-                        "tool": "draw_on_screen",
-                        "response": payload,
-                    })
-                    logger.info("Clicky drawing payload=%s", payload)
 
             try:
                 async with session:
@@ -898,11 +960,10 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             if tool_name in {"draw_on_screen", "clear_screen_drawings"}:
                                 payload = output if isinstance(output, dict) else {}
                                 if tool_name == "draw_on_screen":
-                                    from app.services.clicky_visual_locator import refine_clicky_payload
-                                    # A diagram can contain several tool calls. Ground
-                                    # them in parallel and flush them as one visual batch
-                                    # at agent_end instead of blocking this event stream
-                                    # for one full model request per shape.
+                                    # Snapshot the grounding state now — the live
+                                    # `state` mutates as the turn continues, but a
+                                    # drawing must be grounded against the screenshot
+                                    # that was current when the model emitted it.
                                     grounding_state = {
                                         key: dict(value) if isinstance(value, dict) else value
                                         for key, value in state.items()
@@ -913,12 +974,13 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                                         }
                                     }
                                     original_payload = dict(payload)
+                                    # Detached task: deliver this annotation the instant
+                                    # its computer-use localization resolves, instead of
+                                    # blocking the event stream or waiting for agent_end.
                                     pending_clicky_drawings.append((
-                                        asyncio.create_task(refine_clicky_payload(
-                                            original_payload,
-                                            grounding_state,
-                                            tool_name=tool_name,
-                                        )),
+                                        asyncio.create_task(
+                                            _deliver_clicky_drawing(original_payload, grounding_state)
+                                        ),
                                         original_payload,
                                     ))
                                     continue
@@ -934,31 +996,22 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             # ── Clicky point_at → emit a lightweight envelope ─
                             if tool_name == "point_at":
                                 payload = output if isinstance(output, dict) else {}
-                                from app.services.clicky_visual_locator import refine_clicky_payload
-                                payload = await refine_clicky_payload(
-                                    payload,
-                                    state,
-                                    tool_name=tool_name,
+                                grounding_state = {
+                                    key: dict(value) if isinstance(value, dict) else value
+                                    for key, value in state.items()
+                                    if key in {
+                                        "clicky_media_crop",
+                                        "clicky_viewport_capture",
+                                        "last_input_transcript",
+                                    }
+                                }
+                                # Non-blocking: ground + deliver on a detached task so
+                                # realtime voice keeps streaming while the locator runs.
+                                point_task = asyncio.create_task(
+                                    _deliver_clicky_point(dict(payload), grounding_state)
                                 )
-                                await _send_json(websocket, {
-                                    "type": "clicky_point",
-                                    "tool": "point_at",
-                                    "response": {
-                                        "targetId": payload.get("target_id"),
-                                        "x": payload.get("x"),
-                                        "y": payload.get("y"),
-                                        "coordinate_space": payload.get("coordinate_space") or "viewport",
-                                        "label": payload.get("label") or "right here",
-                                        "action": payload.get("action") or "none",
-                                    },
-                                })
-                                logger.info(
-                                    "Clicky point_at: target_id=%s x=%s y=%s action=%s",
-                                    payload.get("target_id"),
-                                    payload.get("x"),
-                                    payload.get("y"),
-                                    payload.get("action"),
-                                )
+                                pending_clicky_points.add(point_task)
+                                point_task.add_done_callback(pending_clicky_points.discard)
                                 continue
 
                             if tool_name == "interact_with_page":

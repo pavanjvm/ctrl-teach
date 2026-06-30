@@ -1242,6 +1242,15 @@
   .continue-image { width: 220px; }
 }
 
+@media (max-width: 900px) {
+  /* Between tablet and phone: drop the Clicky label and the user name so the
+     profile avatar + notification icons stay fully visible. */
+  .topbar-clicky-switch-label { display: none; }
+  .topbar-user-info { display: none; }
+  .topbar-user-card { gap: 0; padding: 2px; }
+  .topbar-controls { gap: 10px; }
+}
+
 @media (max-width: 720px) {
   .dash-topbar { padding: 0 20px; height: 64px; }
   .topbar-logo-zone { width: auto; }
@@ -1251,6 +1260,13 @@
   .continue-image { width: 100%; height: 180px; }
   .dash-header-area { flex-direction: column; align-items: flex-start; gap: 20px; }
   .dash-daily-goal { border-left: none; padding-left: 0; border-top: 1px solid var(--border-color); padding-top: 16px; width: 100%; }
+  /* Collapse the right-side controls so the profile avatar never gets clipped
+     off-screen on phone widths. The name text and Clicky label are the first
+     things to go — icons + avatar remain. */
+  .topbar-clicky-switch-label { display: none; }
+  .topbar-controls { gap: 8px; }
+  .topbar-user-info { display: none; }
+  .topbar-user-card { gap: 0; padding: 2px; }
 }
 
 /* ============================================================

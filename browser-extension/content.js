@@ -34,6 +34,14 @@
   let position = { x: 80, y: 120 };
   let velocity = { x: 0, y: 0 };
   let activePoint = false;
+  // Monotonic token that cancels any in-progress pointing/navigation when a
+  // new point arrives, so a stale return-flight never clobbers a fresh target.
+  let navToken = 0;
+  // Auto-clear timer for screen drawings. Real Clicky fades annotations after
+  // a few seconds; we clear them after 6s of inactivity (matching the pointing
+  // bubble lifecycle: ~3s hold + ~0.5s fade + return flight).
+  let drawingsClearTimer = 0;
+  const DRAWINGS_AUTO_CLEAR_MS = 6000;
   let lastFrame = 0;
   let cursorReportAt = 0;
   let statusText = "";
@@ -66,8 +74,10 @@
       #cursor[data-mode="listening"] #waveform { opacity: 1; }
       #cursor[data-mode="thinking"] #ring { opacity: 1; animation: spin .9s linear infinite; }
       #bubble-anchor { position: absolute; left: 20px; top: 24px; transform-origin: 0 0; will-change: transform; }
-      #bubble { width: max-content; max-width: 320px; padding: 8px 11px; border-radius: 10px; background: #111827; color: white; font: 600 12px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; font-style: normal; letter-spacing: 0; text-align: left; box-shadow: 0 12px 34px rgba(0,0,0,.22); opacity: 0; transform: translateY(3px) scale(.96); transform-origin: 0 0; transition: opacity .16s ease, transform .16s ease; }
+      #bubble { width: max-content; max-width: 320px; padding: 8px 11px; border-radius: 10px; background: #111827; color: white; font: 600 12px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; font-style: normal; letter-spacing: 0; text-align: left; box-shadow: 0 12px 34px rgba(0,0,0,.22); opacity: 0; transform: translateY(3px) scale(.96); transform-origin: 0 0; transition: opacity .2s ease, transform .2s ease; }
       #bubble.visible { opacity: 1; transform: translateY(0) scale(1); }
+      #bubble.pop { animation: bubblePop .26s cubic-bezier(.2,1.5,.35,1); }
+      @keyframes bubblePop { from { transform: translateY(5px) scale(.5); } to { transform: translateY(0) scale(1); } }
       #status { position: fixed; right: 18px; bottom: 18px; max-width: 320px; padding: 8px 11px; border: 1px solid rgba(79,70,229,.18); border-radius: 999px; background: rgba(255,255,255,.94); color: #4338ca; font: 650 11px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; box-shadow: 0 8px 25px rgba(27,24,18,.12); opacity: 0; transition: opacity .2s ease; }
       #status.visible { opacity: 1; }
       #confirm { position: fixed; inset: 0; display: none; place-items: center; background: rgba(17,24,39,.2); pointer-events: auto; }
@@ -80,6 +90,9 @@
       #confirm-cancel { background: #f3f4f6; color: #374151; }
       #confirm-accept { background: #4f46e5; color: white; }
       .stroke { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .55s cubic-bezier(.22,.8,.24,1) forwards; }
+      .stroke.dashed { stroke-dasharray: 8 6; }
+      .stroke.dotted { stroke-dasharray: 2 5; stroke-linecap: round; }
+      .draw-text { font: 600 13px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 4px; stroke-linejoin: round; animation: draw .35s ease forwards; }
       @keyframes spin { to { transform: rotate(360deg); } }
       @keyframes wave { from { transform: scaleY(.58); opacity: .72; } to { transform: scaleY(1.18); opacity: 1; } }
       @keyframes draw { to { stroke-dashoffset: 0; } }
@@ -153,6 +166,10 @@
 
   function setBubble(text) {
     const clean = String(text || "").replace(/\s+/g, " ").trim().slice(0, 260);
+    // Reset the pointing-lifecycle decorations so transcript/status text never
+    // inherits a stale bounce animation or a slow fade transition.
+    bubble.classList.remove("pop");
+    bubble.style.transition = "";
     bubble.textContent = clean;
     bubble.classList.toggle("visible", Boolean(clean));
   }
@@ -192,34 +209,91 @@
     requestAnimationFrame(animateFrame);
   }
 
-  function flyTo(point) {
-    activePoint = true;
-    const from = { ...position };
-    const to = { x: point.x, y: point.y };
+  // Quadratic-bezier arc flight — the same curve production Clicky uses:
+  // smoothstep ease (3t²-2t³), control point lifted by min(distance*0.2, 80),
+  // triangle rotated to the curve tangent, and a sin-pulse scale (1 → 1.3 → 1)
+  // that peaks at the arc apex. Resolves when the cursor has landed.
+  function bezierFlight(from, to) {
     const distance = Math.hypot(to.x - from.x, to.y - from.y);
     const duration = Math.min(Math.max(distance / 800, 0.6), 1.4) * 1000;
     const arc = Math.min(distance * 0.2, 80);
     const control = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - arc };
     const started = performance.now();
-    const step = (now) => {
-      const raw = Math.min((now - started) / duration, 1);
-      const t = raw * raw * (3 - 2 * raw);
-      const m = 1 - t;
-      const x = m * m * from.x + 2 * m * t * control.x + t * t * to.x;
-      const y = m * m * from.y + 2 * m * t * control.y + t * t * to.y;
-      const tx = 2 * m * (control.x - from.x) + 2 * t * (to.x - control.x);
-      const ty = 2 * m * (control.y - from.y) + 2 * t * (to.y - control.y);
-      transformCursor(x, y, (Math.atan2(ty, tx) * 180) / Math.PI + 90, 1 + Math.sin(raw * Math.PI) * 0.3);
-      if (raw < 1) requestAnimationFrame(step);
-      else {
-        setBubble(point.label || "right here");
-        setTimeout(() => {
-          activePoint = false;
-          if (mode !== "speaking") setBubble("");
-        }, 2600);
-      }
+    return new Promise((resolve) => {
+      const step = (now) => {
+        const raw = Math.min((now - started) / duration, 1);
+        const t = raw * raw * (3 - 2 * raw);
+        const m = 1 - t;
+        const x = m * m * from.x + 2 * m * t * control.x + t * t * to.x;
+        const y = m * m * from.y + 2 * m * t * control.y + t * t * to.y;
+        const tx = 2 * m * (control.x - from.x) + 2 * t * (to.x - control.x);
+        const ty = 2 * m * (control.y - from.y) + 2 * t * (to.y - control.y);
+        transformCursor(x, y, (Math.atan2(ty, tx) * 180) / Math.PI + 90, 1 + Math.sin(raw * Math.PI) * 0.3);
+        if (raw < 1) requestAnimationFrame(step);
+        else { transformCursor(to.x, to.y, DEFAULT_ROTATION, 1); resolve(); }
+      };
+      requestAnimationFrame(step);
+    });
+  }
+
+  // Types the pointing label one character at a time (30–60ms per char) with a
+  // scale-bounce entrance, exactly like Clicky's navigation bubble.
+  function streamBubbleText(text, onDone) {
+    const clean = String(text || "").replace(/\s+/g, " ").trim().slice(0, 260);
+    bubble.textContent = "";
+    bubble.classList.add("visible", "pop");
+    if (!clean.length) { onDone(); return; }
+    let i = 0;
+    const tick = () => {
+      if (i >= clean.length) { onDone(); return; }
+      bubble.textContent += clean[i++];
+      setTimeout(tick, 30 + Math.random() * 30);
     };
-    requestAnimationFrame(step);
+    setTimeout(tick, 30);
+  }
+
+  // Second bezier flight back to the live cursor, then resume spring-following.
+  function flyBackToCursor(token) {
+    const from = { ...position };
+    const to = { x: mouse.x + BUDDY_OFFSET_X, y: mouse.y + BUDDY_OFFSET_Y };
+    bezierFlight(from, to).then(() => {
+      if (token !== navToken) return;
+      activePoint = false;
+      // Hand the bubble back to a still-speaking transcript, or clear it.
+      if (mode === "speaking" && transcriptText) setBubble(transcriptText);
+      else if (mode !== "speaking") setBubble("");
+    });
+  }
+
+  function flyTo(point) {
+    // Cancel any navigation already in flight so the new target wins cleanly.
+    navToken++;
+    const token = navToken;
+    activePoint = true;
+    const from = { ...position };
+    const to = { x: point.x, y: point.y };
+    const label = point.label || "right here";
+
+    bezierFlight(from, to).then(() => {
+      if (token !== navToken) return;
+      // Arrived at the element — point at it: stream the label, hold, fade,
+      // then fly back to the live cursor (the full Clicky pointing lifecycle).
+      streamBubbleText(label, () => {
+        if (token !== navToken) return;
+        setTimeout(() => {
+          if (token !== navToken) return;
+          // Fade the bubble out over ~0.5s before the return flight.
+          bubble.classList.remove("pop");
+          bubble.style.transition = "opacity .5s ease";
+          bubble.classList.remove("visible");
+          setTimeout(() => {
+            bubble.style.transition = "";
+            if (token !== navToken) return;
+            flyBackToCursor(token);
+          }, 500);
+        }, 2600);
+      });
+    });
   }
 
   function elementLabel(element) {
@@ -470,7 +544,25 @@
   }
 
   function clearDrawings() {
+    clearTimeout(drawingsClearTimer);
+    drawingsClearTimer = 0;
     drawings.replaceChildren();
+  }
+
+  // Schedule all on-screen drawings to fade and clear after a few seconds,
+  // matching how production Clicky's annotations disappear after the turn.
+  function scheduleDrawingAutoClear() {
+    clearTimeout(drawingsClearTimer);
+    drawingsClearTimer = setTimeout(() => {
+      // Fade out then remove so it doesn't just vanish mid-glance.
+      const children = [...drawings.children];
+      children.forEach((child) => {
+        child.style.transition = "opacity .5s ease";
+        child.style.opacity = "0";
+      });
+      setTimeout(() => { drawings.replaceChildren(); }, 500);
+      drawingsClearTimer = 0;
+    }, DRAWINGS_AUTO_CLEAR_MS);
   }
 
   function screenshotPoint(context, x, y) {
@@ -505,19 +597,51 @@
     const colors = { blue: "#3380ff", teal: "#14b8a6", red: "#ef4444", amber: "#f59e0b", purple: "#8b5cf6" };
     const color = colors[response.color] || colors.blue;
     const shape = response.shape || "rectangle";
+    const strokeStyle = response.style === "dashed" ? "dashed"
+      : response.style === "dotted" ? "dotted" : "";
     const rect = targetRect(response.target_id);
     const fromRect = targetRect(response.from_target_id);
     const toRect = targetRect(response.to_target_id);
     const rawStart = responsePoint(context, response.x, response.y, response.coordinate_space);
     const rawEnd = responsePoint(context, response.end_x, response.end_y, response.coordinate_space);
+    // strokeAttrs is spread into every stroked SVG element so dash style is
+    // applied uniformly across shapes.
+    const strokeAttrs = strokeStyle
+      ? { class: `stroke ${strokeStyle}` }
+      : { class: "stroke" };
+
+    // ── Text annotation ──────────────────────────────────────
+    // Places a short label at a viewport position. Uses the DOM element rect
+    // center if a target_id is given, otherwise raw x/y.
+    if (shape === "text") {
+      const anchor = rect
+        ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+        : rawStart;
+      if (!anchor) { setStatus("Clicky couldn't place that text", true); return; }
+      const textContent = String(response.label || "").slice(0, 200);
+      if (!textContent) return;
+      const text = svgElement("text", {
+        x: anchor.x,
+        y: anchor.y,
+        fill: color,
+        class: "draw-text",
+      });
+      text.textContent = textContent;
+      drawings.appendChild(text);
+      scheduleDrawingAutoClear();
+      return;
+    }
+
     let element = null;
+    let extraElements = [];
+
     if (["rectangle", "highlight", "circle", "underline"].includes(shape) && rect) {
       if (shape === "circle") {
-        element = svgElement("ellipse", { cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2, rx: rect.width / 2 + 8, ry: rect.height / 2 + 8, fill: "none", stroke: color, "stroke-width": 3, "pathLength": 1, class: "stroke" });
+        element = svgElement("ellipse", { cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2, rx: rect.width / 2 + 8, ry: rect.height / 2 + 8, fill: "none", stroke: color, "stroke-width": 3, "pathLength": 1, ...strokeAttrs });
       } else if (shape === "underline") {
-        element = svgElement("line", { x1: rect.left, y1: rect.bottom + 4, x2: rect.right, y2: rect.bottom + 4, stroke: color, "stroke-width": 4, "stroke-linecap": "round", "pathLength": 1, class: "stroke" });
+        element = svgElement("line", { x1: rect.left, y1: rect.bottom + 4, x2: rect.right, y2: rect.bottom + 4, stroke: color, "stroke-width": 4, "stroke-linecap": "round", "pathLength": 1, ...strokeAttrs });
       } else {
-        element = svgElement("rect", { x: rect.left - 6, y: rect.top - 6, width: rect.width + 12, height: rect.height + 12, rx: 8, fill: shape === "highlight" ? color : "none", "fill-opacity": shape === "highlight" ? .18 : 0, stroke: color, "stroke-width": shape === "highlight" ? 1.5 : 3, "pathLength": 1, class: "stroke" });
+        element = svgElement("rect", { x: rect.left - 6, y: rect.top - 6, width: rect.width + 12, height: rect.height + 12, rx: 8, fill: shape === "highlight" ? color : "none", "fill-opacity": shape === "highlight" ? .18 : 0, stroke: color, "stroke-width": shape === "highlight" ? 1.5 : 3, "pathLength": 1, ...strokeAttrs });
       }
     } else if (["rectangle", "highlight", "circle", "underline"].includes(shape) && rawStart) {
       // Pixels inside videos, canvas elements, and cross-origin iframes have no
@@ -525,17 +649,7 @@
       // space instead of silently dropping the annotation.
       if (shape === "underline") {
         const end = rawEnd || { x: rawStart.x + 72, y: rawStart.y };
-        element = svgElement("line", {
-          x1: rawStart.x,
-          y1: rawStart.y,
-          x2: end.x,
-          y2: end.y,
-          stroke: color,
-          "stroke-width": 4,
-          "stroke-linecap": "round",
-          pathLength: 1,
-          class: "stroke",
-        });
+        element = svgElement("line", { x1: rawStart.x, y1: rawStart.y, x2: end.x, y2: end.y, stroke: color, "stroke-width": 4, "stroke-linecap": "round", "pathLength": 1, ...strokeAttrs });
       } else {
         const end = rawEnd || { x: rawStart.x + 68, y: rawStart.y + 68 };
         const left = Math.min(rawStart.x, end.x);
@@ -543,38 +657,41 @@
         const width = Math.max(12, Math.abs(end.x - rawStart.x));
         const height = Math.max(12, Math.abs(end.y - rawStart.y));
         if (shape === "circle") {
-          element = svgElement("ellipse", {
-            cx: left + width / 2,
-            cy: top + height / 2,
-            rx: width / 2,
-            ry: height / 2,
-            fill: "none",
-            stroke: color,
-            "stroke-width": 3,
-            pathLength: 1,
-            class: "stroke",
-          });
+          element = svgElement("ellipse", { cx: left + width / 2, cy: top + height / 2, rx: width / 2, ry: height / 2, fill: "none", stroke: color, "stroke-width": 3, "pathLength": 1, ...strokeAttrs });
         } else {
-          element = svgElement("rect", {
-            x: left,
-            y: top,
-            width,
-            height,
-            rx: 8,
-            fill: shape === "highlight" ? color : "none",
-            "fill-opacity": shape === "highlight" ? .18 : 0,
-            stroke: color,
-            "stroke-width": shape === "highlight" ? 1.5 : 3,
-            pathLength: 1,
-            class: "stroke",
-          });
+          element = svgElement("rect", { x: left, y: top, width, height, rx: 8, fill: shape === "highlight" ? color : "none", "fill-opacity": shape === "highlight" ? .18 : 0, stroke: color, "stroke-width": shape === "highlight" ? 1.5 : 3, "pathLength": 1, ...strokeAttrs });
         }
       }
-    } else if (["arrow", "line"].includes(shape)) {
+    } else if (shape === "arrow") {
       const start = fromRect ? { x: fromRect.left + fromRect.width / 2, y: fromRect.top + fromRect.height / 2 } : rawStart;
       const end = toRect ? { x: toRect.left + toRect.width / 2, y: toRect.top + toRect.height / 2 } : rawEnd;
       if (start && end) {
-        element = svgElement("line", { x1: start.x, y1: start.y, x2: end.x, y2: end.y, stroke: color, "stroke-width": 3, "stroke-linecap": "round", "pathLength": 1, class: "stroke" });
+        // Shorten the line slightly so the arrowhead tip sits exactly at end.
+        const angle = Math.atan2(end.y - start.y, end.x - start.x);
+        const headLen = 14;
+        const lineEndX = end.x - Math.cos(angle) * headLen * 0.6;
+        const lineEndY = end.y - Math.sin(angle) * headLen * 0.6;
+        element = svgElement("line", { x1: start.x, y1: start.y, x2: lineEndX, y2: lineEndY, stroke: color, "stroke-width": 3, "stroke-linecap": "round", "pathLength": 1, ...strokeAttrs });
+        // Arrowhead: a filled triangle at the end point, rotated to the line angle.
+        const p1x = end.x - Math.cos(angle - 0.42) * headLen;
+        const p1y = end.y - Math.sin(angle - 0.42) * headLen;
+        const p2x = end.x - Math.cos(angle + 0.42) * headLen;
+        const p2y = end.y - Math.sin(angle + 0.42) * headLen;
+        const head = svgElement("polygon", {
+          points: `${end.x},${end.y} ${p1x},${p1y} ${p2x},${p2y}`,
+          fill: color,
+          stroke: color,
+          "stroke-width": 1,
+          "stroke-linejoin": "round",
+          class: "stroke",
+        });
+        extraElements.push(head);
+      }
+    } else if (shape === "line") {
+      const start = fromRect ? { x: fromRect.left + fromRect.width / 2, y: fromRect.top + fromRect.height / 2 } : rawStart;
+      const end = toRect ? { x: toRect.left + toRect.width / 2, y: toRect.top + toRect.height / 2 } : rawEnd;
+      if (start && end) {
+        element = svgElement("line", { x1: start.x, y1: start.y, x2: end.x, y2: end.y, stroke: color, "stroke-width": 3, "stroke-linecap": "round", "pathLength": 1, ...strokeAttrs });
       }
     }
     if (!element) {
@@ -582,6 +699,8 @@
       return;
     }
     drawings.appendChild(element);
+    for (const extra of extraElements) drawings.appendChild(extra);
+    scheduleDrawingAutoClear();
   }
 
   window.addEventListener("mousemove", (event) => {
@@ -672,7 +791,10 @@
       setMode(message.mode);
       if (message.mode === "speaking" && message.append) {
         transcriptText = `${transcriptText}${message.text || ""}`.slice(-420);
-        setBubble(transcriptText);
+        // Don't clobber an active pointer bubble — Clicky's pointing label owns
+        // the bubble during a point. It is restored in flyBackToCursor once the
+        // cursor returns to the live mouse.
+        if (!activePoint) setBubble(transcriptText);
       } else if (message.text) {
         setStatus(message.text, message.delayed);
         if (message.mode === "idle" && !activePoint) setTimeout(() => setBubble(""), 1400);
@@ -681,6 +803,12 @@
       handlePoint(message.context, message.response);
     } else if (message.type === "CLICKY_DRAW") {
       handleDraw(message.context, message.tool, message.response);
+    } else if (message.type === "CLICKY_DRAW_BATCH") {
+      // All nodes are appended in this message handler, before the browser's
+      // next paint, so a diagram appears as one coherent visual.
+      for (const response of message.responses || []) {
+        handleDraw(message.context, message.tool, response);
+      }
     } else if (message.type === "CLICKY_ACTION") {
       handleAction(message.context, message.response);
     }

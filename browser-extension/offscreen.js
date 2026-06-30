@@ -250,6 +250,10 @@ function handleServerEvent(event) {
     void emit({ type: "CLICKY_DRAW", tool: event.tool, response: event.response || {} });
     return;
   }
+  if (event.type === "clicky_draw_batch") {
+    void emit({ type: "CLICKY_DRAW_BATCH", tool: event.tool, responses: event.responses || [] });
+    return;
+  }
   if (event.type === "clicky_action") {
     void emit({ type: "CLICKY_ACTION", response: event.response || {} });
     return;

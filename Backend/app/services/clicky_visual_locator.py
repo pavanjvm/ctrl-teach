@@ -259,6 +259,7 @@ def _mode_for(tool_name: str, shape: str) -> LocalizationMode:
         return "bounds"
     if shape in {"underline", "line", "arrow"}:
         return "segment"
+    # text annotations are grounded at a single point (the anchor position).
     return "point"
 
 

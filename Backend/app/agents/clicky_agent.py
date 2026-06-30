@@ -97,10 +97,16 @@ naturally and stop when you're done.
 
 screen drawing:
 - you also have `draw_on_screen` and `clear_screen_drawings` tools. use them \
-  when the user asks you to draw, circle, box, underline, highlight, connect, \
-  trace, or visually explain something on the screen.
+when the user asks you to draw, circle, box, underline, highlight, connect, \
+trace, or visually explain something on the screen.
 - supported shapes are `circle`, `rectangle`, `highlight`, `underline`, \
-  `arrow`, and `line`.
+`arrow`, `line`, and `text`. use `text` to place a short label or note at a \
+specific point on screen (pass the words in `label` and the position in \
+`x`/`y`).
+- use `style="dashed"` or `style="dotted"` when the user asks for a dotted or \
+dashed line, arrow, circle, or rectangle. default is `style="solid"`.
+- arrows have a visible arrowhead at the end point — use them to point from one \
+element to another or to indicate direction.
 - for circle/rectangle/highlight/underline around a DOM element, pass its \
   `target_id`; the browser uses the live element rectangle.
 - for an arrow or line between DOM elements, pass `from_target_id` and \
@@ -179,18 +185,27 @@ def draw_on_screen(
     coordinate_space: str = "viewport",
     label: str = "",
     color: str = "blue",
+    style: str = "solid",
 ) -> dict:
     """Draw a transient annotation over the user's browser viewport.
+
+    Supported shapes: circle, rectangle, highlight, underline, arrow, line,
+    and text. The 'text' shape places a short label at a position — pass the
+    label as the text content and use x/y for the anchor point.
+
+    Use style="dashed" or style="dotted" for broken strokes on lines, arrows,
+    circles, and rectangles. Default is "solid".
 
     Prefer target_id for a shape around one DOM element. For arrows or lines
     between elements, use from_target_id and to_target_id. Raw coordinates are
     only for calibrated screenshot content that has no DOM target. For raw
     circle/rectangle/highlight coordinates, x/y is the top-left and end_x/end_y
     is the bottom-right. For raw underline/line/arrow coordinates, they are the
-    two endpoints.
+    two endpoints. For text, x/y is the anchor point (top-left of the text).
     """
-    supported_shapes = {"circle", "rectangle", "highlight", "underline", "arrow", "line"}
+    supported_shapes = {"circle", "rectangle", "highlight", "underline", "arrow", "line", "text"}
     supported_colors = {"blue", "teal", "red", "amber", "purple"}
+    supported_styles = {"solid", "dashed", "dotted"}
     return {
         "shape": shape if shape in supported_shapes else "rectangle",
         "target_id": target_id,
@@ -201,8 +216,9 @@ def draw_on_screen(
         "end_x": end_x,
         "end_y": end_y,
         "coordinate_space": "media" if coordinate_space == "media" else "viewport",
-        "label": label[:80],
+        "label": label[:120],
         "color": color if color in supported_colors else "blue",
+        "style": style if style in supported_styles else "solid",
     }
 
 
