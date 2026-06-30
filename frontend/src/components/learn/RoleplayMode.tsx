@@ -20,10 +20,21 @@ interface Persona {
   role: string;
   initials: string;
   opener: string;
+  followUps?: string[];
   critique: string[];
 }
 
 function personaFor(lesson: Lesson | null): Persona {
+  if (lesson?.roleplay) {
+    return {
+      name: lesson.roleplay.name,
+      role: lesson.roleplay.role,
+      initials: lesson.roleplay.initials,
+      opener: lesson.roleplay.opener,
+      followUps: lesson.roleplay.followUps,
+      critique: lesson.roleplay.critique,
+    };
+  }
   if (lesson?.id === "lsn-6") return {
     name: "Priya",
     role: "Senior Product Owner",
@@ -58,7 +69,10 @@ function personaFor(lesson: Lesson | null): Persona {
   };
 }
 
-function reply(them: string, persona: Persona): string {
+function reply(them: string, persona: Persona, turn: number): string {
+  if (persona.followUps?.length) {
+    return persona.followUps[Math.min(turn - 1, persona.followUps.length - 1)];
+  }
   const q = them.toLowerCase();
   if (q.includes("?")) return `Good question back. Let me give you more: our biggest constraint is engineer time. How would you weigh that against the value you described?`;
   if (q.includes("value")) return `Hmm — that's a fair framing. But how would we actually measure that value after it ships?`;
@@ -95,7 +109,7 @@ export default function RoleplayMode({ lesson, onCoached }: Props) {
       }, 450);
     } else {
       setTimeout(() => {
-        setLines((l) => [...l, { id: idRef.current++, role: "them", text: reply(text, persona) }]);
+        setLines((l) => [...l, { id: idRef.current++, role: "them", text: reply(text, persona, n) }]);
       }, 400);
     }
   };

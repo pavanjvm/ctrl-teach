@@ -24,9 +24,13 @@ export type TeachingStyle =
   | "Socratic teacher";
 
 export type ContentPlatform =
+  | "Ctrl+Teach"
   | "LinkedIn Learning"
   | "Udemy"
   | "YouTube"
+  | "GitHub"
+  | "freeCodeCamp"
+  | "MIT OpenCourseWare"
   | "Documentation"
   | "Blogs"
   | "Articles";
@@ -83,12 +87,41 @@ export interface CourseOnboardingPrefs {
 
 export type LessonType = "study" | "lab" | "assessment" | "roleplay";
 
+export type LearningResourceKind =
+  | "video"
+  | "documentation"
+  | "article"
+  | "course"
+  | "repository";
+
+export interface LearningResource {
+  id: string;
+  title: string;
+  provider: string;
+  kind: LearningResourceKind;
+  url: string;
+  description?: string;
+  reason?: string;
+}
+
+export interface RoleplayScenario {
+  name: string;
+  role: string;
+  initials: string;
+  opener: string;
+  followUps: string[];
+  critique: string[];
+}
+
 export interface Lesson {
   id: string;
   title: string;
   type: LessonType;
   duration: string;
   summary: string;
+  resources?: LearningResource[];
+  assessment?: QuizQuestion[];
+  roleplay?: RoleplayScenario;
   done?: boolean;
   bookmarked?: boolean;
 }
@@ -112,6 +145,8 @@ export interface Course {
   rating: number;
   ratingCount: number;
   url?: string;
+  sourceCount?: number;
+  goal?: string;
   modules: Module[];
 }
 

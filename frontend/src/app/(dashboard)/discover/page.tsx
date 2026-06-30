@@ -11,6 +11,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useLearner } from "@/lib/learner";
 import { API_URL } from "@/lib/constants";
 import type { Course, ContentPlatform, SkillLevel } from "@/lib/types";
+import GoalPathBuilder from "@/components/GoalPathBuilder";
 
 import "./discover.css";
 
@@ -91,6 +92,10 @@ const RECENT_KEY = "ctrlteach_recent_courses";
 /* ── Component ───────────────────────────────────────────────────────── */
 
 export default function DiscoverPage() {
+  return <GoalPathBuilder />;
+}
+
+function LegacyDiscoverPage() {
   const router = useRouter();
   const { prefs, courses, addCourse, setActiveCourse, activeCourseId, activeCourse } =
     useLearner();
@@ -103,11 +108,11 @@ export default function DiscoverPage() {
     }
   }, [prefs, router]);
 
-  const goal = prefs?.goal ?? "";
+  const goal = prefs?.preparingFor ?? "";
 
   const [query, setQuery] = useState(goal);
   const [selectedPlatforms, setSelectedPlatforms] = useState<ContentPlatform[]>(
-    prefs?.sources ?? []
+    []
   );
   const [level, setLevel] = useState<"All" | SkillLevel>("All");
 

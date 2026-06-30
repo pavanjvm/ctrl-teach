@@ -111,11 +111,13 @@ const CoachCursor: React.FC<{ pos: { x: number; y: number }; rot: number; scale:
   >
     <div
       style={{
-        width: 0,
-        height: 0,
-        borderLeft: "9px solid transparent",
-        borderRight: "9px solid transparent",
-        borderBottom: `16px solid ${COACH_COLOR}`,
+        position: "absolute",
+        left: -8,
+        top: 0,
+        width: 16,
+        height: 13.856,
+        background: COACH_COLOR,
+        clipPath: "polygon(50% 0, 100% 100%, 0 100%)",
         filter: `drop-shadow(0 0 8px ${COACH_GLOW})`,
       }}
     />

@@ -20,6 +20,7 @@ import { useAuth } from "@/components/AuthProvider";
 import type { WhiteboardCanvasRef } from "@/components/WhiteboardCanvas";
 import { WS_URL, API_URL } from "@/lib/constants";
 import { generateId, base64ToArrayBuffer } from "@/lib/utils";
+import { dispatchBoardClickyDraw } from "@/lib/clickyBoardBridge";
 
 // Dynamic import — Excalidraw cannot be SSR'd
 const WhiteboardCanvas = dynamic(
@@ -40,6 +41,7 @@ function needsWhiteboardVision(text: string) {
     "explain this", "explain that", "this diagram", "this drawing", "this shape",
     "my drawing", "my diagram", "on the board", "whiteboard", "board", "canvas",
     "point to", "point at", "where is", "where's", "highlight this", "circle this",
+    "draw over", "draw on top", "annotate", "underline", "connect these", "draw an arrow",
     "this part", "that part", "over here", "right here", "here", "there",
   ];
   if (visualPhrases.some((p) => t.includes(p))) return true;
@@ -70,6 +72,7 @@ export default function Page() {
     viewHeight: number;
   } | null>(null);
   const visualContextHandledRef = useRef<{ text: string; at: number } | null>(null);
+  const bridgedDrawIdsRef = useRef<Set<string>>(new Set());
 
   // Tutor personalisation — read from ?tutor=<id> query param
   const searchParams = useSearchParams();
@@ -88,10 +91,12 @@ export default function Page() {
     messages,
     canvasCommands,
     clickyPoint,
+    clickyAgentDraws,
     isGeneratingImage,
     isSavingProgress,
     connect,
     disconnect,
+    interruptResponse,
     sendText,
     sendAudio,
     sendImage,
@@ -304,11 +309,14 @@ export default function Page() {
   }, [connected, sendWhiteboardVisionTurn]);
 
   const handleSendText = useCallback((text: string) => {
+    // Snapshot-backed questions bypass sendText, so interrupt here as well.
+    // This also clears locally queued audio before the async capture begins.
+    interruptResponse();
     void (async () => {
       const sentVisionTurn = await maybeSendVisualContext(text);
       if (!sentVisionTurn) sendText(text);
     })();
-  }, [maybeSendVisualContext, sendText]);
+  }, [interruptResponse, maybeSendVisualContext, sendText]);
 
   // ── Auto-start mic when session connects ─────────────────────────────────
 
@@ -345,6 +353,44 @@ export default function Page() {
     const y = Math.max(0, Math.min(meta.viewHeight, (clickyPoint.y / meta.imageHeight) * meta.viewHeight));
     setClickyPointTarget({ x, y, label: clickyPoint.label, id: clickyPoint.id });
   }, [clickyPoint]);
+
+  // The board owns the only active Realtime session. Forward its temporary
+  // drawing tools to Global Clicky's visual overlay after converting the
+  // whiteboard screenshot coordinates into browser viewport coordinates.
+  useEffect(() => {
+    for (const draw of clickyAgentDraws) {
+      if (bridgedDrawIdsRef.current.has(draw.id)) continue;
+
+      if (draw.tool === "clear_screen_drawings") {
+        bridgedDrawIdsRef.current.add(draw.id);
+        dispatchBoardClickyDraw({ ...draw, coordinateSpace: "viewport" });
+        continue;
+      }
+
+      const meta = lastCanvasSnapshotMetaRef.current;
+      const viewportRect = canvasRef.current?.getViewportRect();
+      if (!meta || !viewportRect) continue;
+      const convertPoint = (x?: number | null, y?: number | null) => {
+        if (typeof x !== "number" || typeof y !== "number") return null;
+        return {
+          x: viewportRect.left + (x / meta.imageWidth) * viewportRect.width,
+          y: viewportRect.top + (y / meta.imageHeight) * viewportRect.height,
+        };
+      };
+      const start = convertPoint(draw.x, draw.y);
+      const end = convertPoint(draw.endX, draw.endY);
+      if (!start) continue;
+      bridgedDrawIdsRef.current.add(draw.id);
+      dispatchBoardClickyDraw({
+        ...draw,
+        x: start.x,
+        y: start.y,
+        endX: end?.x ?? null,
+        endY: end?.y ?? null,
+        coordinateSpace: "viewport",
+      });
+    }
+  }, [clickyAgentDraws]);
 
   // ── Cleanup on unmount ──────────────────────────────────────────────────
 

@@ -13,6 +13,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 from app.auth.dependencies import get_current_user
+from app.auth.extension_tokens import create_clicky_extension_token
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,13 @@ class ClickyResponse(BaseModel):
     action: str = "none"
     audio_b64: Optional[str] = None
     audio_mime: Optional[str] = None
+
+
+class ClickyExtensionSession(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: str
+    expires_at: int
 
 
 SCHEMA: dict[str, Any] = {
@@ -94,6 +102,17 @@ def _normalize_clicky_json(data: Any) -> dict[str, Any]:
     if data.get("type") == "object" and isinstance(props, dict) and "answer" in props:
         return props
     return data
+
+
+@router.post("/extension-session", response_model=ClickyExtensionSession)
+async def create_extension_session(user: dict = Depends(get_current_user)):
+    """Exchange the app's Basic login for a Clicky-only expiring token."""
+    token, expires_at = create_clicky_extension_token(user)
+    return ClickyExtensionSession(
+        access_token=token,
+        user_id=str(user["uid"]),
+        expires_at=expires_at,
+    )
 
 
 async def _speak(answer: str, request_id: str = "unknown") -> str:

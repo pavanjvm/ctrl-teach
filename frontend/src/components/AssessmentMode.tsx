@@ -165,18 +165,21 @@ export default function AssessmentMode({
 }: AssessmentModeProps) {
   const { addXp, addCheckpoint, setConfidence, earnBadge } = useLearner();
 
-  // Resolve the lesson title from the course tree, falling back gracefully.
-  const lessonTitle = useMemo(() => {
+  const activeLesson = useMemo(() => {
     for (const m of course.modules) {
       const l = m.lessons.find((x) => x.id === lessonId);
-      if (l) return l.title;
+      if (l) return l;
     }
-    return "this lesson";
+    return null;
   }, [course, lessonId]);
 
+  const lessonTitle = activeLesson?.title ?? "this lesson";
   const questions = useMemo(
-    () => buildQuiz(lessonId, lessonTitle),
-    [lessonId, lessonTitle]
+    () =>
+      activeLesson?.assessment?.length
+        ? activeLesson.assessment
+        : buildQuiz(lessonId, lessonTitle),
+    [activeLesson, lessonId, lessonTitle]
   );
 
   const [phase, setPhase] = useState<Phase>("confidence");

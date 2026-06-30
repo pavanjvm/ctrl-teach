@@ -8,6 +8,10 @@ import { WS_URL } from "@/lib/constants";
 import { useAudio } from "@/hooks/useAudio";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import {
+  CLICKY_BOARD_DRAW_EVENT,
+  type ClickyDrawCommand,
+} from "@/lib/clickyBoardBridge";
+import {
   extractWakeVector,
   loadWakeTemplate,
   saveWakeTemplate,
@@ -60,7 +64,6 @@ const WAKE_TRAINING_PHRASES = ["chat", "hey chat"];
 const SHOW_CLICKY_BUBBLE = false;
 const CLICKY_SPEECH_TAIL_MS = 700;
 const MAX_DOM_TARGETS = 220;
-const ANNOTATION_LIFETIME_MS = 10_000;
 const ANNOTATION_COLORS: Record<ScreenAnnotation["color"], string> = {
   blue: "#3380ff",
   teal: "#14b8a6",
@@ -569,14 +572,17 @@ async function captureFrameFromStream(
 
 export default function GlobalClickyAssistant() {
   const { user, getToken } = useAuth();
-  const { enabled, setEnabled, status, setStatus, trainingOpen } = useClicky();
+  const { enabled, setEnabled, extensionAvailable, status, setStatus, trainingOpen } = useClicky();
   const pathname = usePathname();
   const isLanding = pathname === "/";
-  // Decorative cursor visible on the landing page (no auth/WS) and wherever
-  // Clicky is actually enabled. Functionality (voice, pointing) only kicks in
-  // when `enabled && user`. Clicky's Realtime WS now connects once and stays
-  // connected across all authed page navigations — no per-page gating.
-  const showCursor = enabled || isLanding;
+  const isWhiteboardSession = pathname === "/board";
+  const globalClickyActive = enabled && !isWhiteboardSession && extensionAvailable === false;
+  // Signed-out visitors get the decorative cursor on every route, but none of
+  // Clicky's authenticated voice, screen-capture, or action functionality.
+  // The board supplies its own cursor for authenticated whiteboard sessions.
+  const showCursor =
+    globalClickyActive ||
+    (!user && extensionAvailable !== true && !isWhiteboardSession);
 
   const [mounted, setMounted] = useState(false);
   const [bubble, setBubble] = useState("");
@@ -586,9 +592,12 @@ export default function GlobalClickyAssistant() {
   const [trainingPhraseIndex, setTrainingPhraseIndex] = useState(0);
   const [debugLine, setDebugLine] = useState("clicky debug: idle");
   const [screenAnnotations, setScreenAnnotations] = useState<ScreenAnnotation[]>([]);
+  const [boardDrawCommands, setBoardDrawCommands] = useState<ClickyDrawCommand[]>([]);
 
   // Cursor RAF refs
   const cursorRef = useRef<HTMLDivElement>(null);
+  const bubbleAnchorRef = useRef<HTMLDivElement>(null);
+  const cursorRotationRef = useRef(-35);
   const posRef = useRef({ x: 90, y: 90 });
   const mouseRef = useRef({ x: 90, y: 90 });
   const activePointRef = useRef(false);
@@ -613,30 +622,45 @@ export default function GlobalClickyAssistant() {
   const ctrlHeldRef = useRef(false);
   const upstreamMutedRef = useRef(true); // start muted; Ctrl unmutes
   const speechTailUntilRef = useRef(0);
-  const speechStatsRef = useRef({ startedAt: 0, chunks: 0, bytes: 0, peak: 0, rmsSum: 0 });
+  const ambientNoiseRef = useRef({ rms: 0.004, flux: 0.0025, peak: 0.012 });
+  const previousMicSampleRef = useRef(0);
+  const speechStatsRef = useRef({
+    startedAt: 0,
+    chunks: 0,
+    bytes: 0,
+    peak: 0,
+    rmsSum: 0,
+    voicedSamples: 0,
+    currentVoiceSamples: 0,
+    maxContinuousVoiceSamples: 0,
+    noiseRms: 0.004,
+    noiseFlux: 0.0025,
+    noisePeak: 0.012,
+  });
   const replyAudioStatsRef = useRef({ chunks: 0, bytes: 0 });
   // Last clicky_point id processed, to avoid double-handling the same event.
   const lastPointIdRef = useRef<string | null>(null);
   const processedDrawIdsRef = useRef<Set<string>>(new Set());
-  const annotationTimersRef = useRef<Map<string, number>>(new Map());
   const trainingRecordingRef = useRef(false);
-  const enabledRef = useRef(false);
   const trainingOpenRef = useRef(false);
 
   // ── Cursor positioning & flight ────────────────────────────────────────
   // Matches the real Clicky macOS overlay (OverlayWindow.swift). The buddy:
   //   - sits +35px right / +25px below the real pointer (a "helper" buddy)
   //   - defaults to a -35° tilt (cursor-like arrow)
-  //   - springs toward the mouse with SwiftUI spring(response:0.2, damping:0.6)
+  //   - springs toward the mouse with a deliberately visible follow-through
   //   - flies to targets along a quadratic bezier, smoothstep easeInOut,
   //     duration = clamp(dist/800, 0.6s, 1.4s), arc height = min(dist*0.2, 80)
   const BUDDY_OFFSET_X = 35;
   const BUDDY_OFFSET_Y = 25;
   const BUDDY_DEFAULT_ROT = -35;
-  // Spring constants for response=0.2, dampingFraction=0.6 (SwiftUI critically-ish damped).
+  // A slower response with stronger damping keeps a smooth visible trail while
+  // avoiding excessive bounce around the real cursor.
+  const SPRING_RESPONSE = 0.38;
+  const SPRING_DAMPING = 0.68;
   // ω = 2π/response; k = ω²; c = 2·dampingFraction·√k (mass=1).
-  const SPRING_K = (2 * Math.PI / 0.2) ** 2;            // ≈ 986.96
-  const SPRING_C = 2 * 0.6 * Math.sqrt(SPRING_K);       // ≈ 37.7
+  const SPRING_K = (2 * Math.PI / SPRING_RESPONSE) ** 2;
+  const SPRING_C = 2 * SPRING_DAMPING * Math.sqrt(SPRING_K);
   // Velocity carried across frames for the idle spring follower.
   const velRef = useRef({ x: 0, y: 0 });
   // Last timestamp for the spring RAF loop (dt in seconds).
@@ -646,6 +670,8 @@ export default function GlobalClickyAssistant() {
     const el = cursorRef.current;
     if (el) el.style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${rot}deg) scale(${scale})`;
     el?.style.setProperty("opacity", String(opacity));
+    cursorRotationRef.current = rot;
+    if (bubbleAnchorRef.current) bubbleAnchorRef.current.style.transform = `rotate(${-rot}deg)`;
     posRef.current = { x, y };
   }, []);
 
@@ -683,20 +709,13 @@ export default function GlobalClickyAssistant() {
   }, [setCursor]);
 
   const clearScreenAnnotations = useCallback(() => {
-    for (const timer of annotationTimersRef.current.values()) {
-      window.clearTimeout(timer);
-    }
-    annotationTimersRef.current.clear();
     setScreenAnnotations([]);
   }, []);
 
   const addScreenAnnotation = useCallback((annotation: ScreenAnnotation) => {
-    setScreenAnnotations((current) => [...current.slice(-11), annotation]);
-    const timer = window.setTimeout(() => {
-      setScreenAnnotations((current) => current.filter((item) => item.id !== annotation.id));
-      annotationTimersRef.current.delete(annotation.id);
-    }, ANNOTATION_LIFETIME_MS);
-    annotationTimersRef.current.set(annotation.id, timer);
+    // Keep the visual explanation intact until Clicky explicitly clears it or
+    // the viewport moves and invalidates its coordinates.
+    setScreenAnnotations((current) => [...current, annotation].slice(-32));
   }, []);
 
   useEffect(() => clearScreenAnnotations, [clearScreenAnnotations]);
@@ -710,11 +729,26 @@ export default function GlobalClickyAssistant() {
     };
   }, [clearScreenAnnotations]);
 
+  useEffect(() => {
+    if (!isWhiteboardSession) {
+      setBoardDrawCommands([]);
+      return;
+    }
+    clearScreenAnnotations();
+    const handleBoardDraw = (event: Event) => {
+      const command = (event as CustomEvent<ClickyDrawCommand>).detail;
+      if (!command?.id) return;
+      setBoardDrawCommands((current) => [...current.slice(-31), command]);
+    };
+    window.addEventListener(CLICKY_BOARD_DRAW_EVENT, handleBoardDraw);
+    return () => {
+      window.removeEventListener(CLICKY_BOARD_DRAW_EVENT, handleBoardDraw);
+      clearScreenAnnotations();
+    };
+  }, [isWhiteboardSession, clearScreenAnnotations]);
+
   // ── Idle spring-follow loop ──────────────────────────────────────────────
-  // Replicates SwiftUI `.animation(.spring(response: 0.2, dampingFraction: 0.6),
-  // value: cursorPosition)` updated at 60fps. We integrate a spring toward the
-  // last mouse position + offset; the buddy trails the real cursor with the
-  // same lag-and-overshoot feel as the real macOS Clicky.
+  // Integrates a spring toward the last mouse position + offset at 60fps.
   useEffect(() => {
     if (!showCursor) return;
     const onMove = (e: MouseEvent) => {
@@ -723,7 +757,7 @@ export default function GlobalClickyAssistant() {
     window.addEventListener("mousemove", onMove);
     const raf = (ts: number) => {
       if (lastSpringTsRef.current == null) lastSpringTsRef.current = ts;
-      const dtMs = Math.min(ts - lastSpringTsRef.current, 64);
+      const dtMs = Math.min(ts - lastSpringTsRef.current, 32);
       lastSpringTsRef.current = ts;
       const dt = dtMs / 1000;
       if (!activePointRef.current) {
@@ -817,7 +851,6 @@ export default function GlobalClickyAssistant() {
   // voice is paused) MUST NOT tear it down. Only the WS connection toggles,
   // so switching pages doesn't re-prompt for tab share.
   useEffect(() => {
-    enabledRef.current = enabled;
     if (!enabled || !user) {
       if (screenStreamRef.current) {
         screenStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -826,6 +859,9 @@ export default function GlobalClickyAssistant() {
       viewportCalibrationRef.current = null;
       return;
     }
+    // The board tutor owns the active session. Preserve an existing capture so
+    // leaving the board does not prompt again, but never start one on /board.
+    if (isWhiteboardSession) return;
     let cancelled = false;
     if (screenStreamRef.current) return; // already capturing — reuse across navigations
     void (async () => {
@@ -856,21 +892,22 @@ export default function GlobalClickyAssistant() {
       // logged out — handled in the early-return branch above.
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, user]);
+  }, [enabled, user, isWhiteboardSession]);
 
-  // ── Realtime WS connection: independent of current page ─────────────────
-  // Clicky stays connected on every authed page (including /learn and
-  // /board where the Tutor companion also operates). The two sessions run in
-  // parallel — they use independent useAudio/useWebSocket hook instances.
+  // ── Realtime WS connection ───────────────────────────────────────────────
+  // The board owns a single tutor Realtime session. Global Clicky disconnects
+  // there to prevent duplicate microphones, replies, and audio playback.
   useEffect(() => {
-    if (!enabled || !user || trainingOpen) {
+    if (!globalClickyActive || !user || trainingOpen) {
       if (wsHook.status !== "disconnected") wsHook.disconnect();
       if (audioHook.isRecording) audioHook.stopRecording();
       audioHook.clearPlayback();
       ctrlHeldRef.current = false;
       upstreamMutedRef.current = true;
       setMode("idle");
-      if (enabled && !user) {
+      if (enabled && isWhiteboardSession) {
+        setStatus("Clicky is controlled by the whiteboard tutor");
+      } else if (enabled && !user) {
         setStatus("Sign in to use Clicky");
       } else if (enabled && trainingOpen) {
         setStatus("Clicky training mode");
@@ -886,6 +923,9 @@ export default function GlobalClickyAssistant() {
       if (cancelled) return;
       wsHook.connect(url, {
         onAudio: (pcm) => {
+          // The first response audio chunk is the authoritative transition out
+          // of the thinking spinner and back to the normal Clicky pointer.
+          setMode("speaking");
           audioHook.playAudioChunk(pcm);
           replyAudioStatsRef.current.chunks += 1;
           replyAudioStatsRef.current.bytes += pcm.byteLength;
@@ -894,6 +934,7 @@ export default function GlobalClickyAssistant() {
           );
         },
         onInterrupt: () => audioHook.clearPlayback(),
+        onError: (message) => setStatus(`Clicky unavailable — ${message}`),
       });
     })();
     return () => {
@@ -905,35 +946,62 @@ export default function GlobalClickyAssistant() {
       upstreamMutedRef.current = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, user, trainingOpen]);
+  }, [globalClickyActive, enabled, isWhiteboardSession, user, trainingOpen]);
 
   // ── When the server-side Realtime session is ready, start mic capture & push
   //    initial screen context. The browser WS can open before OpenAI Realtime is
   //    entered server-side; waiting for `realtime_ready` prevents dropped mic
   //    chunks / "send_audio failed: Not connected".
   useEffect(() => {
-    if (!enabled || !user || trainingOpen) return;
+    if (!globalClickyActive || !user || trainingOpen) return;
     if (wsHook.status !== "connected") return;
     if (!wsHook.realtimeReady) return;
     if (audioHook.isRecording) return;
     audioHook.startRecording((pcm) => {
+      const samples = new Int16Array(pcm);
+      let sumSquares = 0;
+      let differenceSquares = 0;
+      let peak = 0;
+      let previous = previousMicSampleRef.current;
+      for (let i = 0; i < samples.length; i++) {
+        const sample = samples[i];
+        const abs = Math.abs(sample);
+        if (abs > peak) peak = abs;
+        sumSquares += sample * sample;
+        const difference = sample - previous;
+        differenceSquares += difference * difference;
+        previous = sample;
+      }
+      previousMicSampleRef.current = previous;
+      const rms = samples.length ? Math.sqrt(sumSquares / samples.length) / 32768 : 0;
+      const flux = samples.length ? Math.sqrt(differenceSquares / samples.length) / 32768 : 0;
+      const normalizedPeak = peak / 32768;
+
       if (!upstreamMutedRef.current) {
-        const samples = new Int16Array(pcm);
-        let sumSquares = 0;
-        let peak = 0;
-        for (let i = 0; i < samples.length; i++) {
-          const abs = Math.abs(samples[i]);
-          if (abs > peak) peak = abs;
-          sumSquares += samples[i] * samples[i];
+        const stats = speechStatsRef.current;
+        const speechLike = rms >= Math.max(0.007, stats.noiseRms * 1.85)
+          && flux >= Math.max(0.0035, stats.noiseFlux * 1.65)
+          && normalizedPeak >= Math.max(0.022, stats.noisePeak * 1.5);
+        stats.chunks += 1;
+        stats.bytes += pcm.byteLength;
+        stats.peak = Math.max(stats.peak, normalizedPeak);
+        stats.rmsSum += rms;
+        if (speechLike) {
+          stats.voicedSamples += samples.length;
+          stats.currentVoiceSamples += samples.length;
+          stats.maxContinuousVoiceSamples = Math.max(stats.maxContinuousVoiceSamples, stats.currentVoiceSamples);
+        } else {
+          stats.currentVoiceSamples = 0;
         }
-        const rms = samples.length ? Math.sqrt(sumSquares / samples.length) / 32768 : 0;
-        speechStatsRef.current.chunks += 1;
-        speechStatsRef.current.bytes += pcm.byteLength;
-        speechStatsRef.current.peak = Math.max(speechStatsRef.current.peak, peak / 32768);
-        speechStatsRef.current.rmsSum += rms;
         wsHook.sendAudio(pcm);
         return;
       }
+
+      const ambient = ambientNoiseRef.current;
+      const smooth = (current: number, next: number) => current + (next - current) * (next < current ? 0.08 : 0.012);
+      ambient.rms = smooth(ambient.rms, Math.min(rms, 0.08));
+      ambient.flux = smooth(ambient.flux, Math.min(flux, 0.08));
+      ambient.peak = smooth(ambient.peak, Math.min(normalizedPeak, 0.2));
       // Preserve a short silence tail so the manually committed buffer does
       // not end on a clipped phoneme. After the tail we go fully quiet.
       if (performance.now() < speechTailUntilRef.current) {
@@ -946,11 +1014,11 @@ export default function GlobalClickyAssistant() {
     // context is pushed after Ctrl release so it follows the user's spoken turn.
     void pushScreenContext();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsHook.status, wsHook.realtimeReady, enabled, user, trainingOpen]);
+  }, [wsHook.status, wsHook.realtimeReady, globalClickyActive, user, trainingOpen]);
 
   // ── Push-to-talk gating: Ctrl held = unmute upstream mic ────────────────────
   useEffect(() => {
-    if (!enabled || !user || trainingOpen) return;
+    if (!globalClickyActive || !user || trainingOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Control" || event.metaKey || event.altKey) return;
       if (ctrlHeldRef.current) return;
@@ -962,7 +1030,19 @@ export default function GlobalClickyAssistant() {
       replyAudioStatsRef.current = { chunks: 0, bytes: 0 };
       ctrlHeldRef.current = true;
       speechTailUntilRef.current = 0;
-      speechStatsRef.current = { startedAt: performance.now(), chunks: 0, bytes: 0, peak: 0, rmsSum: 0 };
+      speechStatsRef.current = {
+        startedAt: performance.now(),
+        chunks: 0,
+        bytes: 0,
+        peak: 0,
+        rmsSum: 0,
+        voicedSamples: 0,
+        currentVoiceSamples: 0,
+        maxContinuousVoiceSamples: 0,
+        noiseRms: ambientNoiseRef.current.rms,
+        noiseFlux: ambientNoiseRef.current.flux,
+        noisePeak: ambientNoiseRef.current.peak,
+      };
       upstreamMutedRef.current = false;
       setMode("listening");
       setStatus("Clicky listening — release Ctrl when done");
@@ -976,7 +1056,10 @@ export default function GlobalClickyAssistant() {
       upstreamMutedRef.current = true;
       const stats = speechStatsRef.current;
       const avgRms = stats.chunks ? stats.rmsSum / stats.chunks : 0;
-      const statsLine = `mic ${Math.round(performance.now() - stats.startedAt)}ms chunks=${stats.chunks} peak=${stats.peak.toFixed(3)} rms=${avgRms.toFixed(3)}`;
+      const voicedMs = (stats.voicedSamples / 16_000) * 1000;
+      const continuousVoiceMs = (stats.maxContinuousVoiceSamples / 16_000) * 1000;
+      const hasSpeech = voicedMs >= 72 && continuousVoiceMs >= 32;
+      const statsLine = `mic ${Math.round(performance.now() - stats.startedAt)}ms chunks=${stats.chunks} peak=${stats.peak.toFixed(3)} rms=${avgRms.toFixed(3)} voiced=${Math.round(voicedMs)}ms continuous=${Math.round(continuousVoiceMs)}ms`;
       console.info(CLICKY_LOG, "mic turn captured", {
         durationMs: Math.round(performance.now() - stats.startedAt),
         chunks: stats.chunks,
@@ -985,8 +1068,15 @@ export default function GlobalClickyAssistant() {
         avgRms: Number(avgRms.toFixed(4)),
       });
       setDebugLine(statsLine);
-      setMode("speaking");
-      setStatus("Clicky ready — hold Ctrl to talk");
+      if (!hasSpeech) {
+        speechTailUntilRef.current = 0;
+        wsHook.sendClickyCancelAudio();
+        setMode("idle");
+        setStatus("Clicky ready — hold Ctrl to talk");
+        return;
+      }
+      setMode("thinking");
+      setStatus("Clicky thinking");
       // Wait for the trailing silence, then insert visual context and commit.
       window.setTimeout(async () => {
         if (ctrlHeldRef.current) return;
@@ -1009,7 +1099,7 @@ export default function GlobalClickyAssistant() {
       speechTailUntilRef.current = 0;
     };
   }, [
-    enabled,
+    globalClickyActive,
     user,
     trainingOpen,
     pushScreenContext,
@@ -1017,6 +1107,7 @@ export default function GlobalClickyAssistant() {
     audioHook.resumeContexts,
     clearScreenAnnotations,
     wsHook.sendClickyCommitAudio,
+    wsHook.sendClickyCancelAudio,
   ]);
 
   // ── Handle incoming Clicky `point_at` envelope ─────────────────────────────
@@ -1084,7 +1175,7 @@ export default function GlobalClickyAssistant() {
 
   // ── Handle Clicky screen-drawing tools ───────────────────────────────────
   useEffect(() => {
-    const processDraw = (draw: (typeof wsHook.clickyAgentDraws)[number]) => {
+    const processDraw = (draw: ClickyDrawCommand) => {
       if (draw.tool === "clear_screen_drawings") {
         clearScreenAnnotations();
         return;
@@ -1097,6 +1188,9 @@ export default function GlobalClickyAssistant() {
         return element?.isConnected ? element.getBoundingClientRect() : null;
       };
       const screenshotPoint = (x?: number | null, y?: number | null) => {
+        if (draw.coordinateSpace === "viewport") {
+          return typeof x === "number" && typeof y === "number" ? { x, y } : null;
+        }
         const dimensions = lastScreenDimRef.current;
         if (typeof x !== "number" || typeof y !== "number" || !dimensions?.calibrated) return null;
         return {
@@ -1168,19 +1262,20 @@ export default function GlobalClickyAssistant() {
       });
     };
 
-    for (const draw of wsHook.clickyAgentDraws) {
+    const pendingDraws = [...wsHook.clickyAgentDraws, ...boardDrawCommands];
+    for (const draw of pendingDraws) {
       if (processedDrawIdsRef.current.has(draw.id)) continue;
       processedDrawIdsRef.current.add(draw.id);
       processDraw(draw);
     }
     if (processedDrawIdsRef.current.size > 128) {
-      processedDrawIdsRef.current = new Set(wsHook.clickyAgentDraws.map((draw) => draw.id));
+      processedDrawIdsRef.current = new Set(pendingDraws.map((draw) => draw.id));
     }
-  }, [wsHook.clickyAgentDraws, addScreenAnnotation, clearScreenAnnotations]);
+  }, [wsHook.clickyAgentDraws, boardDrawCommands, addScreenAnnotation, clearScreenAnnotations]);
 
   // ── Mode transitions from WS events ───────────────────────────────────────
   useEffect(() => {
-    if (!enabled || !user) return;
+    if (!globalClickyActive || !user) return;
     // When the assistant starts streaming audio response, set mode to speaking.
     if (wsHook.messages.length > 0) {
       const last = wsHook.messages[wsHook.messages.length - 1];
@@ -1191,15 +1286,15 @@ export default function GlobalClickyAssistant() {
         setMode("speaking");
       }
     }
-  }, [wsHook.messages, enabled, user]);
+  }, [wsHook.messages, globalClickyActive, user]);
 
   useEffect(() => {
-    if (!enabled || !user) return;
+    if (!globalClickyActive || !user) return;
     // When upstream mic is unmuted (Ctrl held), we're listening.
     if (!ctrlHeldRef.current && wsHook.status === "connected") {
       setMode("idle");
     }
-  }, [wsHook.status, enabled, user]);
+  }, [wsHook.status, globalClickyActive, user]);
 
   // ── Training panel: still preserved for the settings page affordance ───────
   useEffect(() => {
@@ -1279,7 +1374,7 @@ export default function GlobalClickyAssistant() {
 
   if (!mounted) return null;
 
-  if (!user && !isLanding) {
+  if (!user && !showCursor) {
     return (
       <div data-global-clicky="true" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 2147483000 }} />
     );
@@ -1392,23 +1487,28 @@ export default function GlobalClickyAssistant() {
           ref={cursorRef}
           style={{ position: "fixed", left: 0, top: 0, width: 0, height: 0, opacity: 0, willChange: "transform, opacity" }}
         >
-          <div style={{ position: "absolute", left: 0, top: 0, opacity: mode === "idle" || mode === "speaking" ? 1 : 0, transition: "opacity 0.15s ease" }}>
-            <div style={{ width: 0, height: 0, borderLeft: "9px solid transparent", borderRight: "9px solid transparent", borderBottom: "16px solid #6366f1", filter: "drop-shadow(0 0 8px rgba(99,102,241,0.55))" }} />
+          <div style={{ position: "absolute", left: 0, top: 0, opacity: mode === "idle" || mode === "speaking" ? 1 : 0, transition: "opacity 0.13s ease" }}>
+            <div style={{ position: "absolute", left: -8, top: 0, width: 16, height: 13.856, background: "#6366f1", clipPath: "polygon(50% 0, 100% 100%, 0 100%)", filter: "drop-shadow(0 0 7px rgba(99,102,241,0.55))" }} />
           </div>
-          <div style={{ position: "absolute", left: -6, top: -8, display: "flex", alignItems: "center", gap: 2, opacity: mode === "listening" ? 1 : 0, transition: "opacity 0.15s ease", filter: "drop-shadow(0 0 6px rgba(99,102,241,0.6))" }}>
-            {[0.4, 0.7, 1, 0.7, 0.4].map((profile, i) => (
-              <span key={i} style={{ width: 2, height: 3 + profile * 10, borderRadius: 2, background: mode === "speaking" ? "#14b8a6" : "#6366f1", animation: `clicky-wave 0.72s ease-in-out ${i * 0.08}s infinite alternate` }} />
+          <div style={{ position: "absolute", left: -7, top: -6, height: 18, display: "flex", alignItems: "center", gap: 1, opacity: mode === "listening" ? 1 : 0, transition: "opacity 0.16s ease", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.55))" }}>
+            {[0.25, 0.55, 1, 0.55, 0.25].map((profile, i) => (
+              <span key={i} style={{ width: 2, height: 4 + profile * 9, borderRadius: 2, background: "#6366f1", animation: `clicky-wave 0.78s ease-in-out ${i * 0.09}s infinite alternate` }} />
             ))}
           </div>
-          <div style={{ position: "absolute", left: -7, top: -7, width: 14, height: 14, borderRadius: 999, border: "2.5px solid rgba(99,102,241,0.12)", borderTopColor: "#6366f1", opacity: mode === "thinking" ? 1 : 0, transition: "opacity 0.15s ease", animation: "clicky-spin 0.8s linear infinite", filter: "drop-shadow(0 0 6px rgba(99,102,241,0.6))" }} />
+          <div style={{ position: "absolute", left: -8, top: -8, width: 12, height: 12, borderRadius: 999, border: "2px solid rgba(99,102,241,0.12)", borderTopColor: "#6366f1", borderRightColor: "rgba(99,102,241,0.7)", opacity: mode === "thinking" ? 1 : 0, transition: "opacity 0.16s ease", animation: "clicky-spin 0.9s linear infinite", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.52))" }} />
           {SHOW_CLICKY_BUBBLE && !!bubble && (
-            <div style={{ position: "absolute", left: 18, top: -8, maxWidth: 280, padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.96)", border: "1px solid rgba(0,0,0,0.12)", color: "#1f2937", fontSize: 13, lineHeight: 1.35, pointerEvents: "none" }}>
-              {bubble}
+            <div
+              ref={bubbleAnchorRef}
+              style={{ position: "absolute", left: 18, top: -8, transform: `rotate(${-cursorRotationRef.current}deg)`, transformOrigin: "0 0" }}
+            >
+              <div style={{ maxWidth: 280, padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.96)", border: "1px solid rgba(0,0,0,0.12)", color: "#1f2937", fontSize: 13, fontStyle: "normal", letterSpacing: 0, lineHeight: 1.35, textAlign: "left", pointerEvents: "none" }}>
+                {bubble}
+              </div>
             </div>
           )}
         </div>
       )}
-      {!isLanding && user && trainingOpen && (
+      {!isLanding && !isWhiteboardSession && user && trainingOpen && (
         <div style={{ pointerEvents: "auto", position: "fixed", right: 18, bottom: 108, width: 286, border: "1px solid rgba(0,0,0,0.12)", background: "rgba(255,255,255,0.98)", borderRadius: 14, padding: 14, color: "#1f2937", fontSize: 13, lineHeight: 1.35 }}>
           <div style={{ fontWeight: 800, marginBottom: 6 }}>Train your wake phrases</div>
           <div style={{ color: "#64748b", marginBottom: 10 }}>
@@ -1431,7 +1531,7 @@ export default function GlobalClickyAssistant() {
           </div>
         </div>
       )}
-      {enabled && user && (
+      {globalClickyActive && user && (
         <div style={{ pointerEvents: "none", position: "fixed", left: 14, bottom: 14, maxWidth: "min(560px, calc(100vw - 28px))", padding: "7px 9px", borderRadius: 10, background: "rgba(15,23,42,0.82)", color: "#dbeafe", fontSize: 11, lineHeight: 1.35, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace", boxShadow: "0 8px 24px rgba(15,23,42,0.18)", zIndex: 2147483001 }}>
           {debugLine}
         </div>

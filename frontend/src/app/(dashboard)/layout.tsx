@@ -163,8 +163,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     {/* 3. Right Controls */}
                     <div className="topbar-controls">
                         <label
-                            className={`topbar-clicky-switch ${clickyEnabled ? "is-on" : ""}`}
-                            title={clickyEnabled ? "Clicky is on — toggle off to disable" : "Clicky is off — toggle on to enable"}
+                            className={`topbar-clicky-switch ${clickyEnabled && !isBoard ? "is-on" : ""} ${isBoard ? "is-paused" : ""}`}
+                            title={isBoard ? "Clicky is controlled by the whiteboard tutor" : clickyEnabled ? "Clicky is on — toggle off to disable" : "Clicky is off — toggle on to enable"}
                         >
                             <span className="topbar-clicky-switch-label">Clicky</span>
                             <span className="topbar-clicky-switch-track">
@@ -173,8 +173,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                             <input
                                 type="checkbox"
                                 role="switch"
-                                aria-checked={clickyEnabled}
-                                checked={clickyEnabled}
+                                aria-checked={clickyEnabled && !isBoard}
+                                aria-disabled={isBoard}
+                                checked={clickyEnabled && !isBoard}
+                                disabled={isBoard}
                                 onChange={(e) => setClickyEnabled(e.target.checked)}
                                 className="topbar-clicky-switch-input"
                             />

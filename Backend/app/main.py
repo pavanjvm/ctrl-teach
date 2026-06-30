@@ -44,13 +44,14 @@ except Exception:  # pragma: no cover
         pass
 
 from agents.realtime import RealtimeAgent, RealtimeRunner
-from agents.realtime.model_inputs import RealtimeModelSendRawMessage
+from agents.realtime.model_inputs import RealtimeModelSendInterrupt, RealtimeModelSendRawMessage
 from agents.realtime.openai_realtime import OpenAIRealtimeWebSocketModel
 
 from app.agents.tutor_agent import build_tutor_agent
 from app.agents.prompt_builder import build_tutor_instruction
 from app.agents.clicky_agent import build_clicky_agent
 from app.auth.dependencies import verify_basic_credentials
+from app.auth.extension_tokens import verify_clicky_extension_token
 from app.config import settings
 from sqlalchemy import select
 
@@ -240,6 +241,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
     Browser protocol (unchanged from the Gemini Live version):
     - Binary frame → raw 16-bit PCM @ 16 kHz (resampled to 24 kHz upstream)
     - JSON {"type":"text","text":"..."}
+    - JSON {"type":"interrupt"} (cancel the active response before a text turn)
     - JSON {"type":"image","data":"<base64>","mimeType":"image/jpeg"}
     - JSON {"type":"canvas","data":"<base64>","mimeType":"image/jpeg"}
     - JSON {"type":"canvas_elements","elements":[...]}
@@ -255,16 +257,30 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
     - {"type":"generating_image","status":"..."} / {"type":"saving_progress",...}
     - {"type":"error",...}
     """
-    await websocket.accept()
-
-    # ── Basic auth (manual) ────────────────────────────────────────────────
+    # ── Basic / scoped extension auth (manual) ────────────────────────────
     # The frontend sends an HTTP ``Authorization: Basic <base64>`` header,
     # which the browser forwards as a WS subprotocol / query param.  We accept
     # it via either the ``token`` query param (raw "Basic <b64>") or the
     # ``auth`` sec-websocket-protocol header — kept simple here.
+    agent_kind = websocket.query_params.get("agent") or "tutor"
     token = websocket.query_params.get("token")
-    authz = websocket.headers.get("authorization") or websocket.query_params.get("auth") or token
-    user_info = verify_basic_credentials(authz)
+    protocol_header = websocket.headers.get("sec-websocket-protocol") or ""
+    extension_protocol_prefix = "ctrlteach-clicky-auth."
+    selected_protocol: Optional[str] = None
+    extension_protocol_token: Optional[str] = None
+    if protocol_header.startswith(extension_protocol_prefix) and "," not in protocol_header:
+        selected_protocol = protocol_header
+        extension_protocol_token = protocol_header[len(extension_protocol_prefix):]
+    authz = (
+        f"Bearer {extension_protocol_token}"
+        if extension_protocol_token
+        else websocket.headers.get("authorization") or websocket.query_params.get("auth") or token
+    )
+    if authz and (authz.lower().startswith("bearer ") or authz.startswith("ctc1.")):
+        user_info = verify_clicky_extension_token(authz) if agent_kind == "clicky" else None
+    else:
+        user_info = verify_basic_credentials(authz)
+    await websocket.accept(subprotocol=selected_protocol)
     if user_info is None or str(user_info["uid"]) != str(user_id):
         logger.warning("WS connection rejected: bad credentials for user %s", user_id)
         await websocket.close(code=1008, reason="Invalid authentication")
@@ -273,8 +289,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
     logger.info("WS connected: user=%s session=%s", user_id, session_id)
 
     # ── Agent selection: ?agent=tutor (default) | clicky ────────────────────
-    agent_kind = websocket.query_params.get("agent") or "tutor"
-
     # ── Per-tutor personalisation (SQLite) — TUTOR ONLY ───────────────────
     tutor_id = websocket.query_params.get("tutor_id")
     tutor_voice: str = settings.realtime_voice
@@ -508,6 +522,28 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                         if text:
                             await session.send_message(text)
 
+                    elif msg_type == "interrupt":
+                        # Typed input is an explicit user barge-in. Force the
+                        # current response to stop even though semantic VAD's
+                        # automatic interruption setting only applies to mic
+                        # speech, not websocket text messages.
+                        realtime_model = session._model
+                        get_playback_state = getattr(realtime_model, "_get_playback_state", None)
+                        playback_state = get_playback_state() if callable(get_playback_state) else {}
+                        had_active_audio = (
+                            playback_state.get("current_item_id") is not None
+                            and (playback_state.get("elapsed_ms") or 0) > 0
+                        )
+                        await realtime_model.send_event(
+                            RealtimeModelSendInterrupt(force_response_cancel=True)
+                        )
+                        # Active audio produces an ordered audio_interrupted
+                        # event after all old chunks. With no active audio,
+                        # acknowledge here so the next response is not muted.
+                        if not had_active_audio:
+                            await _send_json(websocket, {"interrupted": True})
+                        logger.info("Current realtime response interrupted by client")
+
                     elif msg_type == "image":
                         b64 = json_msg.get("data", "")
                         mime = json_msg.get("mimeType", "image/jpeg")
@@ -573,9 +609,31 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                         elements = json_msg.get("elements", []) or []
                         calibrated = bool(json_msg.get("calibrated"))
                         intent_text = (json_msg.get("intentText") or "").strip()
+                        context_id = str(json_msg.get("contextId") or "")[:120]
+                        page = json_msg.get("page") if isinstance(json_msg.get("page"), dict) else {}
+                        media = json_msg.get("media") if isinstance(json_msg.get("media"), dict) else {}
+                        media_crop = json_msg.get("mediaCrop") if isinstance(json_msg.get("mediaCrop"), dict) else {}
+                        state["clicky_media_crop"] = media_crop if media_crop else None
+                        state["clicky_viewport_capture"] = {
+                            "data": b64,
+                            "mimeType": mime,
+                            "width": width,
+                            "height": height,
+                        } if b64 and width and height and calibrated else None
+                        tabs = json_msg.get("tabs") if isinstance(json_msg.get("tabs"), list) else []
                         data_url = f"data:{mime};base64,{b64}"
+                        media_crop_data = str(media_crop.get("data") or "")
+                        media_crop_mime = str(media_crop.get("mimeType") or "image/jpeg")
+                        media_crop_url = (
+                            f"data:{media_crop_mime};base64,{media_crop_data}"
+                            if media_crop_data
+                            else ""
+                        )
                         dims = f"{width}x{height}" if width and height else "the provided image dimensions"
                         dom_summary = json.dumps(elements[:220], ensure_ascii=False)[:30000]
+                        page_summary = json.dumps(page, ensure_ascii=False)[:4000]
+                        media_summary = json.dumps(media, ensure_ascii=False)[:6000]
+                        tab_summary = json.dumps(tabs[:40], ensure_ascii=False)[:8000]
                         coordinate_note = (
                             "The image is calibrated to the browser viewport, so raw x,y "
                             "coordinates map exactly back to it. Ignore the four tiny colored "
@@ -585,18 +643,35 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             "The image could not be calibrated to the browser viewport. Prefer "
                             "a DOM target_id and do not emit raw x,y coordinates."
                         )
+                        media_coordinate_note = (
+                            "A second image is an enlarged crop of the visible video with a "
+                            "labeled 0-1000 grid on both axes. For any object inside that video, "
+                            "localize it from the second image, set coordinate_space='media', "
+                            "and use grid coordinates from 0 through 1000. The browser maps them "
+                            "through the exact live video rectangle."
+                            if media_crop_url
+                            else "No calibrated media crop is attached; use viewport coordinates."
+                        )
                         if intent_text:
                             nudge = (
                                 f"Current browser viewport screenshot (image dimensions: {dims} pixels, "
                                 "origin top-left, x right, y down). "
                                 f"User just asked: {intent_text}\n\n"
                                 f"{coordinate_note}\n\n"
+                                f"{media_coordinate_note}\n\n"
+                                f"Context id: {context_id or 'none'}\n"
+                                f"Page metadata JSON: {page_summary}\n"
+                                f"Media context JSON: {media_summary}\n"
+                                f"Open browser tabs JSON: {tab_summary}\n\n"
                                 f"Visible DOM inventory JSON:\n{dom_summary}\n\n"
                                 "Decide whether to call point_at and/or draw_on_screen based on "
                                 "the request. Prefer target_id from the inventory when a matching "
                                 "element exists. Fall back to raw "
                                 "x,y only for things visible in the screenshot but absent "
-                                "from the inventory. Do not say coordinates or ids aloud."
+                                "from the inventory. For raw area marks, x,y is top-left and "
+                                "end_x,end_y is bottom-right; for underline/line/arrow they are "
+                                "the two endpoints. Never use a whole video/canvas DOM target for "
+                                "an object inside its pixels. Do not say coordinates or ids aloud."
                             )
                         else:
                             nudge = (
@@ -604,6 +679,11 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                                 f"latest browser viewport screenshot (image dimensions: {dims} "
                                 "pixels, origin top-left, x right, y down) for future turns.\n\n"
                                 f"{coordinate_note}\n\n"
+                                f"{media_coordinate_note}\n\n"
+                                f"Context id: {context_id or 'none'}\n"
+                                f"Page metadata JSON: {page_summary}\n"
+                                f"Media context JSON: {media_summary}\n"
+                                f"Open browser tabs JSON: {tab_summary}\n\n"
                                 f"Visible DOM inventory JSON:\n{dom_summary}\n\n"
                                 "If you later call point_at or draw_on_screen, prefer target_id "
                                 "from this inventory; fall back to raw x,y only for non-DOM pixels. "
@@ -614,6 +694,19 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                         # audio turn, so insert it without creating a response;
                         # clicky_commit_audio starts exactly one response after
                         # both the speech and current screen are present.
+                        image_content = [
+                            {
+                                "type": "input_image",
+                                "image_url": data_url,
+                                "detail": "high",
+                            }
+                        ]
+                        if media_crop_url:
+                            image_content.append({
+                                "type": "input_image",
+                                "image_url": media_crop_url,
+                                "detail": "high",
+                            })
                         await session._model.send_event(RealtimeModelSendRawMessage(
                             message={
                                 "type": "conversation.item.create",
@@ -622,11 +715,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                                         "type": "message",
                                         "role": "user",
                                         "content": [
-                                            {
-                                                "type": "input_image",
-                                                "image_url": data_url,
-                                                "detail": "high",
-                                            },
+                                            *image_content,
                                             {"type": "input_text", "text": nudge},
                                         ],
                                     }
@@ -634,8 +723,8 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             }
                         ))
                         logger.info(
-                            "Clicky screen context sent (%s, %d elements)",
-                            dims, len(elements),
+                            "Clicky screen context sent (%s, %d elements, media_crop=%s)",
+                            dims, len(elements), bool(media_crop_url),
                         )
 
                     elif msg_type == "clicky_commit_audio":
@@ -652,6 +741,12 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             logger.info("Clicky audio committed explicitly and response.create sent")
                         except Exception as exc:
                             logger.warning("Clicky audio commit failed: %s", exc)
+
+                    elif msg_type == "clicky_cancel_audio":
+                        await session._model.send_event(RealtimeModelSendRawMessage(
+                            message={"type": "input_audio_buffer.clear", "other_data": {}}
+                        ))
+                        logger.info("Clicky input audio buffer cleared")
 
                     elif msg_type == "canvas_elements":
                         elements = json_msg.get("elements", [])
@@ -708,6 +803,101 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                 ).to_ws_json())
                 return
 
+            pending_clicky_drawings: list[
+                tuple[asyncio.Task[None], dict[str, Any]]
+            ] = []
+            # Strong references for fire-and-forget point tasks so the GC cannot
+            # cancel them mid-localization. Each task removes itself on completion.
+            pending_clicky_points: set[asyncio.Task[None]] = set()
+
+            def _cancel_pending_clicky_drawings() -> None:
+                while pending_clicky_drawings:
+                    task, _ = pending_clicky_drawings.pop()
+                    task.cancel()
+
+            async def _deliver_clicky_drawing(
+                original_payload: dict[str, Any], grounding_state: dict[str, Any]
+            ) -> None:
+                """Ground one annotation and ship it the moment the result exists.
+
+                Mirrors the Swift Clicky: the drawing action starts as soon as
+                the visual locator resolves, instead of being held until turn
+                end. A multi-shape diagram therefore paints progressively as
+                each shape's coordinates are grounded, which feels far snappier
+                than waiting for the whole turn to finish.
+                """
+                from app.services.clicky_visual_locator import refine_clicky_payload
+                try:
+                    refined = await refine_clicky_payload(
+                        original_payload,
+                        grounding_state,
+                        tool_name="draw_on_screen",
+                    )
+                except Exception as exc:
+                    logger.warning("Clicky drawing localization failed: %s", exc)
+                    refined = original_payload
+                await _send_json(websocket, {
+                    "type": "clicky_draw",
+                    "tool": "draw_on_screen",
+                    "response": refined,
+                })
+                logger.info("Clicky drawing delivered payload=%s", refined)
+
+            async def _deliver_clicky_point(
+                original_payload: dict[str, Any], grounding_state: dict[str, Any]
+            ) -> None:
+                """Ground a vision point without blocking the realtime audio stream.
+
+                The model already receives the tool's echoed return value, so
+                this refinement is browser-facing only. Running it as a detached
+                task means ElevenLabs/Realtime voice keeps streaming while the
+                GPT computer-use locator resolves — the cursor flies as soon as
+                the visual result exists, exactly like production Clicky.
+                """
+                from app.services.clicky_visual_locator import refine_clicky_payload
+                try:
+                    refined = await refine_clicky_payload(
+                        original_payload,
+                        grounding_state,
+                        tool_name="point_at",
+                    )
+                except Exception as exc:
+                    logger.warning("Clicky point localization failed: %s", exc)
+                    refined = original_payload
+                await _send_json(websocket, {
+                    "type": "clicky_point",
+                    "tool": "point_at",
+                    "response": {
+                        "targetId": refined.get("target_id"),
+                        "x": refined.get("x"),
+                        "y": refined.get("y"),
+                        "coordinate_space": refined.get("coordinate_space") or "viewport",
+                        "label": refined.get("label") or "right here",
+                        "action": refined.get("action") or "none",
+                    },
+                })
+                logger.info(
+                    "Clicky point delivered target_id=%s x=%s y=%s action=%s",
+                    refined.get("target_id"),
+                    refined.get("x"),
+                    refined.get("y"),
+                    refined.get("action"),
+                )
+
+            async def _flush_pending_clicky_drawings() -> None:
+                if not pending_clicky_drawings:
+                    return
+                batch = pending_clicky_drawings[:]
+                pending_clicky_drawings.clear()
+                # Each drawing task self-delivers its clicky_draw event the
+                # moment its localization completes. At turn end we only await
+                # any stragglers still in flight so nothing is dropped when the
+                # session tears down — we do not re-batch or re-send.
+                await asyncio.gather(
+                    *(task for task, _ in batch),
+                    return_exceptions=True,
+                )
+
             try:
                 async with session:
                     state["session"] = session
@@ -738,6 +928,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             if agent_obj is not None and getattr(agent_obj, "name", None):
                                 state["current_agent"] = agent_obj.name
                         elif etype == "agent_end":
+                            await _flush_pending_clicky_drawings()
                             await _send_json(websocket, {"turnComplete": True})
 
                         # ── Handoff ────────────────────────────────────────
@@ -768,6 +959,32 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             # ── Clicky screen annotations ─────────────────
                             if tool_name in {"draw_on_screen", "clear_screen_drawings"}:
                                 payload = output if isinstance(output, dict) else {}
+                                if tool_name == "draw_on_screen":
+                                    # Snapshot the grounding state now — the live
+                                    # `state` mutates as the turn continues, but a
+                                    # drawing must be grounded against the screenshot
+                                    # that was current when the model emitted it.
+                                    grounding_state = {
+                                        key: dict(value) if isinstance(value, dict) else value
+                                        for key, value in state.items()
+                                        if key in {
+                                            "clicky_media_crop",
+                                            "clicky_viewport_capture",
+                                            "last_input_transcript",
+                                        }
+                                    }
+                                    original_payload = dict(payload)
+                                    # Detached task: deliver this annotation the instant
+                                    # its computer-use localization resolves, instead of
+                                    # blocking the event stream or waiting for agent_end.
+                                    pending_clicky_drawings.append((
+                                        asyncio.create_task(
+                                            _deliver_clicky_drawing(original_payload, grounding_state)
+                                        ),
+                                        original_payload,
+                                    ))
+                                    continue
+                                _cancel_pending_clicky_drawings()
                                 await _send_json(websocket, {
                                     "type": "clicky_draw",
                                     "tool": tool_name,
@@ -779,24 +996,37 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             # ── Clicky point_at → emit a lightweight envelope ─
                             if tool_name == "point_at":
                                 payload = output if isinstance(output, dict) else {}
+                                grounding_state = {
+                                    key: dict(value) if isinstance(value, dict) else value
+                                    for key, value in state.items()
+                                    if key in {
+                                        "clicky_media_crop",
+                                        "clicky_viewport_capture",
+                                        "last_input_transcript",
+                                    }
+                                }
+                                # Non-blocking: ground + deliver on a detached task so
+                                # realtime voice keeps streaming while the locator runs.
+                                point_task = asyncio.create_task(
+                                    _deliver_clicky_point(dict(payload), grounding_state)
+                                )
+                                pending_clicky_points.add(point_task)
+                                point_task.add_done_callback(pending_clicky_points.discard)
+                                continue
+
+                            if tool_name == "interact_with_page":
+                                payload = output if isinstance(output, dict) else {}
                                 await _send_json(websocket, {
-                                    "type": "clicky_point",
-                                    "tool": "point_at",
+                                    "type": "clicky_action",
+                                    "tool": "interact_with_page",
                                     "response": {
-                                        "targetId": payload.get("target_id"),
-                                        "x": payload.get("x"),
-                                        "y": payload.get("y"),
-                                        "label": payload.get("label") or "right here",
                                         "action": payload.get("action") or "none",
+                                        "targetId": payload.get("target_id"),
+                                        "value": payload.get("value"),
+                                        "label": payload.get("label") or "",
                                     },
                                 })
-                                logger.info(
-                                    "Clicky point_at: target_id=%s x=%s y=%s action=%s",
-                                    payload.get("target_id"),
-                                    payload.get("x"),
-                                    payload.get("y"),
-                                    payload.get("action"),
-                                )
+                                logger.info("Clicky browser action payload=%s", payload)
                                 continue
 
                             if tool_name in _early_pushed:
@@ -855,6 +1085,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             elif dtype == "input_audio_transcription_completed":
                                 full = getattr(data, "transcript", "") or ""
                                 if full:
+                                    state["last_input_transcript"] = full
                                     logger.info("Realtime input transcript: %r", full)
                                     # delta + finish pair so the frontend's
                                     # input-transcript UI renders + finalises.
@@ -879,9 +1110,11 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                 return
 
             except WebSocketDisconnect:
+                _cancel_pending_clicky_drawings()
                 logger.info("WS disconnected (downstream): user=%s", user_id)
                 return
             except Exception as exc:
+                _cancel_pending_clicky_drawings()
                 payload, retryable = classify_api_error(exc)
                 if retryable and attempt < MAX_REALTIME_RETRIES:
                     delay = 1.0 * (attempt + 1)

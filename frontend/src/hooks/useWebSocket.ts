@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { base64ToArrayBuffer } from "@/lib/utils";
+import type { ClickyDrawCommand } from "@/lib/clickyBoardBridge";
 import type {
   TranscriptEntry,
   CanvasCommand,
@@ -47,20 +48,7 @@ export function useWebSocket() {
     action?: "none" | "click";
     id: string;
   } | null>(null);
-  const [clickyAgentDraws, setClickyAgentDraws] = useState<Array<{
-    tool: "draw_on_screen" | "clear_screen_drawings";
-    shape?: "circle" | "rectangle" | "highlight" | "underline" | "arrow" | "line";
-    targetId?: string | null;
-    fromTargetId?: string | null;
-    toTargetId?: string | null;
-    x?: number | null;
-    y?: number | null;
-    endX?: number | null;
-    endY?: number | null;
-    label?: string;
-    color?: "blue" | "teal" | "red" | "amber" | "purple";
-    id: string;
-  }>>([]);
+  const [clickyAgentDraws, setClickyAgentDraws] = useState<ClickyDrawCommand[]>([]);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isSavingProgress, setIsSavingProgress] = useState(false);
   const [realtimeReady, setRealtimeReady] = useState(false);
@@ -68,47 +56,78 @@ export function useWebSocket() {
   // Refs for mutable input/output transcription tracking
   const currentInputIdRef = useRef<string | null>(null);
   const currentOutputIdRef = useRef<string | null>(null);
+  const audioSuppressedRef = useRef(false);
 
   // Store callbacks in refs so the message handler always sees the latest
   const onAudioRef = useRef<((pcm: ArrayBuffer) => void) | undefined>(undefined);
   const onInterruptRef = useRef<(() => void) | undefined>(undefined);
+  const onErrorRef = useRef<((message: string) => void) | undefined>(undefined);
   const onToolAudioRef = useRef<((base64: string, mimeType: string) => void) | undefined>(undefined);
 
   // ── Connect ──────────────────────────────────────────────────────────────
 
   const connect = useCallback((url: string, opts?: ConnectOptions) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+    if (
+      wsRef.current?.readyState === WebSocket.OPEN ||
+      wsRef.current?.readyState === WebSocket.CONNECTING
+    ) return;
     setStatus("connecting");
     setRealtimeReady(false);
+    audioSuppressedRef.current = false;
 
     onAudioRef.current = opts?.onAudio;
     onInterruptRef.current = opts?.onInterrupt;
+    onErrorRef.current = opts?.onError;
     onToolAudioRef.current = opts?.onToolAudio;
 
-    const ws = new WebSocket(url);
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(url);
+    } catch {
+      setStatus("disconnected");
+      onErrorRef.current?.("Could not open the realtime connection.");
+      console.warn("[WS] Could not create the realtime connection");
+      return;
+    }
     wsRef.current = ws;
 
     ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) {
+        ws.close();
+        return;
+      }
       setStatus("connected");
-      console.log("[WS] Connected to", url);
+      console.log("[WS] Realtime connection established");
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      if (wsRef.current !== ws) return;
+      wsRef.current = null;
       setStatus("disconnected");
       setRealtimeReady(false);
-      console.log("[WS] Disconnected");
+      audioSuppressedRef.current = false;
+      if (event.code !== 1000 && event.code !== 1005) {
+        onErrorRef.current?.(event.reason || "Realtime backend unavailable.");
+      }
+      console.log("[WS] Realtime connection closed", event.code);
     };
 
-    ws.onerror = (e) => {
-      console.error("[WS] Error", e);
+    ws.onerror = () => {
+      if (wsRef.current !== ws) return;
+      setStatus("disconnected");
+      setRealtimeReady(false);
+      onErrorRef.current?.("Realtime backend unavailable.");
+      // Browser WebSocket error events intentionally contain no useful detail.
+      // Keep this recoverable condition out of Next.js' console-error overlay.
+      console.warn("[WS] Realtime backend unavailable");
     };
 
     ws.onmessage = (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
         // Binary audio from server
-        onAudioRef.current?.(event.data);
+        if (!audioSuppressedRef.current) onAudioRef.current?.(event.data);
         return;
       }
 
@@ -145,9 +164,21 @@ export function useWebSocket() {
 
   // ── Send helpers ─────────────────────────────────────────────────────────
 
+  const interruptResponse = useCallback(() => {
+    const ws = wsRef.current;
+    if (ws?.readyState !== WebSocket.OPEN) return;
+
+    // Stop already-scheduled browser audio synchronously. The backend signal
+    // prevents any additional audio chunks from the old response arriving.
+    audioSuppressedRef.current = true;
+    onInterruptRef.current?.();
+    ws.send(JSON.stringify({ type: "interrupt" }));
+  }, []);
+
   const sendText = useCallback((text: string) => {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
+      interruptResponse();
       ws.send(JSON.stringify({ type: "text", text }));
 
       setMessages((prev) => [
@@ -161,7 +192,7 @@ export function useWebSocket() {
         },
       ]);
     }
-  }, []);
+  }, [interruptResponse]);
 
   const sendAudio = useCallback((pcmData: ArrayBuffer) => {
     const ws = wsRef.current;
@@ -266,6 +297,13 @@ export function useWebSocket() {
     }
   }, []);
 
+  const sendClickyCancelAudio = useCallback(() => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "clicky_cancel_audio" }));
+    }
+  }, []);
+
   // ── ADK Event handler ───────────────────────────────────────────────────
 
   const handleADKEvent = useCallback(
@@ -342,25 +380,32 @@ export function useWebSocket() {
         return;
       }
 
-      if (event.type === "clicky_draw" && event.response) {
-        const response = event.response;
+      if (
+        (event.type === "clicky_draw" && event.response) ||
+        (event.type === "clicky_draw_batch" && Array.isArray(event.responses))
+      ) {
         const allowedShapes = new Set(["circle", "rectangle", "highlight", "underline", "arrow", "line"]);
         const allowedColors = new Set(["blue", "teal", "red", "amber", "purple"]);
-        const drawEvent = {
+        const responses = event.type === "clicky_draw_batch" ? event.responses : [event.response];
+        const drawEvents = responses.map((response: Record<string, unknown>) => ({
           tool: event.tool === "clear_screen_drawings" ? "clear_screen_drawings" : "draw_on_screen",
-          shape: allowedShapes.has(response.shape) ? response.shape : undefined,
-          targetId: response.target_id ?? null,
-          fromTargetId: response.from_target_id ?? null,
-          toTargetId: response.to_target_id ?? null,
+          shape: typeof response.shape === "string" && allowedShapes.has(response.shape)
+            ? response.shape
+            : undefined,
+          targetId: typeof response.target_id === "string" ? response.target_id : null,
+          fromTargetId: typeof response.from_target_id === "string" ? response.from_target_id : null,
+          toTargetId: typeof response.to_target_id === "string" ? response.to_target_id : null,
           x: typeof response.x === "number" ? response.x : null,
           y: typeof response.y === "number" ? response.y : null,
           endX: typeof response.end_x === "number" ? response.end_x : null,
           endY: typeof response.end_y === "number" ? response.end_y : null,
           label: typeof response.label === "string" ? response.label : "",
-          color: allowedColors.has(response.color) ? response.color : "blue",
+          color: typeof response.color === "string" && allowedColors.has(response.color)
+            ? response.color
+            : "blue",
           id: crypto.randomUUID(),
-        } as const;
-        setClickyAgentDraws((current) => [...current.slice(-31), drawEvent]);
+        } as ClickyDrawCommand));
+        setClickyAgentDraws((current) => [...current, ...drawEvents].slice(-32));
         return;
       }
 
@@ -460,7 +505,7 @@ export function useWebSocket() {
         for (const part of event.content.parts) {
           if (part.inlineData?.mimeType?.startsWith("audio/pcm")) {
             const audioB64 = part.inlineData.data;
-            if (audioB64) {
+            if (audioB64 && !audioSuppressedRef.current) {
               onAudioRef.current?.(base64ToArrayBuffer(audioB64));
             }
           }
@@ -517,7 +562,11 @@ export function useWebSocket() {
               }
             }
             // Play optional tool-supplied audio (e.g. "image generated successfully")
-            if (resp?.audio_b64 && typeof resp.audio_b64 === "string") {
+            if (
+              resp?.audio_b64 &&
+              typeof resp.audio_b64 === "string" &&
+              !audioSuppressedRef.current
+            ) {
               const mime = (resp.audio_mime as string) || "audio/pcm;rate=16000";
               onToolAudioRef.current?.(resp.audio_b64, mime);
             }
@@ -550,6 +599,7 @@ export function useWebSocket() {
         if (event.interrupted) {
           console.log("[ADK] User interrupted agent!");
           onInterruptRef.current?.();
+          audioSuppressedRef.current = false;
         }
       }
     },
@@ -575,6 +625,7 @@ export function useWebSocket() {
     realtimeReady,
     connect,
     disconnect,
+    interruptResponse,
     sendText,
     sendAudio,
     sendImage,
@@ -582,6 +633,7 @@ export function useWebSocket() {
     sendCanvasElements,
     sendClickyScreen,
     sendClickyCommitAudio,
+    sendClickyCancelAudio,
   };
 }
 

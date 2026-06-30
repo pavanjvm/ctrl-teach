@@ -123,6 +123,7 @@ export interface WhiteboardCanvasRef {
     viewWidth: number;
     viewHeight: number;
   } | null>;
+  getViewportRect: () => { left: number; top: number; width: number; height: number } | null;
   getSceneElements: () => any[];
 }
 
@@ -152,6 +153,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
     // React re-render per frame.
     const appStateRef = useRef<any>(null); // { scrollX, scrollY, zoom:{value} }
     const clickyElRef = useRef<HTMLDivElement>(null); // overlay triangle
+    const clickyBubbleAnchorRef = useRef<HTMLDivElement>(null);
+    const clickyRotationRef = useRef(-35);
     const clickyCancelRef = useRef<(() => void) | null>(null); // active flight cancel fn
     const clickyCurPos = useRef<{ x: number; y: number } | null>(null); // last cursor pos (container px)
     const clickyFocusId = useRef<string | null>(null); // element id we're currently attached to
@@ -162,7 +165,20 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
     const clickyDrawing = useRef<boolean>(false); // currently tracking a live tip
     const clickyPointTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // hold timer for external pointing
     const clickyExternalPointing = useRef<boolean>(false); // true while honoring a model [POINT]
+    const clickySpringVelocity = useRef({ x: 0, y: 0 });
+    const clickySpringTimestamp = useRef<number | null>(null);
     const [clickyBubbleText, setClickyBubbleText] = useState("");
+
+    const setClickyTransform = useCallback((x: number, y: number, rot: number, scale: number, opacity = 1) => {
+      const el = clickyElRef.current;
+      if (!el) return;
+      el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${rot}deg) scale(${scale})`;
+      el.style.opacity = String(opacity);
+      clickyRotationRef.current = rot;
+      if (clickyBubbleAnchorRef.current) {
+        clickyBubbleAnchorRef.current.style.transform = `rotate(${-rot}deg)`;
+      }
+    }, []);
 
     // ── Clicky idle follow — real Clicky-style cursor trailing ──────────────
     // When Clicky is not drawing or pointing, it trails the user's cursor inside
@@ -177,6 +193,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
         clickyDrawing.current = false;
         clickyFocusId.current = null;
         clickyCurPos.current = null;
+        clickySpringVelocity.current = { x: 0, y: 0 };
+        clickySpringTimestamp.current = null;
         const el = clickyElRef.current;
         if (el) el.style.opacity = "0";
         return;
@@ -204,6 +222,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
         // Pause the bob while we're actively drawing (flying/tracking).
         if (clickyDrawing.current || clickyCancelRef.current || clickyExternalPointing.current) {
           clickyIdleStart.current = now; // hold phase; resume smoothly later
+          clickySpringTimestamp.current = now;
+          clickySpringVelocity.current = { x: 0, y: 0 };
           clickyIdleRaf.current = requestAnimationFrame(tickIdle);
           return;
         }
@@ -220,20 +240,27 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           y: seededTarget.y + 25,
         };
         const from = current ?? desired;
-        const ease = clickyMouseInside.current ? 0.16 : 0.06;
-        const x = from.x + (desired.x - from.x) * ease;
-        const y = from.y + (desired.y - from.y) * ease;
+        if (!current) clickySpringVelocity.current = { x: 0, y: 0 };
+        if (clickySpringTimestamp.current == null) clickySpringTimestamp.current = now;
+        const dt = Math.min(32, now - clickySpringTimestamp.current) / 1000;
+        clickySpringTimestamp.current = now;
+        const response = 0.38;
+        const damping = clickyMouseInside.current ? 0.68 : 0.76;
+        const omega = (2 * Math.PI) / response;
+        const stiffness = omega ** 2;
+        const drag = 2 * damping * omega;
+        clickySpringVelocity.current.x += (-stiffness * (from.x - desired.x) - drag * clickySpringVelocity.current.x) * dt;
+        clickySpringVelocity.current.y += (-stiffness * (from.y - desired.y) - drag * clickySpringVelocity.current.y) * dt;
+        const x = from.x + clickySpringVelocity.current.x * dt;
+        const y = from.y + clickySpringVelocity.current.y * dt;
         const dx = x - from.x;
         const dy = y - from.y;
         const speed = Math.hypot(dx, dy);
         const rot = speed > 0.2 ? (Math.atan2(dy, dx) * 180) / Math.PI + 90 : -35;
         const scale = 1 + Math.min(speed / 90, 0.08);
         const el = clickyElRef.current;
-        if (el) {
-          el.style.opacity = clickyMouseInside.current ? "1" : "0.55";
-          el.style.transition = "opacity 0.25s ease";
-          el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${rot}deg) scale(${scale})`;
-        }
+        if (el) el.style.transition = "opacity 0.25s ease";
+        setClickyTransform(x, y, rot, scale, clickyMouseInside.current ? 1 : 0.55);
         clickyCurPos.current = { x, y };
         clickyIdleRaf.current = requestAnimationFrame(tickIdle);
       };
@@ -245,8 +272,10 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
         container.removeEventListener("pointermove", updateMouse);
         container.removeEventListener("pointerenter", updateMouse);
         container.removeEventListener("pointerleave", leaveMouse);
+        clickySpringTimestamp.current = null;
+        clickySpringVelocity.current = { x: 0, y: 0 };
       };
-    }, [clickyActive]);
+    }, [clickyActive, setClickyTransform]);
 
     // ── External Clicky point target (true Clicky-style [POINT:x,y:label]) ──
     useEffect(() => {
@@ -269,11 +298,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
         target,
         (p) => {
           clickyCurPos.current = { x: p.x, y: p.y };
-          const el = clickyElRef.current;
-          if (el) {
-            el.style.opacity = "1";
-            el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%) rotate(${p.rot}deg) scale(${p.scale})`;
-          }
+          setClickyTransform(p.x, p.y, p.rot, p.scale, 1);
         },
         () => {
           clickyCancelRef.current = null;
@@ -297,7 +322,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           clickyPointTimerRef.current = null;
         }
       };
-    }, [clickyActive, clickyPointTarget]);
+    }, [clickyActive, clickyPointTarget, setClickyTransform]);
 
     // Load Excalidraw + convertToExcalidrawElements once
     useEffect(() => {
@@ -377,8 +402,11 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           // convertToExcalidrawElements doesn't clip the text.
           if (el.width == null) delete base.width;
           if (el.height == null) delete base.height;
-          // Tell Excalidraw this is an auto-resizing text container
-          base.autoResize = true;
+          // Diagram labels provide a measured box and must stay bounded while
+          // animating. Free-standing text can continue to auto-size.
+          base.autoResize = el.autoResize ?? el.width == null;
+          if (el.textAlign != null) base.textAlign = el.textAlign;
+          if (el.verticalAlign != null) base.verticalAlign = el.verticalAlign;
         }
 
         // Arrow/line elements (includes coerced arc/vector → line)
@@ -421,17 +449,16 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           convertedStandard = skeletons;
         }
 
-        // Post-process: ensure text elements without an explicit AI width
-        // are set to auto-resize so Excalidraw doesn't clip them.
-        const aiWidthByIdx = new Map<number, boolean>();
-        standardElements.forEach((el, idx) => {
-          if ((el.type === "text" || !el.type) && el.width != null) {
-            aiWidthByIdx.set(idx, true);
-          }
-        });
+        // The converter may supply its own autoResize default. Restore the
+        // source sizing mode so measured diagram labels do not expand into
+        // adjacent nodes.
         convertedStandard = convertedStandard.map((el, idx) => {
-          if (el.type === "text" && !aiWidthByIdx.get(idx)) {
-            return { ...el, autoResize: true };
+          if (el.type === "text") {
+            const source = standardElements[idx];
+            return {
+              ...el,
+              autoResize: source?.autoResize ?? source?.width == null,
+            };
           }
           return el;
         });
@@ -588,13 +615,6 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
         const scrollY = as?.scrollY ?? 0;
         return { x: (sx + scrollX) * zoom, y: (sy + scrollY) * zoom };
       };
-      const setClickyTransform = (x: number, y: number, rot: number, scale: number, opacity = 1) => {
-        const el = clickyElRef.current;
-        if (!el) return;
-        el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${rot}deg) scale(${scale})`;
-        el.style.opacity = String(opacity);
-      };
-
       // The "live tip" of the element currently being drawn. We pick the most
       // recently-started group that is still animating and off this update we
       // fly/follow Clicky's cursor.
@@ -697,7 +717,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
                   ...el,
                   text: revealed,
                   opacity: fd.opacity,
-                  autoResize: true,
+                  autoResize: el.autoResize ?? true,
                   version: (el.version ?? 1) + frame,
                   versionNonce: Math.floor(Math.random() * 1e9),
                 });
@@ -979,7 +999,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           animFrameRef.current = 0;
         }
       };
-    }, [canvasCommands, ready, toExcalidrawElements, shiftElementsBelowContent]);
+    }, [canvasCommands, ready, toExcalidrawElements, shiftElementsBelowContent, setClickyTransform]);
 
     // ── Get canvas snapshot as base64 JPEG ────────────────────────────────
 
@@ -1054,6 +1074,12 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
     useImperativeHandle(ref, () => ({
       getSnapshot,
       getViewportSnapshot,
+      getViewportRect: () => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        return rect
+          ? { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+          : null;
+      },
       getSceneElements: () => apiRef.current?.getSceneElements() ?? [],
     }), [getSnapshot, getViewportSnapshot]);
 
@@ -1200,34 +1226,43 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           <div
             style={{
               position: "absolute",
-              left: 0,
+              left: -8,
               top: 0,
-              width: 0,
-              height: 0,
-              borderLeft: "9px solid transparent",
-              borderRight: "9px solid transparent",
-              borderBottom: `16px solid ${CLICKY_COLOR}`,
+              width: 16,
+              height: 13.856,
+              background: CLICKY_COLOR,
+              clipPath: "polygon(50% 0, 100% 100%, 0 100%)",
               filter: `drop-shadow(0 0 8px ${CLICKY_GLOW})`,
             }}
           />
           {!!clickyBubbleText && (
             <div
+              ref={clickyBubbleAnchorRef}
               style={{
                 position: "absolute",
                 left: 16,
                 top: -6,
-                maxWidth: 150,
-                padding: "6px 9px",
-                borderRadius: 8,
-                background: "rgba(99,102,241,0.94)",
-                color: "#fff",
-                fontSize: 12,
-                fontWeight: 600,
-                letterSpacing: "0.01em",
-                whiteSpace: "nowrap",
+                transform: `rotate(${-clickyRotationRef.current}deg)`,
+                transformOrigin: "0 0",
               }}
             >
-              {clickyBubbleText}
+              <div
+                style={{
+                  maxWidth: 150,
+                  padding: "6px 9px",
+                  borderRadius: 8,
+                  background: "rgba(99,102,241,0.94)",
+                  color: "#fff",
+                  fontSize: 12,
+                  fontStyle: "normal",
+                  fontWeight: 600,
+                  letterSpacing: 0,
+                  textAlign: "left",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {clickyBubbleText}
+              </div>
             </div>
           )}
         </div>

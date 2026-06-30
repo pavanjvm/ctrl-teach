@@ -28,13 +28,39 @@ const WhiteboardCanvas = dynamic(() => import("@/components/WhiteboardCanvas"), 
 
 // Relevant resource per seed lesson (kept tiny). The resource pills let the AI
 // instructor point learners outward without leaving the immersive stage.
-const RESOURCES: Record<string, { label: string; kind: "youtube" | "link"; url: string; ytId?: string }[]> = {
+interface StudyResource {
+  label: string;
+  kind: "youtube" | "link";
+  url: string;
+  ytId?: string;
+}
+
+const RESOURCES: Record<string, StudyResource[]> = {
   "lsn-1": [{ label: "User Stories 101", kind: "youtube", url: "https://www.youtube.com/watch?v=2eNvTzU-lkQ", ytId: "2eNvTzU-lkQ" }],
   "lsn-4": [{ label: "Given-When-Then", kind: "youtube", url: "https://www.youtube.com/watch?v=WkzUk7C2pSs", ytId: "WkzUk7C2pSs" }],
   "lsn-7": [{ label: "Agile Alliance guide", kind: "link", url: "https://www.agilealliance.org/glossary/user-story/" }],
   "lsn-1-sd": [{ label: "System Design Primer", kind: "youtube", url: "https://www.youtube.com/watch?v=i53Gi_Y3Qcj", ytId: "i53Gi_Y3Qcj" }],
 };
-function resourcesFor(course: Course | null, lesson: Lesson | null) {
+
+function youtubeId(url: string): string | undefined {
+  const match = url.match(
+    /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/
+  );
+  return match?.[1];
+}
+
+function resourcesFor(course: Course | null, lesson: Lesson | null): StudyResource[] {
+  if (lesson?.resources?.length) {
+    return lesson.resources.map((resource) => {
+      const ytId = youtubeId(resource.url);
+      return {
+        label: resource.title,
+        kind: ytId ? "youtube" : "link",
+        url: resource.url,
+        ytId,
+      };
+    });
+  }
   if (lesson && RESOURCES[lesson.id]) return RESOURCES[lesson.id];
   if (course?.id === "sd-fundamentals") return RESOURCES["lsn-1-sd"];
   return [];
