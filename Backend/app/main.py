@@ -612,6 +612,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                         context_id = str(json_msg.get("contextId") or "")[:120]
                         page = json_msg.get("page") if isinstance(json_msg.get("page"), dict) else {}
                         media = json_msg.get("media") if isinstance(json_msg.get("media"), dict) else {}
+                        focus_region = json_msg.get("focusRegion") if isinstance(json_msg.get("focusRegion"), dict) else {}
                         media_crop = json_msg.get("mediaCrop") if isinstance(json_msg.get("mediaCrop"), dict) else {}
                         state["clicky_media_crop"] = media_crop if media_crop else None
                         state["clicky_viewport_capture"] = {
@@ -633,6 +634,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                         dom_summary = json.dumps(elements[:220], ensure_ascii=False)[:30000]
                         page_summary = json.dumps(page, ensure_ascii=False)[:4000]
                         media_summary = json.dumps(media, ensure_ascii=False)[:6000]
+                        focus_summary = json.dumps(focus_region, ensure_ascii=False)[:2000]
                         tab_summary = json.dumps(tabs[:40], ensure_ascii=False)[:8000]
                         coordinate_note = (
                             "The image is calibrated to the browser viewport, so raw x,y "
@@ -644,13 +646,14 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                             "a DOM target_id and do not emit raw x,y coordinates."
                         )
                         media_coordinate_note = (
-                            "A second image is an enlarged crop of the visible video with a "
-                            "labeled 0-1000 grid on both axes. For any object inside that video, "
+                            "A second image is an enlarged crop of the dominant visible non-DOM "
+                            "region (video, iframe, canvas, or image) with a labeled 0-1000 grid "
+                            "on both axes. For any object inside that region, "
                             "localize it from the second image, set coordinate_space='media', "
                             "and use grid coordinates from 0 through 1000. The browser maps them "
-                            "through the exact live video rectangle."
+                            "through the exact live region rectangle."
                             if media_crop_url
-                            else "No calibrated media crop is attached; use viewport coordinates."
+                            else "No calibrated non-DOM region crop is attached; use viewport coordinates."
                         )
                         if intent_text:
                             nudge = (
@@ -662,6 +665,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                                 f"Context id: {context_id or 'none'}\n"
                                 f"Page metadata JSON: {page_summary}\n"
                                 f"Media context JSON: {media_summary}\n"
+                                f"Focused non-DOM region JSON: {focus_summary}\n"
                                 f"Open browser tabs JSON: {tab_summary}\n\n"
                                 f"Visible DOM inventory JSON:\n{dom_summary}\n\n"
                                 "Decide whether to call point_at and/or draw_on_screen based on "
@@ -670,7 +674,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                                 "x,y only for things visible in the screenshot but absent "
                                 "from the inventory. For raw area marks, x,y is top-left and "
                                 "end_x,end_y is bottom-right; for underline/line/arrow they are "
-                                "the two endpoints. Never use a whole video/canvas DOM target for "
+                                "the two endpoints. Never use a whole video/iframe/canvas/image DOM target for "
                                 "an object inside its pixels. Do not say coordinates or ids aloud."
                             )
                         else:
@@ -683,6 +687,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                                 f"Context id: {context_id or 'none'}\n"
                                 f"Page metadata JSON: {page_summary}\n"
                                 f"Media context JSON: {media_summary}\n"
+                                f"Focused non-DOM region JSON: {focus_summary}\n"
                                 f"Open browser tabs JSON: {tab_summary}\n\n"
                                 f"Visible DOM inventory JSON:\n{dom_summary}\n\n"
                                 "If you later call point_at or draw_on_screen, prefer target_id "
@@ -816,7 +821,9 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                     task.cancel()
 
             async def _deliver_clicky_drawing(
-                original_payload: dict[str, Any], grounding_state: dict[str, Any]
+                original_payload: dict[str, Any],
+                grounding_state: dict[str, Any],
+                annotation_id: str,
             ) -> None:
                 """Ground one annotation and ship it the moment the result exists.
 
@@ -836,6 +843,12 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                 except Exception as exc:
                     logger.warning("Clicky drawing localization failed: %s", exc)
                     refined = original_payload
+                refined = {
+                    **refined,
+                    "annotation_id": annotation_id,
+                    "provisional": False,
+                    "replace": True,
+                }
                 await _send_json(websocket, {
                     "type": "clicky_draw",
                     "tool": "draw_on_screen",
@@ -974,12 +987,30 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
                                         }
                                     }
                                     original_payload = dict(payload)
+                                    annotation_id = uuid.uuid4().hex
+                                    # Paint the Realtime model's coarse geometry
+                                    # immediately. Computer Use later replaces this
+                                    # exact annotation in place with grounded pixels.
+                                    await _send_json(websocket, {
+                                        "type": "clicky_draw",
+                                        "tool": "draw_on_screen",
+                                        "response": {
+                                            **original_payload,
+                                            "annotation_id": annotation_id,
+                                            "provisional": True,
+                                            "replace": False,
+                                        },
+                                    })
                                     # Detached task: deliver this annotation the instant
                                     # its computer-use localization resolves, instead of
                                     # blocking the event stream or waiting for agent_end.
                                     pending_clicky_drawings.append((
                                         asyncio.create_task(
-                                            _deliver_clicky_drawing(original_payload, grounding_state)
+                                            _deliver_clicky_drawing(
+                                                original_payload,
+                                                grounding_state,
+                                                annotation_id,
+                                            )
                                         ),
                                         original_payload,
                                     ))

@@ -387,24 +387,33 @@ export function useWebSocket() {
         const allowedShapes = new Set(["circle", "rectangle", "highlight", "underline", "arrow", "line"]);
         const allowedColors = new Set(["blue", "teal", "red", "amber", "purple"]);
         const responses = event.type === "clicky_draw_batch" ? event.responses : [event.response];
-        const drawEvents = responses.map((response: Record<string, unknown>) => ({
-          tool: event.tool === "clear_screen_drawings" ? "clear_screen_drawings" : "draw_on_screen",
-          shape: typeof response.shape === "string" && allowedShapes.has(response.shape)
-            ? response.shape
-            : undefined,
-          targetId: typeof response.target_id === "string" ? response.target_id : null,
-          fromTargetId: typeof response.from_target_id === "string" ? response.from_target_id : null,
-          toTargetId: typeof response.to_target_id === "string" ? response.to_target_id : null,
-          x: typeof response.x === "number" ? response.x : null,
-          y: typeof response.y === "number" ? response.y : null,
-          endX: typeof response.end_x === "number" ? response.end_x : null,
-          endY: typeof response.end_y === "number" ? response.end_y : null,
-          label: typeof response.label === "string" ? response.label : "",
-          color: typeof response.color === "string" && allowedColors.has(response.color)
-            ? response.color
-            : "blue",
-          id: crypto.randomUUID(),
-        } as ClickyDrawCommand));
+        const drawEvents = responses.map((response: Record<string, unknown>) => {
+          const annotationId = typeof response.annotation_id === "string"
+            ? response.annotation_id
+            : crypto.randomUUID();
+          const provisional = response.provisional === true;
+          return ({
+            tool: event.tool === "clear_screen_drawings" ? "clear_screen_drawings" : "draw_on_screen",
+            shape: typeof response.shape === "string" && allowedShapes.has(response.shape)
+              ? response.shape
+              : undefined,
+            targetId: typeof response.target_id === "string" ? response.target_id : null,
+            fromTargetId: typeof response.from_target_id === "string" ? response.from_target_id : null,
+            toTargetId: typeof response.to_target_id === "string" ? response.to_target_id : null,
+            x: typeof response.x === "number" ? response.x : null,
+            y: typeof response.y === "number" ? response.y : null,
+            endX: typeof response.end_x === "number" ? response.end_x : null,
+            endY: typeof response.end_y === "number" ? response.end_y : null,
+            label: typeof response.label === "string" ? response.label : "",
+            color: typeof response.color === "string" && allowedColors.has(response.color)
+              ? response.color
+              : "blue",
+            id: `${annotationId}:${provisional ? "provisional" : "grounded"}:${crypto.randomUUID()}`,
+            annotationId,
+            provisional,
+            replace: response.replace === true,
+          } as ClickyDrawCommand);
+        });
         setClickyAgentDraws((current) => [...current, ...drawEvents].slice(-32));
         return;
       }

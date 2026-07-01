@@ -92,6 +92,7 @@
       .stroke { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .55s cubic-bezier(.22,.8,.24,1) forwards; }
       .stroke.dashed { stroke-dasharray: 8 6; }
       .stroke.dotted { stroke-dasharray: 2 5; stroke-linecap: round; }
+      .annotation.provisional { opacity: .42; }
       .draw-text { font: 600 13px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 4px; stroke-linejoin: round; animation: draw .35s ease forwards; }
       @keyframes spin { to { transform: rotate(360deg); } }
       @keyframes wave { from { transform: scaleY(.58); opacity: .72; } to { transform: scaleY(1.18); opacity: 1; } }
@@ -411,6 +412,45 @@
     };
   }
 
+  function nonDomRegionContext() {
+    const candidates = [...document.querySelectorAll("iframe,canvas,img")]
+      .filter((element) => {
+        if (!(element instanceof HTMLElement) || element === host || host.contains(element)) return false;
+        const style = getComputedStyle(element);
+        if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+        const rect = element.getBoundingClientRect();
+        return rect.width >= 120 && rect.height >= 90
+          && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth;
+      })
+      .sort((first, second) => {
+        const a = first.getBoundingClientRect();
+        const b = second.getBoundingClientRect();
+        return b.width * b.height - a.width * a.height;
+      });
+    const element = candidates[0];
+    if (!element) return null;
+    const rect = element.getBoundingClientRect();
+    const left = Math.max(0, rect.left);
+    const top = Math.max(0, rect.top);
+    const right = Math.min(innerWidth, rect.right);
+    const bottom = Math.min(innerHeight, rect.bottom);
+    const semantic = element.getAttribute("aria-label")
+      || element.getAttribute("title")
+      || element.getAttribute("alt")
+      || element.getAttribute("name")
+      || element.tagName.toLowerCase();
+    return {
+      kind: element.tagName.toLowerCase(),
+      label: String(semantic).replace(/\s+/g, " ").trim().slice(0, 120),
+      rect: {
+        x: left,
+        y: top,
+        width: Math.max(1, right - left),
+        height: Math.max(1, bottom - top),
+      },
+    };
+  }
+
   function preparePtt() {
     const media = visibleMedia();
     if (media && !media.paused) media.pause();
@@ -432,6 +472,7 @@
           language: document.documentElement.lang || navigator.language,
         },
         media: mediaContext(),
+        focusRegion: nonDomRegionContext(),
         elements,
       },
     };
@@ -594,6 +635,17 @@
       clearDrawings();
       return;
     }
+    const annotationId = String(response.annotation_id || crypto.randomUUID());
+    // A grounded result uses the same stable id as its provisional geometry.
+    // Remove the coarse group before appending the correction so users never
+    // see doubled circles/boxes or stale arrowheads.
+    for (const child of [...drawings.children]) {
+      if (child.getAttribute("data-annotation-id") === annotationId) child.remove();
+    }
+    const annotationGroup = svgElement("g", {
+      "data-annotation-id": annotationId,
+      class: response.provisional ? "annotation provisional" : "annotation",
+    });
     const colors = { blue: "#3380ff", teal: "#14b8a6", red: "#ef4444", amber: "#f59e0b", purple: "#8b5cf6" };
     const color = colors[response.color] || colors.blue;
     const shape = response.shape || "rectangle";
@@ -627,7 +679,8 @@
         class: "draw-text",
       });
       text.textContent = textContent;
-      drawings.appendChild(text);
+      annotationGroup.appendChild(text);
+      drawings.appendChild(annotationGroup);
       scheduleDrawingAutoClear();
       return;
     }
@@ -698,8 +751,9 @@
       setStatus("Clicky couldn't place that annotation", true);
       return;
     }
-    drawings.appendChild(element);
-    for (const extra of extraElements) drawings.appendChild(extra);
+    annotationGroup.appendChild(element);
+    for (const extra of extraElements) annotationGroup.appendChild(extra);
+    drawings.appendChild(annotationGroup);
     scheduleDrawingAutoClear();
   }
 

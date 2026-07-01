@@ -220,7 +220,7 @@ async function finishPushToTalk(tabId) {
   try {
     screenshotDataUrl = await chrome.tabs.captureVisibleTab(turn.windowId, {
       format: "jpeg",
-      quality: 88,
+      quality: 94,
     });
   } catch (error) {
     console.warn("[Clicky] visible-tab capture failed", error);

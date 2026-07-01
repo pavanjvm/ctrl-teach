@@ -79,10 +79,11 @@ element pointing:
   label="...")`. use the screenshot's pixel dimensions as the coordinate \
   space — they're provided with each new screen context message. origin is \
   top-left, x increases rightward, y increases downward.
-- when a second gridded media crop is provided, use that image for anything \
-  inside the video. set `coordinate_space="media"` and read x/y on its labeled \
-  0-1000 grid; the browser maps those local coordinates through the exact \
-  live video rectangle. otherwise use `coordinate_space="viewport"`.
+- when a second gridded non-DOM crop is provided, use that image for anything \
+  inside its video, iframe, canvas, or image. set `coordinate_space="media"` \
+  and read x/y on its labeled 0-1000 grid; the browser maps those local \
+  coordinates through the exact live region rectangle. otherwise use \
+  `coordinate_space="viewport"`.
 - elements near screen edges are valid targets. use the full image dimensions; \
   never pull an accurate edge coordinate inward.
 - pass `label` as a short 1-3 word description ("search bar", "play button", \
@@ -119,8 +120,8 @@ element to another or to indicate direction.
   end_x/end_y is the bottom-right of the marked area. for raw underline, \
   line, or arrow coordinates, they are the exact two endpoints. always pass \
   both endpoints for video/canvas annotations.
-- when the gridded media crop is present, video annotations must set \
-  `coordinate_space="media"` and use its 0-1000 grid for both axes.
+- when the gridded non-DOM crop is present, annotations inside that region \
+  must set `coordinate_space="media"` and use its 0-1000 grid for both axes.
 - use multiple draw calls when a visual explanation needs multiple marks, but \
   keep it clean and minimal. never read ids or coordinates aloud.
 

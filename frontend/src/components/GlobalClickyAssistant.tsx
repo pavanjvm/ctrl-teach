@@ -54,6 +54,7 @@ type ScreenAnnotation = {
   y1: number;
   x2: number;
   y2: number;
+  provisional?: boolean;
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -715,7 +716,10 @@ export default function GlobalClickyAssistant() {
   const addScreenAnnotation = useCallback((annotation: ScreenAnnotation) => {
     // Keep the visual explanation intact until Clicky explicitly clears it or
     // the viewport moves and invalidates its coordinates.
-    setScreenAnnotations((current) => [...current, annotation].slice(-32));
+    setScreenAnnotations((current) => [
+      ...current.filter((item) => item.id !== annotation.id),
+      annotation,
+    ].slice(-32));
   }, []);
 
   useEffect(() => clearScreenAnnotations, [clearScreenAnnotations]);
@@ -1251,7 +1255,7 @@ export default function GlobalClickyAssistant() {
       }
 
       addScreenAnnotation({
-        id: draw.id,
+        id: draw.annotationId ?? draw.id,
         shape,
         color,
         label: draw.label ?? "",
@@ -1259,6 +1263,7 @@ export default function GlobalClickyAssistant() {
         y1,
         x2,
         y2,
+        provisional: draw.provisional,
       });
     };
 
@@ -1426,7 +1431,7 @@ export default function GlobalClickyAssistant() {
               style: { filter: `drop-shadow(0 2px 4px ${stroke}55)` },
             };
             return (
-              <g key={annotation.id}>
+              <g key={annotation.id} opacity={annotation.provisional ? 0.42 : 1}>
                 {annotation.shape === "circle" && (
                   <ellipse
                     {...commonStroke}
