@@ -26,6 +26,8 @@ export interface AnimationGroup {
 }
 
 export interface CanvasCommand {
+    /** Correlates this render with audio held behind the same visual barrier. */
+    visualSyncId?: string;
     tool: string;
     action: "add" | "replace" | "clear";
     elements: CanvasElement[];
@@ -68,6 +70,14 @@ export interface ConnectOptions {
     onAudio?: (pcmBytes: ArrayBuffer) => void;
     onInterrupt?: () => void;
     onError?: (message: string) => void;
+    /** Resolve only after all browser-scheduled tutor PCM has actually played. */
+    waitForPlaybackComplete?: () => Promise<void>;
+    /** Fired after model generation is done and browser playback has drained. */
+    onPlaybackComplete?: (turnId: number) => void;
+    /** Drop ambient microphone PCM while the tutor owns the speaking turn. */
+    halfDuplexAudio?: boolean;
     /** When a tool returns audio_b64 (e.g. "image generated" confirmation), play it. */
     onToolAudio?: (base64Data: string, mimeType: string) => void;
+    /** Receive application-level events emitted by authenticated backend tools. */
+    onEvent?: (event: Record<string, any>) => void;
 }

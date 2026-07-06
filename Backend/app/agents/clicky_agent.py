@@ -1,12 +1,11 @@
-"""Clicky Realtime Agent — global voice-interactive tab assistant.
+"""Page-assistance mode for the unified Clicky companion.
 
-Unlike the Tutor (which manages an Excalidraw whiteboard), Clicky is a
-lightweight "always-on" companion that listens, answers in voice, and
-points at things on the user's current tab.
+This mode listens, answers in voice, and points at things on the current tab.
+Teaching modes use the same identity with a narrower instructional tool set.
 
 Architecture:
-- Runs over the SAME WebSocket endpoint as the Tutor (`/ws/{user_id}/{session_id}`)
-  selected via the `?agent=clicky` query parameter.
+- Runs over the shared WebSocket in `mode=page`. The legacy `agent=clicky`
+  selector remains accepted for extension compatibility.
 - Backed by `gpt-realtime-2` (configured at the runner level in main.py).
 - Single tool: `point_at` — the model emits this when pointing would help.
 
@@ -27,6 +26,8 @@ from typing import Optional
 
 from agents import function_tool
 from agents.realtime import RealtimeAgent
+
+from app.agents.companion_identity import COMPANION_AGENT_NAME, with_companion_identity
 
 logger = logging.getLogger(__name__)
 
@@ -263,13 +264,13 @@ def interact_with_page(
 def build_clicky_agent() -> RealtimeAgent:
     """Construct the Clicky RealtimeAgent tree (no sub-agents)."""
     root = RealtimeAgent(
-        name="clicky_agent",
-        instructions=CLICKY_INSTRUCTION,
+        name=COMPANION_AGENT_NAME,
+        instructions=with_companion_identity(CLICKY_INSTRUCTION),
         tools=[point_at, draw_on_screen, clear_screen_drawings, interact_with_page],
         handoffs=[],
     )
     logger.info(
-        "Clicky realtime agent built: root=%s tools=point_at,draw_on_screen,clear_screen_drawings,interact_with_page",
+        "Unified companion built: mode=page root=%s tools=point_at,draw_on_screen,clear_screen_drawings,interact_with_page",
         root.name,
     )
     return root

@@ -9,12 +9,17 @@ resolve those directly with ``getBoundingClientRect()``.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 from dataclasses import dataclass
+from io import BytesIO
 import logging
 import time
 from typing import Any, Literal
 
 from openai import AsyncOpenAI
+from PIL import Image
+from pydantic import BaseModel, Field
 
 from app.config import settings
 
@@ -32,6 +37,16 @@ class LocalizationResult:
     mode: LocalizationMode
     start: tuple[float, float]
     end: tuple[float, float] | None = None
+
+
+class VisualCoordinateResult(BaseModel):
+    """Validated normalized geometry returned by the GPT-5.5 vision pass."""
+
+    found: bool
+    start_x: float = Field(ge=0, le=1000)
+    start_y: float = Field(ge=0, le=1000)
+    end_x: float | None = Field(default=None, ge=0, le=1000)
+    end_y: float | None = Field(default=None, ge=0, le=1000)
 
 
 def _openai_client() -> AsyncOpenAI | None:
@@ -132,6 +147,33 @@ def _prompt_for(mode: LocalizationMode, description: str, shape: str) -> str:
     return shared + "Return one left click at the exact visual center of the target."
 
 
+def _coordinate_prompt(mode: LocalizationMode, description: str, shape: str) -> str:
+    target = description.strip() or "the object requested by the user"
+    shared = (
+        "Locate exactly one visual target in the supplied image. Ignore nearby labels, "
+        "controls, borders, and background. Return normalized coordinates from 0 to 1000, "
+        "where (0,0) is the image's top-left and (1000,1000) is its bottom-right. "
+        "Set found=false only when the named target is genuinely absent.\n\n"
+        f"Target: {target}\n"
+    )
+    if mode == "bounds":
+        return shared + (
+            "Return the target's tight top-left boundary as start_x/start_y and its tight "
+            "bottom-right boundary as end_x/end_y."
+        )
+    if mode == "segment":
+        direction = (
+            "left endpoint to right endpoint of a tight underline directly beneath the target"
+            if shape == "underline"
+            else "requested visual connection, preserving the requested arrow direction"
+        )
+        return shared + f"Return start and end coordinates for the {direction}."
+    return shared + (
+        "Return start_x/start_y at the exact visual center of the target. "
+        "Set end_x and end_y to null."
+    )
+
+
 def _clamp_result(result: LocalizationResult, width: int, height: int) -> LocalizationResult:
     def clamp(point: tuple[float, float]) -> tuple[float, float]:
         return (
@@ -157,7 +199,7 @@ async def locate_visual_target(
     shape: str = "",
     model: str | None = None,
 ) -> LocalizationResult | None:
-    """Locate a target in an image using the GPT computer-use tool."""
+    """Locate a target with GPT-5.5 direct vision and Structured Outputs."""
 
     client = _openai_client()
     if client is None or not settings.clicky_visual_locator_enabled:
@@ -166,66 +208,64 @@ async def locate_visual_target(
         return None
 
     selected_model = model or settings.clicky_visual_locator_model
-    prompt = _prompt_for(mode, description, shape)
+    prompt = _coordinate_prompt(mode, description, shape)
     started_at = time.perf_counter()
 
     try:
         response = await asyncio.wait_for(
-            client.responses.create(
+            client.responses.parse(
                 model=selected_model,
-                tools=[{"type": "computer"}],
-                input=prompt,
-                reasoning={"effort": settings.clicky_visual_locator_reasoning_effort},
-                max_output_tokens=512,
-            ),
-            timeout=settings.clicky_visual_locator_timeout_seconds,
-        )
-
-        for _ in range(4):
-            call = _computer_call(response)
-            if call is None:
-                return None
-            result = _spatial_result(call, mode)
-            if result is not None:
-                result = _clamp_result(result, width, height)
-                logger.info(
-                    "Clicky visual locator model=%s mode=%s target=%r start=%s end=%s image=%dx%d latency_ms=%d",
-                    selected_model,
-                    result.mode,
-                    description,
-                    result.start,
-                    result.end,
-                    width,
-                    height,
-                    int((time.perf_counter() - started_at) * 1000),
-                )
-                return result
-
-            wants_screenshot = any(
-                getattr(action, "type", "") == "screenshot"
-                for action in _computer_actions(call)
-            )
-            if not wants_screenshot:
-                return None
-            response = await asyncio.wait_for(
-                client.responses.create(
-                    model=selected_model,
-                    tools=[{"type": "computer"}],
-                    previous_response_id=response.id,
-                    input=[{
-                        "type": "computer_call_output",
-                        "call_id": call.call_id,
-                        "output": {
-                            "type": "computer_screenshot",
+                input=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": prompt},
+                        {
+                            "type": "input_image",
                             "image_url": f"data:{mime_type};base64,{image_base64}",
                             "detail": "original",
                         },
-                    }],
-                    reasoning={"effort": settings.clicky_visual_locator_reasoning_effort},
-                    max_output_tokens=512,
-                ),
-                timeout=settings.clicky_visual_locator_timeout_seconds,
+                    ],
+                }],
+                reasoning={"effort": settings.clicky_visual_locator_reasoning_effort},
+                text_format=VisualCoordinateResult,
+                # Reasoning tokens count against this limit. Keep enough room
+                # for deployments that intentionally select high/xhigh while
+                # still returning the tiny structured coordinate payload.
+                max_output_tokens=2048,
+            ),
+            timeout=settings.clicky_visual_locator_timeout_seconds,
+        )
+        parsed = response.output_parsed
+        if parsed is None or not parsed.found:
+            return None
+
+        def pixels(x: float, y: float) -> tuple[float, float]:
+            return x * width / 1000.0, y * height / 1000.0
+
+        start = pixels(parsed.start_x, parsed.start_y)
+        end = (
+            pixels(parsed.end_x, parsed.end_y)
+            if parsed.end_x is not None and parsed.end_y is not None
+            else None
+        )
+        if mode == "bounds" and end is not None:
+            start, end = (
+                (min(start[0], end[0]), min(start[1], end[1])),
+                (max(start[0], end[0]), max(start[1], end[1])),
             )
+        result = _clamp_result(LocalizationResult(mode=mode, start=start, end=end), width, height)
+        logger.info(
+            "Clicky visual locator model=%s mode=%s target=%r start=%s end=%s image=%dx%d latency_ms=%d",
+            selected_model,
+            result.mode,
+            description,
+            result.start,
+            result.end,
+            width,
+            height,
+            int((time.perf_counter() - started_at) * 1000),
+        )
+        return result
     except Exception as exc:
         logger.warning(
             "Clicky visual localization failed model=%s mode=%s: %s",
@@ -245,6 +285,8 @@ def _capture_for_payload(payload: dict[str, Any], state: dict[str, Any]) -> tupl
         return crop, 1000.0, 1000.0
 
     capture = state.get("clicky_viewport_capture")
+    if not isinstance(capture, dict):
+        capture = state.get("classroom_canvas_capture")
     if not isinstance(capture, dict):
         return None
     width = float(capture.get("width") or 0)
@@ -387,3 +429,112 @@ async def refine_media_payload(payload: dict[str, Any], state: dict[str, Any]) -
 
     tool_name = "draw_on_screen" if payload.get("shape") else "point_at"
     return await refine_clicky_payload(payload, state, tool_name=tool_name)
+
+
+def crop_image_region(
+    image_base64: str,
+    bounds: dict[str, Any],
+) -> tuple[str, int, int, int, int] | None:
+    """Crop a screenshot to trusted pixel bounds.
+
+    Returns ``(base64, crop_width, crop_height, left, top)``. Bounds are
+    clamped to the decoded image so stale viewport metadata cannot make Pillow
+    read outside the capture.
+    """
+
+    try:
+        raw = base64.b64decode(image_base64, validate=True)
+        with Image.open(BytesIO(raw)) as source:
+            source.load()
+            left = max(0, min(source.width - 1, int(round(float(bounds.get("x", 0))))))
+            top = max(0, min(source.height - 1, int(round(float(bounds.get("y", 0))))))
+            right = max(
+                left + 1,
+                min(source.width, int(round(float(bounds.get("x", 0)) + float(bounds.get("width", 0))))),
+            )
+            bottom = max(
+                top + 1,
+                min(source.height, int(round(float(bounds.get("y", 0)) + float(bounds.get("height", 0))))),
+            )
+            if right - left < 2 or bottom - top < 2:
+                return None
+            cropped = source.crop((left, top, right, bottom)).convert("RGB")
+            output = BytesIO()
+            cropped.save(output, format="JPEG", quality=92, optimize=True)
+            return (
+                base64.b64encode(output.getvalue()).decode("ascii"),
+                cropped.width,
+                cropped.height,
+                left,
+                top,
+            )
+    except (ValueError, TypeError, OSError, binascii.Error) as exc:
+        logger.warning("Could not crop classroom image bounds: %s", exc)
+        return None
+
+
+async def refine_classroom_point(
+    payload: dict[str, Any],
+    state: dict[str, Any],
+    *,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """Ground a Live Classroom point against its exact captured viewport.
+
+    For targets inside the generated course image, Excalidraw provides the
+    authoritative visible image rectangle. We crop to it first, let GPT-5.5
+    find the semantic target inside that crop, then translate the result back
+    into the original screenshot coordinate space.
+    """
+
+    point = payload.get("clickyPoint")
+    if not isinstance(point, dict):
+        return payload
+    capture = state.get("classroom_canvas_capture")
+    if not isinstance(capture, dict):
+        return point
+
+    screenshot_data = str(capture.get("data") or "")
+    screenshot_width = int(capture.get("width") or 0)
+    screenshot_height = int(capture.get("height") or 0)
+    if not screenshot_data or screenshot_width < 1 or screenshot_height < 1:
+        return point
+
+    image_data = screenshot_data
+    image_width = screenshot_width
+    image_height = screenshot_height
+    offset_x = 0
+    offset_y = 0
+    used_course_image_crop = False
+    target_area = str(point.get("targetArea") or "board")
+    if target_area == "course_image":
+        bounds = capture.get("generatedImageBounds")
+        if isinstance(bounds, dict):
+            cropped = crop_image_region(screenshot_data, bounds)
+            if cropped is not None:
+                image_data, image_width, image_height, offset_x, offset_y = cropped
+                used_course_image_crop = True
+
+    label = str(point.get("label") or "requested whiteboard target").strip()
+    result = await locate_visual_target(
+        image_base64=image_data,
+        mime_type="image/jpeg",
+        width=image_width,
+        height=image_height,
+        description=label,
+        mode="point",
+        model=model or settings.clicky_visual_locator_model,
+    )
+    if result is None:
+        return point
+
+    x = max(0.0, min(float(screenshot_width), result.start[0] + offset_x))
+    y = max(0.0, min(float(screenshot_height), result.start[1] + offset_y))
+    return {
+        **point,
+        "x": x,
+        "y": y,
+        "grounding": "computer_use",
+        "groundingModel": model or settings.clicky_visual_locator_model,
+        "groundingRegion": "course_image" if used_course_image_crop else "board",
+    }

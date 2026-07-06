@@ -216,7 +216,7 @@ function connect() {
   const base = String(config.wsUrl).replace(/\/$/, "");
   const protocol = `ctrlteach-clicky-auth.${config.accessToken}`;
   socket = new WebSocket(
-    `${base}/ws/${encodeURIComponent(config.userId)}/${sessionId}?agent=clicky`,
+    `${base}/ws/${encodeURIComponent(config.userId)}/${sessionId}?mode=page&agent=clicky`,
     protocol,
   );
   socket.onopen = () => void emit({ type: "CLICKY_STATUS", mode: "connecting", text: "Clicky connecting" });

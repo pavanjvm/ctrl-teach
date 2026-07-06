@@ -122,14 +122,26 @@ export interface WhiteboardCanvasRef {
     imageHeight: number;
     viewWidth: number;
     viewHeight: number;
+    generatedImageBounds: GeneratedImageViewportBounds | null;
   } | null>;
+  getGeneratedImageViewportBounds: () => GeneratedImageViewportBounds | null;
   getViewportRect: () => { left: number; top: number; width: number; height: number } | null;
   getSceneElements: () => any[];
+}
+
+export interface GeneratedImageViewportBounds {
+  fileId: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 interface WhiteboardCanvasProps {
   canvasCommands: CanvasCommand[];
   onCanvasChange?: () => void;
+  /** Releases Realtime audio waiting for this rendered board/Clicky action. */
+  onVisualSettled?: (syncId: string) => void;
   isGeneratingImage?: boolean;
   isSavingProgress?: boolean;
   /** Whether Clicky's cursor should be visible (default true once mounted). */
@@ -139,7 +151,7 @@ interface WhiteboardCanvasProps {
 }
 
 const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
-  ({ canvasCommands, onCanvasChange, isGeneratingImage = false, isSavingProgress = false, clickyActive = true, clickyPointTarget = null }, ref) => {
+  ({ canvasCommands, onCanvasChange, onVisualSettled, isGeneratingImage = false, isSavingProgress = false, clickyActive = true, clickyPointTarget = null }, ref) => {
     const [ready, setReady] = useState(false);
     const apiRef = useRef<any>(null);
     const [ExcalidrawComp, setExcalidrawComp] = useState<any>(null);
@@ -305,6 +317,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           clickyCurPos.current = target;
           const label = (clickyPointTarget.label || "right here").trim();
           setClickyBubbleText(label);
+          onVisualSettled?.(clickyPointTarget.id);
           clickyPointTimerRef.current = setTimeout(() => {
             clickyExternalPointing.current = false;
             clickyDrawing.current = false;
@@ -322,7 +335,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           clickyPointTimerRef.current = null;
         }
       };
-    }, [clickyActive, clickyPointTarget, setClickyTransform]);
+    }, [clickyActive, clickyPointTarget, onVisualSettled, setClickyTransform]);
 
     // Load Excalidraw + convertToExcalidrawElements once
     useEffect(() => {
@@ -572,6 +585,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
     // every active track each frame.
 
     interface AnimTrack {
+      visualSyncId?: string;
       allConverted: any[];
       groupMeta: {
         start: number;
@@ -619,6 +633,14 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
       // recently-started group that is still animating and off this update we
       // fly/follow Clicky's cursor.
       let liveTip: { x: number; y: number; id: string; startedAt: number } | null = null;
+      const settleAfterPaint = (syncId?: string, delayMs = 0) => {
+        if (!syncId) return;
+        window.setTimeout(() => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => onVisualSettled?.(syncId));
+          });
+        }, delayMs);
+      };
 
       // ── Shared tick function — processes ALL active animation tracks ──
       const tick = (now: number) => {
@@ -808,8 +830,12 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
         // Remove completed tracks — their final-state elements are in
         // allAnimated this frame; next frame they'll be part of baseElements.
         if (completedIndices.length > 0) {
+          const completedSyncIds = completedIndices
+            .map((index) => tracks[index]?.visualSyncId)
+            .filter((syncId): syncId is string => Boolean(syncId));
           const removed = new Set(completedIndices);
           animTracksRef.current = tracks.filter((_, i) => !removed.has(i));
+          completedSyncIds.forEach((syncId) => settleAfterPaint(syncId));
           console.log(
             `[Canvas Anim] ${completedIndices.length} track(s) complete, ` +
               `${animTracksRef.current.length} remaining, ` +
@@ -839,6 +865,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
 
         if (cmd.action === "clear") {
           // Clear everything including active animations
+          animTracksRef.current.forEach((track) => settleAfterPaint(track.visualSyncId));
           animTracksRef.current = [];
           if (clickyCancelRef.current) clickyCancelRef.current();
           clickyCancelRef.current = null;
@@ -846,6 +873,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           clickyFocusId.current = null;
           clickyIdleStart.current = 0;
           api.updateScene({ elements: [] });
+          settleAfterPaint(cmd.visualSyncId);
           continue;
         }
 
@@ -935,6 +963,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           }
 
           const track: AnimTrack = {
+            visualSyncId: cmd.visualSyncId,
             allConverted,
             groupMeta,
             fullData,
@@ -957,6 +986,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
             : rawElements;
 
         if (cmd.action === "replace") {
+          animTracksRef.current.forEach((track) => settleAfterPaint(track.visualSyncId));
           animTracksRef.current = []; // clear animations on replace
           if (clickyCancelRef.current) clickyCancelRef.current();
           clickyCancelRef.current = null;
@@ -984,6 +1014,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
         console.log(
           `[Canvas] Scene updated, total elements: ${api.getSceneElements().length}`
         );
+        settleAfterPaint(cmd.visualSyncId, 320);
       }
       lastAppliedRef.current = canvasCommands.length;
 
@@ -999,7 +1030,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           animFrameRef.current = 0;
         }
       };
-    }, [canvasCommands, ready, toExcalidrawElements, shiftElementsBelowContent, setClickyTransform]);
+    }, [canvasCommands, ready, toExcalidrawElements, shiftElementsBelowContent, setClickyTransform, onVisualSettled]);
 
     // ── Get canvas snapshot as base64 JPEG ────────────────────────────────
 
@@ -1040,16 +1071,87 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
       }
     }, []);
 
+    /**
+     * Resolve the generated course image from Excalidraw scene coordinates to
+     * local viewport pixels. Excalidraw's transform is exact:
+     *   viewport = (scene + scroll) * zoom + offset
+     *
+     * The returned rectangle is clipped to the visible whiteboard because the
+     * viewport screenshot contains only that intersection.
+     */
+    const getGeneratedImageViewportBounds = useCallback((): GeneratedImageViewportBounds | null => {
+      const api = apiRef.current;
+      const container = containerRef.current;
+      if (!api || !container) return null;
+
+      const image = api.getSceneElements().find((element: any) => (
+        !element.isDeleted
+        && element.type === "image"
+        && String(element.fileId || "").startsWith("course-visual-")
+      ));
+      if (!image) return null;
+
+      const appState = api.getAppState();
+      const zoom = Number(appState.zoom?.value) || 1;
+      const scrollX = Number(appState.scrollX) || 0;
+      const scrollY = Number(appState.scrollY) || 0;
+      const offsetLeft = Number(appState.offsetLeft) || 0;
+      const offsetTop = Number(appState.offsetTop) || 0;
+      const containerRect = container.getBoundingClientRect();
+      const width = Math.abs(Number(image.width) || 0);
+      const height = Math.abs(Number(image.height) || 0);
+      if (width < 1 || height < 1) return null;
+
+      const sceneX = Number(image.x) || 0;
+      const sceneY = Number(image.y) || 0;
+      const angle = Number(image.angle) || 0;
+      const centerX = sceneX + width / 2;
+      const centerY = sceneY + height / 2;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const corners = [
+        [sceneX, sceneY],
+        [sceneX + width, sceneY],
+        [sceneX + width, sceneY + height],
+        [sceneX, sceneY + height],
+      ].map(([x, y]) => {
+        const dx = x - centerX;
+        const dy = y - centerY;
+        const rotatedX = centerX + dx * cos - dy * sin;
+        const rotatedY = centerY + dx * sin + dy * cos;
+        return {
+          x: (rotatedX + scrollX) * zoom + offsetLeft - containerRect.left,
+          y: (rotatedY + scrollY) * zoom + offsetTop - containerRect.top,
+        };
+      });
+
+      const left = Math.max(0, Math.min(...corners.map((corner) => corner.x)));
+      const top = Math.max(0, Math.min(...corners.map((corner) => corner.y)));
+      const right = Math.min(container.clientWidth, Math.max(...corners.map((corner) => corner.x)));
+      const bottom = Math.min(container.clientHeight, Math.max(...corners.map((corner) => corner.y)));
+      if (right - left < 2 || bottom - top < 2) return null;
+
+      return {
+        fileId: String(image.fileId),
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+      };
+    }, []);
+
     const getViewportSnapshot = useCallback(async (): Promise<{
       base64: string;
       imageWidth: number;
       imageHeight: number;
       viewWidth: number;
       viewHeight: number;
+      generatedImageBounds: GeneratedImageViewportBounds | null;
     } | null> => {
       const container = containerRef.current;
       if (!container) return null;
       try {
+        const localImageBounds = getGeneratedImageViewportBounds();
         const canvas = await html2canvas(container, {
           backgroundColor: "#ffffff",
           scale: Math.min(window.devicePixelRatio || 1, 2),
@@ -1063,17 +1165,25 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           imageHeight: canvas.height,
           viewWidth: container.clientWidth,
           viewHeight: container.clientHeight,
+          generatedImageBounds: localImageBounds ? {
+            ...localImageBounds,
+            x: localImageBounds.x * canvas.width / Math.max(1, container.clientWidth),
+            y: localImageBounds.y * canvas.height / Math.max(1, container.clientHeight),
+            width: localImageBounds.width * canvas.width / Math.max(1, container.clientWidth),
+            height: localImageBounds.height * canvas.height / Math.max(1, container.clientHeight),
+          } : null,
         };
       } catch (err) {
         console.error("Failed to capture whiteboard viewport", err);
         return null;
       }
-    }, []);
+    }, [getGeneratedImageViewportBounds]);
 
     // Expose getSnapshot and getSceneElements via ref
     useImperativeHandle(ref, () => ({
       getSnapshot,
       getViewportSnapshot,
+      getGeneratedImageViewportBounds,
       getViewportRect: () => {
         const rect = containerRef.current?.getBoundingClientRect();
         return rect
@@ -1081,7 +1191,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           : null;
       },
       getSceneElements: () => apiRef.current?.getSceneElements() ?? [],
-    }), [getSnapshot, getViewportSnapshot]);
+    }), [getGeneratedImageViewportBounds, getSnapshot, getViewportSnapshot]);
 
     if (!ExcalidrawComp || !mounted) {
       return (

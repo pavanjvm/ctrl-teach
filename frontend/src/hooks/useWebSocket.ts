@@ -25,6 +25,8 @@ import type {
 // Re-export types for consumers that import from this hook
 export type { TranscriptEntry, CanvasCommand, AnimationGroup, ConnectionStatus };
 
+const VISUAL_SYNC_TIMEOUT_MS = 10_000;
+
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useWebSocket() {
@@ -38,7 +40,7 @@ export function useWebSocket() {
     label?: string;
     id: string;
   } | null>(null);
-  // Clicky-agent pointing events (from `?agent=clicky` sessions). Payload is
+  // Page-mode Clicky pointing events. Payload is
   // either `{targetId}` for DOM-exact pointing or `{x,y}` for vision fallback.
   const [clickyAgentPoint, setClickyAgentPoint] = useState<{
     targetId?: string | null;
@@ -52,17 +54,105 @@ export function useWebSocket() {
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isSavingProgress, setIsSavingProgress] = useState(false);
   const [realtimeReady, setRealtimeReady] = useState(false);
+  const [isAssistantTurnActive, setIsAssistantTurnActive] = useState(false);
+  const [isVisualSyncing, setIsVisualSyncing] = useState(false);
 
   // Refs for mutable input/output transcription tracking
   const currentInputIdRef = useRef<string | null>(null);
   const currentOutputIdRef = useRef<string | null>(null);
   const audioSuppressedRef = useRef(false);
+  const assistantTurnActiveRef = useRef(false);
+  const assistantTurnIdRef = useRef(0);
+  const halfDuplexAudioRef = useRef(false);
+  const deferredPlaybackEventsRef = useRef<Record<string, any>[]>([]);
+  const visualBarriersRef = useRef<Map<string, { timer: number; tool: string }>>(new Map());
+  const deferredAudioRef = useRef<ArrayBuffer[]>([]);
+  const visualWaitersRef = useRef<Set<() => void>>(new Set());
 
   // Store callbacks in refs so the message handler always sees the latest
   const onAudioRef = useRef<((pcm: ArrayBuffer) => void) | undefined>(undefined);
   const onInterruptRef = useRef<(() => void) | undefined>(undefined);
   const onErrorRef = useRef<((message: string) => void) | undefined>(undefined);
   const onToolAudioRef = useRef<((base64: string, mimeType: string) => void) | undefined>(undefined);
+  const onEventRef = useRef<((event: Record<string, any>) => void) | undefined>(undefined);
+  const waitForPlaybackCompleteRef = useRef<(() => Promise<void>) | undefined>(undefined);
+  const onPlaybackCompleteRef = useRef<((turnId: number) => void) | undefined>(undefined);
+
+  const beginAssistantTurn = useCallback(() => {
+    if (!assistantTurnActiveRef.current) {
+      assistantTurnIdRef.current += 1;
+      assistantTurnActiveRef.current = true;
+      setIsAssistantTurnActive(true);
+    }
+    return assistantTurnIdRef.current;
+  }, []);
+
+  const flushDeferredAudio = useCallback(() => {
+    if (visualBarriersRef.current.size > 0 || deferredAudioRef.current.length === 0) return;
+    const chunks = deferredAudioRef.current.splice(0);
+    chunks.forEach((chunk) => onAudioRef.current?.(chunk));
+  }, []);
+
+  const acknowledgeVisualSync = useCallback((syncId: string) => {
+    const barrier = visualBarriersRef.current.get(syncId);
+    if (!barrier) return;
+    window.clearTimeout(barrier.timer);
+    visualBarriersRef.current.delete(syncId);
+
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: "visual_sync_complete",
+        syncId,
+        tool: barrier.tool,
+      }));
+    }
+
+    if (visualBarriersRef.current.size === 0) {
+      setIsVisualSyncing(false);
+      flushDeferredAudio();
+      const waiters = [...visualWaitersRef.current];
+      visualWaitersRef.current.clear();
+      waiters.forEach((resolve) => resolve());
+    }
+  }, [flushDeferredAudio]);
+
+  const registerVisualSync = useCallback((syncId: string, tool: string) => {
+    if (!syncId || visualBarriersRef.current.has(syncId)) return;
+    const timer = window.setTimeout(() => {
+      console.warn(`[WS] Visual sync timed out for ${tool}; releasing queued audio.`);
+      acknowledgeVisualSync(syncId);
+    }, VISUAL_SYNC_TIMEOUT_MS);
+    visualBarriersRef.current.set(syncId, { timer, tool });
+    setIsVisualSyncing(true);
+  }, [acknowledgeVisualSync]);
+
+  const clearVisualSync = useCallback((dropAudio: boolean) => {
+    for (const barrier of visualBarriersRef.current.values()) {
+      window.clearTimeout(barrier.timer);
+    }
+    visualBarriersRef.current.clear();
+    setIsVisualSyncing(false);
+    if (dropAudio) deferredAudioRef.current = [];
+    else flushDeferredAudio();
+    const waiters = [...visualWaitersRef.current];
+    visualWaitersRef.current.clear();
+    waiters.forEach((resolve) => resolve());
+  }, [flushDeferredAudio]);
+
+  const waitForVisualSync = useCallback((): Promise<void> => {
+    if (visualBarriersRef.current.size === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => visualWaitersRef.current.add(resolve));
+  }, []);
+
+  const routeAudioChunk = useCallback((chunk: ArrayBuffer) => {
+    beginAssistantTurn();
+    if (visualBarriersRef.current.size > 0) {
+      deferredAudioRef.current.push(chunk);
+      return;
+    }
+    onAudioRef.current?.(chunk);
+  }, [beginAssistantTurn]);
 
   // ── Connect ──────────────────────────────────────────────────────────────
 
@@ -73,12 +163,21 @@ export function useWebSocket() {
     ) return;
     setStatus("connecting");
     setRealtimeReady(false);
+    setIsAssistantTurnActive(false);
+    clearVisualSync(true);
     audioSuppressedRef.current = false;
+    assistantTurnActiveRef.current = false;
+    assistantTurnIdRef.current = 0;
+    deferredPlaybackEventsRef.current = [];
 
     onAudioRef.current = opts?.onAudio;
     onInterruptRef.current = opts?.onInterrupt;
     onErrorRef.current = opts?.onError;
     onToolAudioRef.current = opts?.onToolAudio;
+    onEventRef.current = opts?.onEvent;
+    waitForPlaybackCompleteRef.current = opts?.waitForPlaybackComplete;
+    onPlaybackCompleteRef.current = opts?.onPlaybackComplete;
+    halfDuplexAudioRef.current = Boolean(opts?.halfDuplexAudio);
 
     let ws: WebSocket;
     try {
@@ -107,7 +206,11 @@ export function useWebSocket() {
       wsRef.current = null;
       setStatus("disconnected");
       setRealtimeReady(false);
+      setIsAssistantTurnActive(false);
+      clearVisualSync(true);
       audioSuppressedRef.current = false;
+      assistantTurnActiveRef.current = false;
+      deferredPlaybackEventsRef.current = [];
       if (event.code !== 1000 && event.code !== 1005) {
         onErrorRef.current?.(event.reason || "Realtime backend unavailable.");
       }
@@ -118,6 +221,9 @@ export function useWebSocket() {
       if (wsRef.current !== ws) return;
       setStatus("disconnected");
       setRealtimeReady(false);
+      setIsAssistantTurnActive(false);
+      clearVisualSync(true);
+      assistantTurnActiveRef.current = false;
       onErrorRef.current?.("Realtime backend unavailable.");
       // Browser WebSocket error events intentionally contain no useful detail.
       // Keep this recoverable condition out of Next.js' console-error overlay.
@@ -127,12 +233,22 @@ export function useWebSocket() {
     ws.onmessage = (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
         // Binary audio from server
-        if (!audioSuppressedRef.current) onAudioRef.current?.(event.data);
+        if (!audioSuppressedRef.current) {
+          routeAudioChunk(event.data);
+        }
         return;
       }
 
       try {
         const adkEvent = JSON.parse(event.data as string);
+        // Completion mutates durable learner progress. Keep it behind the
+        // actual browser playback boundary so the UI cannot finish a lesson
+        // before the teacher's final spoken sentence has been heard.
+        if (adkEvent.type === "course_lesson_completed") {
+          deferredPlaybackEventsRef.current.push(adkEvent);
+        } else {
+          onEventRef.current?.(adkEvent);
+        }
         // Debug: log all non-audio events
         if (adkEvent.content?.parts) {
           for (const p of adkEvent.content.parts) {
@@ -149,7 +265,7 @@ export function useWebSocket() {
         console.warn("[WS] Non-JSON message", err);
       }
     };
-  }, []);
+  }, [clearVisualSync, routeAudioChunk]);
 
   // ── Disconnect ───────────────────────────────────────────────────────────
 
@@ -160,7 +276,11 @@ export function useWebSocket() {
     }
     setStatus("disconnected");
     setRealtimeReady(false);
-  }, []);
+    setIsAssistantTurnActive(false);
+    clearVisualSync(true);
+    assistantTurnActiveRef.current = false;
+    deferredPlaybackEventsRef.current = [];
+  }, [clearVisualSync]);
 
   // ── Send helpers ─────────────────────────────────────────────────────────
 
@@ -171,15 +291,25 @@ export function useWebSocket() {
     // Stop already-scheduled browser audio synchronously. The backend signal
     // prevents any additional audio chunks from the old response arriving.
     audioSuppressedRef.current = true;
+    assistantTurnIdRef.current += 1;
+    assistantTurnActiveRef.current = false;
+    setIsAssistantTurnActive(false);
+    deferredPlaybackEventsRef.current = [];
+    clearVisualSync(true);
     onInterruptRef.current?.();
     ws.send(JSON.stringify({ type: "interrupt" }));
-  }, []);
+  }, [clearVisualSync]);
 
   const sendText = useCallback((text: string) => {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
-      interruptResponse();
+      if (assistantTurnActiveRef.current) {
+        interruptResponse();
+      } else {
+        audioSuppressedRef.current = false;
+      }
       ws.send(JSON.stringify({ type: "text", text }));
+      beginAssistantTurn();
 
       setMessages((prev) => [
         ...prev,
@@ -192,11 +322,37 @@ export function useWebSocket() {
         },
       ]);
     }
-  }, [interruptResponse]);
+  }, [beginAssistantTurn, interruptResponse]);
+
+  const sendClassroomStart = useCallback((instruction: string) => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      // Bootstrap the teacher without rendering an artificial learner message
+      // in the transcript.
+      beginAssistantTurn();
+      ws.send(JSON.stringify({ type: "classroom_start", instruction }));
+    }
+  }, [beginAssistantTurn]);
+
+  const sendCompanionContext = useCallback((page: {
+    route: string;
+    url?: string;
+    title?: string;
+    courseId?: string | null;
+    lessonId?: string | null;
+  }) => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "companion_context", page }));
+    }
+  }, []);
 
   const sendAudio = useCallback((pcmData: ArrayBuffer) => {
     const ws = wsRef.current;
-    if (ws?.readyState === WebSocket.OPEN) {
+    if (
+      ws?.readyState === WebSocket.OPEN
+      && !(halfDuplexAudioRef.current && assistantTurnActiveRef.current)
+    ) {
       ws.send(pcmData);
     }
   }, []);
@@ -217,7 +373,21 @@ export function useWebSocket() {
     (
       base64Data: string,
       mimeType = "image/jpeg",
-      meta?: { width: number; height: number; intentText?: string }
+      meta?: {
+        width: number;
+        height: number;
+        viewWidth?: number;
+        viewHeight?: number;
+        intentText?: string;
+        silent?: boolean;
+        generatedImageBounds?: {
+          fileId: string;
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+        } | null;
+      }
     ) => {
       const ws = wsRef.current;
       if (ws?.readyState === WebSocket.OPEN) {
@@ -228,7 +398,11 @@ export function useWebSocket() {
             mimeType,
             width: meta?.width,
             height: meta?.height,
+            viewWidth: meta?.viewWidth,
+            viewHeight: meta?.viewHeight,
             intentText: meta?.intentText,
+            silent: meta?.silent,
+            generatedImageBounds: meta?.generatedImageBounds,
           })
         );
       }
@@ -269,6 +443,13 @@ export function useWebSocket() {
         }>;
         intentText?: string;
         calibrated?: boolean;
+        page?: {
+          route: string;
+          url?: string;
+          title?: string;
+          courseId?: string | null;
+          lessonId?: string | null;
+        };
       }
     ) => {
       const ws = wsRef.current;
@@ -283,6 +464,7 @@ export function useWebSocket() {
             elements: meta.elements ?? [],
             intentText: meta.intentText,
             calibrated: meta.calibrated ?? false,
+            page: meta.page ?? {},
           })
         );
       }
@@ -336,6 +518,13 @@ export function useWebSocket() {
         return;
       }
 
+      if (event.type === "visual_sync_start") {
+        const syncId = typeof event.syncId === "string" ? event.syncId : "";
+        const tool = typeof event.tool === "string" ? event.tool : "visual";
+        registerVisualSync(syncId, tool);
+        return;
+      }
+
       // ─ Early image-generation signal from backend ─
       // Sent by media_tools.py the instant generate_and_show_image is called —
       // before the Gemini image API call even starts.
@@ -380,6 +569,26 @@ export function useWebSocket() {
         return;
       }
 
+      // Live Classroom points are grounded by GPT-5.5 against the current
+      // viewport (and, when applicable, the exact Excalidraw image crop).
+      if (event.type === "classroom_point" && event.response) {
+        const resp = event.response;
+        const x = Number(resp.x);
+        const y = Number(resp.y);
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+          setClickyPoint({
+            x,
+            y,
+            label: typeof resp.label === "string" ? resp.label : undefined,
+            id: typeof event.visualSyncId === "string"
+              ? event.visualSyncId
+              : crypto.randomUUID(),
+          });
+        }
+        console.log("[WS] Grounded classroom point:", JSON.stringify(resp));
+        return;
+      }
+
       if (
         (event.type === "clicky_draw" && event.response) ||
         (event.type === "clicky_draw_batch" && Array.isArray(event.responses))
@@ -409,6 +618,7 @@ export function useWebSocket() {
               ? response.color
               : "blue",
             id: `${annotationId}:${provisional ? "provisional" : "grounded"}:${crypto.randomUUID()}`,
+            visualSyncId: typeof event.visualSyncId === "string" ? event.visualSyncId : undefined,
             annotationId,
             provisional,
             replace: response.replace === true,
@@ -458,6 +668,7 @@ export function useWebSocket() {
 
       // ─ Output transcription (model speech → text) ─
       if (event.outputTranscription?.text) {
+        beginAssistantTurn();
         const text = event.outputTranscription.text;
         const finished = event.outputTranscription.finished;
 
@@ -475,13 +686,8 @@ export function useWebSocket() {
         if (currentOutputIdRef.current) {
           const curId = currentOutputIdRef.current;
           if (finished) {
-            // Final event — just mark complete, don't touch text
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === curId ? { ...m, partial: false } : m
-              )
-            );
-            currentOutputIdRef.current = null;
+            // The transcript can finish while browser-scheduled PCM is still
+            // playing. Keep it partial until the queue-drained boundary below.
           } else {
             // Streaming delta — append to the running message
             setMessages((prev) =>
@@ -515,7 +721,7 @@ export function useWebSocket() {
           if (part.inlineData?.mimeType?.startsWith("audio/pcm")) {
             const audioB64 = part.inlineData.data;
             if (audioB64 && !audioSuppressedRef.current) {
-              onAudioRef.current?.(base64ToArrayBuffer(audioB64));
+              routeAudioChunk(base64ToArrayBuffer(audioB64));
             }
           }
         }
@@ -548,6 +754,7 @@ export function useWebSocket() {
             // Extract canvas command if it has elements
             if (resp && Array.isArray(resp.elements)) {
               const cmd: CanvasCommand = {
+                visualSyncId: typeof resp.visualSyncId === "string" ? resp.visualSyncId : undefined,
                 tool: resp.tool || fnResp.name || "unknown",
                 action: resp.action || "add",
                 elements: resp.elements,
@@ -556,6 +763,10 @@ export function useWebSocket() {
               };
               console.log("[Canvas CMD]", cmd.tool, cmd.action, cmd.elements.length, "elements");
               setCanvasCommands((prev) => [...prev, cmd]);
+            } else if (typeof resp?.visualSyncId === "string") {
+              // A failed/no-op visual tool has nothing for the board to render;
+              // release its barrier instead of waiting for the watchdog.
+              acknowledgeVisualSync(resp.visualSyncId);
             }
             if (resp?.tool === "point_at_whiteboard" && resp?.clickyPoint) {
               const p = resp.clickyPoint;
@@ -576,6 +787,7 @@ export function useWebSocket() {
               typeof resp.audio_b64 === "string" &&
               !audioSuppressedRef.current
             ) {
+              beginAssistantTurn();
               const mime = (resp.audio_mime as string) || "audio/pcm;rate=16000";
               onToolAudioRef.current?.(resp.audio_b64, mime);
             }
@@ -584,35 +796,72 @@ export function useWebSocket() {
       }
 
       // ─ Turn complete / interrupted ─
-      if (event.turnComplete || event.interrupted) {
-        // Finalize any still-open partial messages before clearing refs
-        setMessages((prev) => {
-          let updated = prev;
-          if (currentOutputIdRef.current) {
-            const oid = currentOutputIdRef.current;
-            updated = updated.map((m) =>
-              m.id === oid ? { ...m, partial: false } : m
-            );
+      if (event.turnComplete) {
+        const localTurnId = assistantTurnIdRef.current;
+        const serverTurnId = Number(event.turnId);
+        const acknowledgedTurnId = Number.isFinite(serverTurnId) && serverTurnId > 0
+          ? serverTurnId
+          : localTurnId;
+        const outputId = currentOutputIdRef.current;
+        const inputId = currentInputIdRef.current;
+        const waitForPlayback = waitForPlaybackCompleteRef.current;
+
+        void (async () => {
+          await waitForVisualSync();
+          if (waitForPlayback) await waitForPlayback();
+          // A typed barge-in can begin a newer turn while the old audio queue
+          // is being cleared. Never let the old completion unlock that turn.
+          if (assistantTurnIdRef.current !== localTurnId) return;
+
+          setMessages((prev) => prev.map((message) => {
+            if (message.id === outputId || message.id === inputId) {
+              return { ...message, partial: false };
+            }
+            return message;
+          }));
+          if (currentOutputIdRef.current === outputId) currentOutputIdRef.current = null;
+          if (currentInputIdRef.current === inputId) currentInputIdRef.current = null;
+
+          assistantTurnActiveRef.current = false;
+          setIsAssistantTurnActive(false);
+          audioSuppressedRef.current = false;
+
+          const deferred = deferredPlaybackEventsRef.current;
+          deferredPlaybackEventsRef.current = [];
+          deferred.forEach((pendingEvent) => onEventRef.current?.(pendingEvent));
+
+          const ws = wsRef.current;
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: "playback_complete",
+              turnId: acknowledgedTurnId,
+              playedAt: Date.now(),
+            }));
           }
-          if (currentInputIdRef.current) {
-            const iid = currentInputIdRef.current;
-            updated = updated.map((m) =>
-              m.id === iid ? { ...m, partial: false } : m
-            );
+          onPlaybackCompleteRef.current?.(acknowledgedTurnId);
+        })();
+      } else if (event.interrupted) {
+        console.log("[ADK] User interrupted agent!");
+        deferredPlaybackEventsRef.current = [];
+        clearVisualSync(true);
+        onInterruptRef.current?.();
+        audioSuppressedRef.current = false;
+        assistantTurnActiveRef.current = false;
+        setIsAssistantTurnActive(false);
+
+        const outputId = currentOutputIdRef.current;
+        const inputId = currentInputIdRef.current;
+        setMessages((prev) => prev.map((message) => {
+          if (message.id === outputId || message.id === inputId) {
+            return { ...message, partial: false };
           }
-          return updated;
-        });
+          return message;
+        }));
         currentOutputIdRef.current = null;
         currentInputIdRef.current = null;
-
-        if (event.interrupted) {
-          console.log("[ADK] User interrupted agent!");
-          onInterruptRef.current?.();
-          audioSuppressedRef.current = false;
-        }
       }
     },
-    []
+    [acknowledgeVisualSync, beginAssistantTurn, clearVisualSync, registerVisualSync, routeAudioChunk, waitForVisualSync]
   );
 
   // Cleanup on unmount
@@ -632,10 +881,15 @@ export function useWebSocket() {
     isGeneratingImage,
     isSavingProgress,
     realtimeReady,
+    isAssistantTurnActive,
+    isVisualSyncing,
     connect,
     disconnect,
     interruptResponse,
+    acknowledgeVisualSync,
     sendText,
+    sendClassroomStart,
+    sendCompanionContext,
     sendAudio,
     sendImage,
     sendCanvasSnapshot,

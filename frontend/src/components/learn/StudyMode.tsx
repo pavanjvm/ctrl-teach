@@ -93,11 +93,13 @@ export default function StudyMode({ course, lesson }: Props) {
     stopRecording,
     initPlayer,
     playAudioChunk,
+    waitForPlaybackComplete,
     clearPlayback,
     cleanup: cleanupAudio,
   } = useAudio();
 
   const topic = lesson?.title ?? course?.title ?? "this topic";
+  const teachingPlan = lesson?.whiteboardPlan;
 
   const handleConnect = useCallback(async () => {
     if (!user) return;
@@ -106,24 +108,29 @@ export default function StudyMode({ course, lesson }: Props) {
       if (!token) return;
       // Sent topic as a query so backend can personalise; the initial nudge
       // below also opens the conversation with the lesson context.
-      let url = `${WS_URL}/ws/${user.uid}/${sessionId}?token=${encodeURIComponent(token)}`;
+      let url = `${WS_URL}/ws/${user.uid}/${sessionId}?mode=whiteboard&token=${encodeURIComponent(token)}`;
       connect(url, {
         onAudio: (audioData: ArrayBuffer) => playAudioChunk(audioData),
         onInterrupt: clearPlayback,
         onToolAudio: (base64Data: string) => playAudioChunk(base64ToArrayBuffer(base64Data)),
+        waitForPlaybackComplete,
+        halfDuplexAudio: true,
       });
       initPlayer();
       // Seed the conversation so the AI instructor begins teaching immediately.
       setTimeout(() => {
+        const planContext = teachingPlan
+          ? `\nFollow this authored teaching plan:\nObjective: ${teachingPlan.objective}\nTeaching beats: ${teachingPlan.beats.join("; ")}\nDraw these visuals: ${teachingPlan.visualElements.join("; ")}.`
+          : "";
         sendText(
-          `I'm starting a lesson titled "${topic}". Please teach me the core idea now — draw the key diagram on the whiteboard as you explain, keep it concise, and ask me a check question at the end. My goal: ${course?.title ?? "learn this"}.`
+          `I'm starting a lesson titled "${topic}". Please teach me the core idea now — draw the key diagram on the whiteboard as you explain, keep it concise, and ask me a check question at the end. My goal: ${course?.title ?? "learn this"}.${planContext}`
         );
       }, 1200);
     } catch (err) {
       console.error("Study connect failed", err);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, sessionId, topic, course?.title]);
+  }, [user, sessionId, topic, course?.title, teachingPlan]);
 
   useEffect(() => {
     if (status === "connected") {

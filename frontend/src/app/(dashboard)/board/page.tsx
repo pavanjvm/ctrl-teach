@@ -115,6 +115,7 @@ export default function Page() {
     stopRecording,
     initPlayer,
     playAudioChunk,
+    waitForPlaybackComplete,
     clearPlayback,
     cleanup: cleanupAudio,
   } = useAudio();
@@ -155,7 +156,7 @@ export default function Page() {
       }
 
       // Build WS URL — include tutor_id so backend builds a dynamic prompt
-      let url = `${WS_URL}/ws/${user.uid}/${sessionId}?token=${encodeURIComponent(token)}`;
+      let url = `${WS_URL}/ws/${user.uid}/${sessionId}?mode=whiteboard&token=${encodeURIComponent(token)}`;
       if (tutorId) url += `&tutor_id=${tutorId}`;
 
       connect(url, {
@@ -163,6 +164,7 @@ export default function Page() {
           playAudioChunk(audioData);
         },
         onInterrupt: clearPlayback,
+        waitForPlaybackComplete,
         onToolAudio: (base64Data: string) => {
           const pcm = base64ToArrayBuffer(base64Data);
           playAudioChunk(pcm);
@@ -172,7 +174,7 @@ export default function Page() {
     } catch (err) {
       console.error("Failed to acquire token or connect:", err);
     }
-  }, [connect, user, sessionId, getToken, initPlayer, playAudioChunk, clearPlayback, tutorId, tutorConfig]);
+  }, [connect, user, sessionId, getToken, initPlayer, playAudioChunk, waitForPlaybackComplete, clearPlayback, tutorId, tutorConfig]);
 
   // ── Camera handlers ─────────────────────────────────────────────────────
 

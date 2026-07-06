@@ -53,6 +53,93 @@
   -webkit-backdrop-filter: blur(10px);
 }
 
+/* Generated courses use a focused two-mode shell. */
+.course-mode-topbar {
+  width: 100%;
+  height: 64px;
+  padding: 0 clamp(18px, 3vw, 42px);
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr);
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(250, 250, 248, .94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  z-index: 30;
+  flex-shrink: 0;
+}
+
+.course-mode-back,
+.course-mode-brand,
+.course-mode-nav a {
+  color: var(--text-main);
+  text-decoration: none;
+}
+
+.course-mode-back {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.course-mode-back:hover { color: var(--text-main); }
+
+.course-mode-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: #fff;
+}
+
+.course-mode-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  transition: color .18s ease, background .18s ease;
+}
+
+.course-mode-nav a:hover { color: var(--text-main); }
+.course-mode-nav a.active { color: #fff; background: #252522; }
+
+.course-mode-brand {
+  justify-self: end;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+
+.course-mode-brand span { color: var(--accent); }
+
+@media (max-width: 680px) {
+  .course-mode-topbar {
+    grid-template-columns: 34px 1fr 34px;
+    padding: 0 12px;
+  }
+  .course-mode-back span,
+  .course-mode-brand { font-size: 0; }
+  .course-mode-brand::before { content: "+"; color: var(--accent); font-size: 16px; }
+  .course-mode-nav { justify-self: center; }
+  .course-mode-nav a { padding: 0 11px; font-size: 9px; }
+}
+
 .topbar-logo-zone {
   display: flex;
   align-items: center;
@@ -491,6 +578,11 @@
 .dash-main.board-mode {
   display: flex;
   flex-direction: column;
+}
+
+.dash-main.course-overview-mode {
+  display: block;
+  overflow-y: auto;
 }
 
 /* Board page: pin the shell to the viewport height so the flex chain

@@ -1,0 +1,196 @@
+.rich-load { display: flex; min-height: calc(100vh - 72px); align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 13px; }
+.rich-load-error { color: #8b3d32; }
+.rich-spin { animation: rich-spin .9s linear infinite; }
+@keyframes rich-spin { to { transform: rotate(360deg); } }
+.rich-kicker,
+.rich-section-label { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+.rich-primary,
+.rich-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 11px 17px; border: 1px solid var(--fg); font: inherit; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.rich-primary { background: var(--fg); color: var(--bg); }
+.rich-primary:hover:not(:disabled) { border-color: var(--accent); background: var(--accent); color: var(--fg); }
+.rich-secondary { border-color: var(--border); background: transparent; color: var(--muted); }
+.rich-primary:disabled,
+.rich-secondary:disabled { opacity: .35; cursor: not-allowed; }
+.rich-text-link { display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
+
+/* Overview */
+.rich-overview { width: min(1320px, calc(100% - 56px)); margin: 0 auto; padding: 38px 0 100px; color: var(--fg); }
+.rich-overview-hero { display: grid; grid-template-columns: minmax(0, .95fr) minmax(460px, 1.05fr); gap: clamp(38px, 6vw, 84px); align-items: center; padding: 36px 0 64px; }
+.rich-overview-copy h1 { max-width: 720px; margin: 14px 0 18px; font-size: clamp(45px, 5.8vw, 78px); font-weight: 300; letter-spacing: -.055em; line-height: .98; }
+.rich-overview-copy h1 span { color: var(--accent); }
+.rich-overview-copy > p { max-width: 650px; color: var(--muted); font-size: 15px; font-weight: 300; line-height: 1.7; }
+.rich-overview-meta { display: flex; flex-wrap: wrap; gap: 18px; margin: 27px 0; color: var(--muted); font-size: 11px; }
+.rich-overview-meta span { display: inline-flex; align-items: center; gap: 7px; }
+.rich-cover { position: relative; min-height: 455px; border: 1px solid var(--border); background-color: #e9dec6; background-position: center; background-size: cover; }
+.rich-cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.45), transparent 42%); }
+.rich-cover span { position: absolute; z-index: 1; right: 18px; bottom: 16px; color: #fff; font-size: 8px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.rich-resume-line { display: grid; grid-template-columns: 170px 1fr; gap: 26px; align-items: center; margin-bottom: 62px; padding: 16px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.rich-resume-line > div:first-child { display: flex; align-items: baseline; justify-content: space-between; }
+.rich-resume-line span { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+.rich-resume-line strong { font-size: 16px; font-weight: 500; }
+.rich-resume-line > div:last-child { height: 3px; background: var(--border); }
+.rich-resume-line i { display: block; height: 100%; background: var(--accent); }
+.rich-overview-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, .6fr); gap: clamp(48px, 7vw, 100px); }
+.rich-overview-main > h2 { margin: 10px 0 32px; font-size: 35px; font-weight: 300; letter-spacing: -.03em; }
+.rich-module-list { border-top: 1px solid var(--border); }
+.rich-module-list > article { display: grid; grid-template-columns: 68px 1fr; gap: 20px; padding: 27px 0; border-bottom: 1px solid var(--border); }
+.rich-module-number { color: var(--accent); font-size: 12px; letter-spacing: .12em; }
+.rich-module-list h3 { font-size: 21px; font-weight: 400; }
+.rich-module-list ol { margin-top: 14px; list-style: none; }
+.rich-module-list li { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; padding: 7px 0; }
+.rich-module-list li > span { display: grid; width: 14px; height: 14px; place-items: center; border: 1px solid var(--border); color: var(--accent); }
+.rich-module-list li button { padding: 0; border: 0; background: transparent; color: var(--fg); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.rich-module-list li button:hover { color: var(--accent); }
+.rich-module-list li small { color: var(--muted); font-size: 10px; }
+.rich-overview-side { display: flex; flex-direction: column; }
+.rich-overview-side section { padding: 23px 0; border-top: 1px solid var(--border); }
+.rich-overview-side section > svg { margin-bottom: 14px; color: var(--accent); }
+.rich-overview-side ul { margin-top: 13px; padding-left: 16px; }
+.rich-overview-side li,
+.rich-overview-side p { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+/* Rich reader layout */
+.rich-reader-shell { position: relative; display: grid; grid-template-columns: 252px minmax(520px, 1fr); height: calc(100vh - 64px); min-height: 0; overflow: hidden; background: var(--bg); color: var(--fg); }
+.rich-reader-nav { overflow-y: auto; border-right: 1px solid var(--border); background: var(--bg); }
+.rich-reader-back { display: flex; width: 100%; align-items: center; gap: 7px; padding: 17px 18px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--muted); font: inherit; font-size: 10px; cursor: pointer; }
+.rich-reader-course { padding: 22px 18px; border-bottom: 1px solid var(--border); }
+.rich-reader-course > span { color: var(--accent); font-size: 8px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
+.rich-reader-course > strong { display: block; margin-top: 7px; font-size: 17px; font-weight: 400; line-height: 1.3; }
+.rich-reader-course > div { height: 3px; margin-top: 17px; background: var(--border); }
+.rich-reader-course i { display: block; height: 100%; background: var(--accent); }
+.rich-reader-nav nav section { padding: 17px 10px 4px; }
+.rich-reader-nav nav section > span { display: block; padding: 0 8px 8px; color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.rich-reader-nav nav button { display: grid; width: 100%; grid-template-columns: 16px 1fr auto; gap: 8px; align-items: center; padding: 9px 8px; border: 1px solid transparent; background: transparent; color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
+.rich-reader-nav nav button:hover { color: var(--fg); }
+.rich-reader-nav nav button.active { border-color: var(--accent); background: #fff; color: var(--fg); }
+.rich-reader-nav nav button i { display: grid; width: 13px; height: 13px; place-items: center; border: 1px solid var(--border); color: var(--accent); }
+.rich-reader-nav nav button b { font-size: 11.5px; font-weight: 400; line-height: 1.35; }
+.rich-reader-nav nav button small { font-size: 8px; }
+.rich-lesson { overflow-y: auto; background: #fff; scroll-behavior: smooth; }
+.rich-lesson-head,
+.rich-blocks,
+.rich-sources,
+.rich-lesson-actions { width: min(790px, calc(100% - 64px)); margin-right: auto; margin-left: auto; }
+.rich-lesson-head { padding: 68px 0 26px; }
+.rich-lesson-head > span { color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+.rich-lesson-head h1 { max-width: 730px; margin: 13px 0 15px; font-size: clamp(38px, 5vw, 62px); font-weight: 300; letter-spacing: -.045em; line-height: 1.02; }
+.rich-lesson-head p { max-width: 670px; color: var(--muted); font-size: 14px; line-height: 1.65; }
+.rich-lesson-rule { width: 74px; height: 2px; margin-top: 30px; background: var(--accent); }
+.rich-blocks { padding-bottom: 25px; }
+.rich-block { margin: 34px 0; }
+.rich-block > h2,
+.rich-content-block h2 { margin-bottom: 18px; font-size: 27px; font-weight: 400; letter-spacing: -.025em; line-height: 1.2; }
+.rich-content-block p,
+.rich-tab-panel p { margin-top: 13px; color: #47443d; font-size: 15px; font-weight: 300; line-height: 1.78; }
+.rich-grid-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--border); border-left: 1px solid var(--border); }
+.rich-grid-cards article { min-height: 165px; padding: 20px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.rich-grid-cards article > span { color: var(--accent); font-size: 9px; letter-spacing: .1em; }
+.rich-grid-cards h3,
+.rich-numbered-list h3 { margin-top: 16px; font-size: 16px; font-weight: 500; }
+.rich-grid-cards p,
+.rich-numbered-list p { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.rich-tab-list { display: flex; overflow-x: auto; border-bottom: 1px solid var(--border); }
+.rich-tab-list button { padding: 11px 14px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.rich-tab-list button.active { border-bottom-color: var(--accent); color: var(--fg); }
+.rich-tab-panel { min-height: 130px; padding: 17px 15px 10px; }
+.rich-flip-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; perspective: 1000px; }
+.rich-flip-grid > button { position: relative; height: 190px; padding: 0; border: 0; background: transparent; transform-style: preserve-3d; transition: transform .5s cubic-bezier(.2,.7,.2,1); cursor: pointer; }
+.rich-flip-grid > button.flipped { transform: rotateY(180deg); }
+.rich-flip-front,
+.rich-flip-back { position: absolute; inset: 0; display: flex; padding: 23px; flex-direction: column; align-items: flex-start; justify-content: space-between; border: 1px solid var(--border); background: #faf8f2; backface-visibility: hidden; text-align: left; }
+.rich-flip-back { border-color: var(--accent); background: #fffaf0; transform: rotateY(180deg); }
+.rich-flip-front small,
+.rich-flip-back small { color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.rich-flip-front strong,
+.rich-flip-back strong { font-size: 15px; font-weight: 400; line-height: 1.5; }
+.rich-numbered-list { border-top: 1px solid var(--border); list-style: none; }
+.rich-numbered-list li { display: grid; grid-template-columns: 54px 1fr; gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--border); }
+.rich-numbered-list li > span { color: var(--accent); font-size: 10px; letter-spacing: .1em; }
+.rich-numbered-list h3 { margin-top: 0; }
+.rich-image-block img { display: block; width: 100%; max-height: 560px; object-fit: cover; border: 1px solid var(--border); }
+.rich-image-block figcaption { padding: 10px 2px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.rich-html-block iframe { display: block; width: 100%; border: 1px solid var(--border); background: #faf8f2; }
+.rich-accessibility { display: flex; align-items: flex-start; gap: 7px; margin-top: 9px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.rich-accessibility svg { flex: none; }
+.rich-block-sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.rich-block-sources a { display: inline-flex; align-items: center; gap: 4px; padding: 4px 7px; border: 1px solid var(--border); color: var(--muted); font-size: 8px; text-decoration: none; }
+
+/* Quiz */
+.rich-quiz-block { border: 1px solid var(--border); background: #faf8f2; }
+.rich-quiz-head { padding: 23px 25px 17px; border-bottom: 1px solid var(--border); }
+.rich-quiz-head > span { color: var(--accent); font-size: 8px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.rich-quiz-head h2 { margin-top: 7px; font-size: 24px; font-weight: 400; }
+.rich-quiz-numbers { display: flex; gap: 6px; padding: 14px 25px 0; }
+.rich-quiz-numbers button { display: grid; width: 27px; height: 27px; place-items: center; border: 1px solid var(--border); border-radius: 50%; background: transparent; color: var(--muted); font: inherit; font-size: 9px; cursor: pointer; }
+.rich-quiz-numbers button.active { border-color: var(--fg); color: var(--fg); }
+.rich-quiz-numbers button.answered { border-color: var(--accent); background: var(--accent); color: #fff; }
+.rich-quiz-question { padding: 24px 25px 26px; }
+.rich-quiz-question h3 { font-size: 18px; font-weight: 500; line-height: 1.45; }
+.rich-quiz-question > div { display: grid; gap: 8px; margin-top: 18px; }
+.rich-quiz-question > div > button { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; min-height: 48px; padding: 9px 12px; border: 1px solid var(--border); background: #fff; color: var(--fg); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.rich-quiz-question > div > button > span { display: grid; width: 23px; height: 23px; place-items: center; border: 1px solid var(--border); font-size: 9px; }
+.rich-quiz-question > div > button.correct { border-color: #6b8e5a; background: #f3f8ef; }
+.rich-quiz-question > div > button.wrong { border-color: #a24d3f; background: #fff4f1; }
+.rich-quiz-feedback { padding: 13px 15px; border-left: 2px solid #6b8e5a; background: #f3f8ef; }
+.rich-quiz-feedback.wrong { border-left-color: #a24d3f; background: #fff4f1; }
+.rich-quiz-feedback strong { font-size: 11px; }
+.rich-quiz-feedback p { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.rich-quiz-feedback button { display: inline-flex; align-items: center; gap: 5px; margin-top: 9px; padding: 0; border: 0; background: transparent; color: var(--fg); font: inherit; font-size: 9px; text-transform: uppercase; cursor: pointer; }
+.rich-quiz-block > .rich-block-sources { padding: 0 25px 20px; }
+
+.rich-sources { padding: 24px 0; border-top: 1px solid var(--border); }
+.rich-sources > span { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.rich-sources > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+.rich-sources a { display: inline-flex; align-items: center; gap: 5px; max-width: 300px; padding: 6px 9px; border: 1px solid var(--border); overflow: hidden; color: var(--muted); font-size: 9px; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.rich-lesson-actions { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; padding: 28px 0 80px; border-top: 1px solid var(--border); }
+.rich-lesson-actions > div { display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+.rich-lesson-actions small { color: #8b3d32; font-size: 9px; }
+
+/* Realtime tutor */
+.rich-tutor { display: flex; min-width: 0; flex-direction: column; overflow: hidden; border-left: 1px solid var(--border); background: var(--bg); }
+.rich-tutor-head { padding: 18px 17px; border-bottom: 1px solid var(--border); }
+.rich-tutor-head > span { display: flex; align-items: center; gap: 6px; color: var(--accent); font-size: 8px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.rich-tutor-head > strong { display: block; margin-top: 8px; font-size: 13px; font-weight: 500; line-height: 1.4; }
+.rich-tutor-intro { display: flex; padding: 36px 24px; flex: 1; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.rich-tutor-intro > svg { color: var(--accent); }
+.rich-tutor-intro h3 { margin-top: 14px; font-size: 19px; font-weight: 400; }
+.rich-tutor-intro p { margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.rich-tutor-intro button { display: inline-flex; align-items: center; gap: 7px; margin-top: 20px; padding: 9px 12px; border: 1px solid var(--fg); background: var(--fg); color: var(--bg); font: inherit; font-size: 9px; font-weight: 700; text-transform: uppercase; cursor: pointer; }
+.rich-tutor-status { display: flex; align-items: center; gap: 7px; padding: 8px 15px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 9px; }
+.rich-tutor-status i { width: 7px; height: 7px; border-radius: 50%; background: #6b8e5a; box-shadow: 0 0 0 4px rgba(107,142,90,.12); }
+.rich-tutor-messages { flex: 1; overflow-y: auto; padding: 15px; }
+.rich-tutor-empty { margin: 30px 12px; color: var(--muted); font-size: 11px; line-height: 1.6; text-align: center; }
+.rich-tutor-message { margin-bottom: 12px; }
+.rich-tutor-message > span { color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.rich-tutor-message.user > span { color: var(--accent); }
+.rich-tutor-message p { margin-top: 3px; padding: 9px 10px; background: #fff; color: var(--fg); font-size: 11px; line-height: 1.5; }
+.rich-tutor-message.user p { background: var(--fg); color: var(--bg); }
+.rich-tutor-compose { display: grid; grid-template-columns: 35px 1fr 35px; gap: 6px; padding: 10px; border-top: 1px solid var(--border); }
+.rich-tutor-compose input { min-width: 0; border: 1px solid var(--border); padding: 8px; background: #fff; color: var(--fg); font: inherit; font-size: 10px; outline: none; }
+.rich-tutor-compose button { display: grid; place-items: center; border: 1px solid var(--border); background: transparent; color: var(--fg); cursor: pointer; }
+.rich-tutor-error { padding: 8px 10px; border-top: 1px solid #e7c7c0; background: #fff4f1; color: #8b3d32; font-size: 9px; line-height: 1.4; }
+
+@media (max-width: 1160px) {
+  .rich-reader-shell { grid-template-columns: 220px minmax(520px, 1fr); }
+  .rich-overview-hero { grid-template-columns: 1fr; }
+  .rich-cover { min-height: 390px; }
+}
+@media (max-width: 780px) {
+  .rich-overview { width: calc(100% - 28px); }
+  .rich-overview-hero { padding-top: 28px; }
+  .rich-cover { min-height: 280px; }
+  .rich-overview-grid { grid-template-columns: 1fr; }
+  .rich-reader-shell { position: relative; display: block; height: auto; overflow: visible; }
+  .rich-reader-nav { display: none; }
+  .rich-lesson { overflow: visible; }
+  .rich-lesson-head,
+  .rich-blocks,
+  .rich-sources,
+  .rich-lesson-actions { width: calc(100% - 34px); }
+  .rich-grid-cards,
+  .rich-flip-grid { grid-template-columns: 1fr; }
+  .rich-lesson-actions { align-items: stretch; flex-direction: column-reverse; }
+  .rich-lesson-actions > div { align-items: stretch; }
+  .rich-secondary,
+  .rich-primary { width: 100%; }
+}

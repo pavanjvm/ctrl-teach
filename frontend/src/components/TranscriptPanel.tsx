@@ -65,7 +65,7 @@ export default function TranscriptPanel({ messages, onSendText, userPhotoURL }: 
             <p>Draw on the whiteboard or start talking to your tutor</p>
           </div>
         )}
-        {messages.map((m) => (
+        {messages.filter((m) => m.role === "user" || !m.partial).map((m) => (
           <div key={m.id} className={`activity-item ${m.role} ${m.partial ? "partial" : ""}`}>
             <div className="activity-avatar">
               {m.role === "user" ? (
