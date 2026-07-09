@@ -87,7 +87,9 @@ export default function ClickyExtensionBridge() {
     let refreshTimer = 0;
 
     const configure = async () => {
-      const suspended = pathname === "/board";
+      const suspended = pathname === "/board"
+        || pathname === "/learn"
+        || /^\/learn\/generated-[^/]+\/classroom$/.test(pathname);
       if (!enabled || !user) {
         sessionRef.current = null;
         postBridgeMessage("CTRLTEACH_CLICKY_CONFIG", {

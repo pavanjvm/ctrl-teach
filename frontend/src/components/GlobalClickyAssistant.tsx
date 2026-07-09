@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { useClicky } from "@/lib/clicky";
+import { useLearner } from "@/lib/learner";
 import { WS_URL } from "@/lib/constants";
 import { useAudio } from "@/hooks/useAudio";
 import { useWebSocket } from "@/hooks/useWebSocket";
@@ -54,6 +55,7 @@ type ScreenAnnotation = {
   y1: number;
   x2: number;
   y2: number;
+  provisional?: boolean;
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -573,9 +575,12 @@ async function captureFrameFromStream(
 export default function GlobalClickyAssistant() {
   const { user, getToken } = useAuth();
   const { enabled, setEnabled, extensionAvailable, status, setStatus, trainingOpen } = useClicky();
+  const { activeCourseId, activeLessonId } = useLearner();
   const pathname = usePathname();
   const isLanding = pathname === "/";
-  const isWhiteboardSession = pathname === "/board";
+  const isWhiteboardSession = pathname === "/board"
+    || pathname === "/learn"
+    || /^\/learn\/generated-[^/]+\/classroom$/.test(pathname);
   const globalClickyActive = enabled && !isWhiteboardSession && extensionAvailable === false;
   // Signed-out visitors get the decorative cursor on every route, but none of
   // Clicky's authenticated voice, screen-capture, or action functionality.
@@ -617,6 +622,20 @@ export default function GlobalClickyAssistant() {
   const domIdToElementRef = useRef<Map<string, HTMLElement>>(new Map());
   // Session id reused across reconnects within a single tab session.
   const sessionIdRef = useRef<string>(loadClickySessionId());
+
+  const currentPageContext = useCallback(() => {
+    const generatedMatch = pathname.match(/^\/learn\/(generated-[^/]+)(?:\/([^/]+))?/);
+    const routeLesson = generatedMatch?.[2] && generatedMatch[2] !== "classroom"
+      ? generatedMatch[2]
+      : null;
+    return {
+      route: pathname,
+      url: typeof window !== "undefined" ? window.location.href : pathname,
+      title: typeof document !== "undefined" ? document.title : "Ctrl+Teach",
+      courseId: generatedMatch?.[1] ?? activeCourseId,
+      lessonId: routeLesson ?? activeLessonId,
+    };
+  }, [activeCourseId, activeLessonId, pathname]);
 
   // Push-to-talk gating (Ctrl held = unmute upstream mic)
   const ctrlHeldRef = useRef(false);
@@ -715,7 +734,10 @@ export default function GlobalClickyAssistant() {
   const addScreenAnnotation = useCallback((annotation: ScreenAnnotation) => {
     // Keep the visual explanation intact until Clicky explicitly clears it or
     // the viewport moves and invalidates its coordinates.
-    setScreenAnnotations((current) => [...current, annotation].slice(-32));
+    setScreenAnnotations((current) => [
+      ...current.filter((item) => item.id !== annotation.id),
+      annotation,
+    ].slice(-32));
   }, []);
 
   useEffect(() => clearScreenAnnotations, [clearScreenAnnotations]);
@@ -833,6 +855,7 @@ export default function GlobalClickyAssistant() {
         elements: slim,
         intentText: intentText,
         calibrated: frame.calibrated,
+        page: currentPageContext(),
       });
       console.info(CLICKY_LOG, "screen context pushed", {
         width: frame.width,
@@ -842,8 +865,15 @@ export default function GlobalClickyAssistant() {
         calibrated: frame.calibrated,
       });
     },
-    [wsHook.sendClickyScreen],
+    [currentPageContext, wsHook.sendClickyScreen],
   );
+
+  // Keep one long-lived companion session while its verified page mode changes.
+  // This updates route/course grounding without reconnecting or starting a turn.
+  useEffect(() => {
+    if (!globalClickyActive || !wsHook.realtimeReady) return;
+    wsHook.sendCompanionContext(currentPageContext());
+  }, [currentPageContext, globalClickyActive, wsHook.realtimeReady, wsHook.sendCompanionContext]);
 
   // ── Screen-share lifecycle: persisted across page navigations ────────────
   // The getDisplayMedia capture lives until Clicky is disabled or the user logs
@@ -918,7 +948,7 @@ export default function GlobalClickyAssistant() {
     void (async () => {
       const token = await getToken();
       if (cancelled) return;
-      const url = `${WS_URL}/ws/${user.uid}/${sessionIdRef.current}?agent=clicky${token ? `&token=${encodeURIComponent(token)}` : ""}`;
+      const url = `${WS_URL}/ws/${user.uid}/${sessionIdRef.current}?mode=page${token ? `&token=${encodeURIComponent(token)}` : ""}`;
       await audioHook.initPlayer();
       if (cancelled) return;
       wsHook.connect(url, {
@@ -1251,7 +1281,7 @@ export default function GlobalClickyAssistant() {
       }
 
       addScreenAnnotation({
-        id: draw.id,
+        id: draw.annotationId ?? draw.id,
         shape,
         color,
         label: draw.label ?? "",
@@ -1259,6 +1289,7 @@ export default function GlobalClickyAssistant() {
         y1,
         x2,
         y2,
+        provisional: draw.provisional,
       });
     };
 
@@ -1426,7 +1457,7 @@ export default function GlobalClickyAssistant() {
               style: { filter: `drop-shadow(0 2px 4px ${stroke}55)` },
             };
             return (
-              <g key={annotation.id}>
+              <g key={annotation.id} opacity={annotation.provisional ? 0.42 : 1}>
                 {annotation.shape === "circle" && (
                   <ellipse
                     {...commonStroke}

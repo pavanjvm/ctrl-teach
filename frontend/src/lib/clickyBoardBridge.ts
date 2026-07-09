@@ -11,6 +11,10 @@ export type ClickyDrawCommand = {
   label?: string;
   color?: "blue" | "teal" | "red" | "amber" | "purple";
   id: string;
+  visualSyncId?: string;
+  annotationId?: string;
+  provisional?: boolean;
+  replace?: boolean;
   coordinateSpace?: "screenshot" | "viewport";
 };
 

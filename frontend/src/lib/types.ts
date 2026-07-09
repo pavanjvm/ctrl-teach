@@ -113,6 +113,125 @@ export interface RoleplayScenario {
   critique: string[];
 }
 
+export interface WhiteboardTeachingPlan {
+  objective: string;
+  beats: string[];
+  visualElements: string[];
+}
+
+export interface LabBlueprint {
+  scenario: string;
+  task: string;
+  starterContext: string;
+  deliverable: string;
+  successCriteria: string[];
+}
+
+export interface CertificateCriteria {
+  title: string;
+  requiredScore: number;
+  requiredArtifacts: string[];
+  skills: string[];
+  statement: string;
+}
+
+export interface CourseSource {
+  type: "url" | "syllabus" | "prompt" | "curriculum";
+  label: string;
+  url?: string | null;
+}
+
+export interface CourseCitation {
+  id: string;
+  title: string;
+  url: string;
+}
+
+export interface GeneratedImageAsset {
+  id: string;
+  status: "ready";
+  url: string;
+  alt: string;
+  caption: string;
+  prompt: string;
+  width: number;
+  height: number;
+  contentType: "image/webp" | string;
+  sizeBytes: number;
+}
+
+interface ContentBlockBase {
+  id: string;
+  heading?: string;
+  citationIds?: string[];
+}
+
+export interface TextContentBlock extends ContentBlockBase {
+  type: "content";
+  heading: string;
+  paragraphs: string[];
+}
+
+export interface GridCardsContentBlock extends ContentBlockBase {
+  type: "grid_cards";
+  heading: string;
+  cards: { title: string; body: string }[];
+}
+
+export interface InfoTabsContentBlock extends ContentBlockBase {
+  type: "info_tabs";
+  heading: string;
+  tabs: { label: string; paragraphs: string[] }[];
+}
+
+export interface FlipCardsContentBlock extends ContentBlockBase {
+  type: "flip_cards";
+  heading: string;
+  cards: { front: string; back: string }[];
+}
+
+export interface QuizContentBlock extends ContentBlockBase {
+  type: "quiz";
+  heading: string;
+  questions: QuizQuestion[];
+}
+
+export interface NumberedListContentBlock extends ContentBlockBase {
+  type: "numbered_list";
+  heading: string;
+  items: { title: string; body: string }[];
+}
+
+export interface HtmlContentBlock extends ContentBlockBase {
+  type: "html";
+  heading: string;
+  html: string;
+  accessibilitySummary: string;
+  height: number;
+}
+
+export interface ImageContentBlock extends ContentBlockBase {
+  type: "image";
+  asset: GeneratedImageAsset;
+}
+
+export type CourseContentBlock =
+  | TextContentBlock
+  | GridCardsContentBlock
+  | InfoTabsContentBlock
+  | FlipCardsContentBlock
+  | QuizContentBlock
+  | NumberedListContentBlock
+  | HtmlContentBlock
+  | ImageContentBlock;
+
+export interface RichCourseOverview {
+  audience: string;
+  outcomes: string[];
+  prerequisites: string[];
+  estimatedTime: string;
+}
+
 export interface Lesson {
   id: string;
   title: string;
@@ -122,6 +241,9 @@ export interface Lesson {
   resources?: LearningResource[];
   assessment?: QuizQuestion[];
   roleplay?: RoleplayScenario;
+  whiteboardPlan?: WhiteboardTeachingPlan;
+  lab?: LabBlueprint;
+  contentBlocks?: CourseContentBlock[];
   done?: boolean;
   bookmarked?: boolean;
 }
@@ -147,6 +269,13 @@ export interface Course {
   url?: string;
   sourceCount?: number;
   goal?: string;
+  source?: CourseSource;
+  status?: "draft" | "published" | "ready";
+  format?: "rich";
+  overview?: RichCourseOverview;
+  citations?: CourseCitation[];
+  coverImage?: GeneratedImageAsset;
+  certificateCriteria?: CertificateCriteria;
   modules: Module[];
 }
 

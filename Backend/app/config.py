@@ -26,14 +26,15 @@ class Settings(BaseSettings):
     realtime_model: str = "gpt-realtime-2"
     realtime_voice: str = "ash"
     transcription_model: str = "gpt-4o-mini-transcribe"
-    image_model: str = "gpt-image-1"
+    course_generation_model: str = "gpt-5.4-mini"
+    image_model: str = "gpt-image-2"
     clicky_visual_locator_enabled: bool = True
     clicky_visual_locator_model: str = "gpt-5.5"
     clicky_visual_locator_trial_models: str = "gpt-5.4,gpt-5.5"
     clicky_visual_locator_reasoning_effort: str = "medium"
     clicky_visual_locator_timeout_seconds: float = 20.0
 
-    # ── Firecrawl (web search for /api/discover) ───────────────────────────
+    # ── Firecrawl (discovery + course-page/document extraction) ───────────
     firecrawl_api_key: str = ""
 
     # ── Database (SQLite) ───────────────────────────────────────────────────

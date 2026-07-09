@@ -96,8 +96,18 @@ export default function GoalPathBuilder() {
     if (suggestedGoal) setGoal((current) => current || suggestedGoal);
   }, [suggestedGoal]);
 
+  const publishedCount = useMemo(
+    () => courses.filter((course) => course.status === "published").length,
+    [courses]
+  );
+
   const authoredPaths = useMemo(
-    () => courses.filter((course) => course.platform !== "Ctrl+Teach").slice(0, 3),
+    () => [
+      ...courses.filter((course) => course.status === "published"),
+      ...courses.filter(
+        (course) => course.status !== "published" && course.platform !== "Ctrl+Teach"
+      ),
+    ].slice(0, 3),
     [courses]
   );
 
@@ -315,13 +325,17 @@ export default function GoalPathBuilder() {
       )}
 
       <section className="sec dsc-catalog">
-        <div className="sec-num">03 / Authored demonstrations</div>
+        <div className="sec-num">
+          03 / {publishedCount > 0 ? "Published course inventory" : "Authored demonstrations"}
+        </div>
         <h2 className="sec-title">
-          See every learning mode<span className="stop">.</span>
+          {publishedCount > 0 ? "Ready for learners" : "See every learning mode"}
+          <span className="stop">.</span>
         </h2>
         <p className="lede">
-          These paths remain as polished demonstrations while generated paths
-          become the primary product workflow.
+          {publishedCount > 0
+            ? `${publishedCount} course${publishedCount === 1 ? " has" : "s have"} been transformed from existing IP and published as a complete Ctrl+Teach experience.`
+            : "These paths remain as polished demonstrations while generated paths become the primary product workflow."}
         </p>
         <div className="dsc-grid dsc-grid-3">
           {authoredPaths.map((course, index) => (
@@ -347,7 +361,7 @@ export default function GoalPathBuilder() {
                   className="dsc-card-launch"
                   onClick={() => launch(course)}
                 >
-                  Open demo <ArrowRight size={13} />
+                  {course.status === "published" ? "Start course" : "Open demo"} <ArrowRight size={13} />
                 </button>
               </div>
             </motion.article>
@@ -444,4 +458,3 @@ function PathPreview({
     </motion.article>
   );
 }
-

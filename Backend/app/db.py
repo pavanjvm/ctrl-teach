@@ -3,7 +3,7 @@
 Replaces Firebase / Firestore entirely.  Exposes:
   - engine, SessionLocal, Base
   - ORM models: User, Profile, Session, Progress, Quiz, StudyPlan, Tutor,
-    ScheduledSession
+    ScheduledSession, GeneratedCourse
   - get_session() generator (FastAPI dependency)
   - init_db() called at import time: creates tables + seeds users from
     settings.app_users (bcrypt-hashed).
@@ -204,6 +204,28 @@ class ScheduledSession(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
+
+
+class GeneratedCourse(Base):
+    """Owner-scoped AI course generation state and persisted course payload."""
+
+    __tablename__ = "generated_courses"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(Integer, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
+    source_type: Mapped[str] = mapped_column(String(32), default="url")
+    source_label: Mapped[str] = mapped_column(String(512), default="")
+    source_url: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+    extraction_mode: Mapped[str] = mapped_column(String(64), default="")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────

@@ -216,7 +216,7 @@ function connect() {
   const base = String(config.wsUrl).replace(/\/$/, "");
   const protocol = `ctrlteach-clicky-auth.${config.accessToken}`;
   socket = new WebSocket(
-    `${base}/ws/${encodeURIComponent(config.userId)}/${sessionId}?agent=clicky`,
+    `${base}/ws/${encodeURIComponent(config.userId)}/${sessionId}?mode=page&agent=clicky`,
     protocol,
   );
   socket.onopen = () => void emit({ type: "CLICKY_STATUS", mode: "connecting", text: "Clicky connecting" });
@@ -417,13 +417,24 @@ async function finishPtt(turn) {
     },
   }));
   const sourceMedia = turn.context.media || {};
-  const mediaRect = sourceMedia.rect ? {
-    x: Math.round(sourceMedia.rect.x * scaleX),
-    y: Math.round(sourceMedia.rect.y * scaleY),
-    width: Math.max(1, Math.round(sourceMedia.rect.width * scaleX)),
-    height: Math.max(1, Math.round(sourceMedia.rect.height * scaleY)),
+  const sourceFocusRegion = turn.context.focusRegion || null;
+  const scaleRect = (rect) => rect ? {
+    x: Math.round(rect.x * scaleX),
+    y: Math.round(rect.y * scaleY),
+    width: Math.max(1, Math.round(rect.width * scaleX)),
+    height: Math.max(1, Math.round(rect.height * scaleY)),
   } : null;
-  const media = { ...sourceMedia, rect: mediaRect };
+  const actualMediaRect = scaleRect(sourceMedia.rect);
+  // Keep the legacy `mediaRect` coordinate mapping, but allow its crop to be
+  // any dominant non-DOM surface. This gives Computer Use a high-resolution,
+  // low-clutter image for iframes, canvases, and images as well as videos.
+  const mediaRect = actualMediaRect || scaleRect(sourceFocusRegion?.rect);
+  const media = { ...sourceMedia, rect: actualMediaRect };
+  const focusRegion = mediaRect ? {
+    kind: actualMediaRect ? (sourceMedia.kind || "video") : (sourceFocusRegion?.kind || "region"),
+    label: actualMediaRect ? "visible media" : (sourceFocusRegion?.label || "non-DOM region"),
+    rect: mediaRect,
+  } : null;
   const mediaCrop = mediaRect
     ? await createMediaGridCrop(turn.screenshotDataUrl, mediaRect).catch((error) => {
       console.warn("[Clicky] media crop failed", error);
@@ -452,6 +463,7 @@ async function finishPtt(turn) {
     elements,
     page: turn.context.page || {},
     media,
+    focusRegion,
     mediaCrop,
     tabs: turn.tabs || [],
     intentText: "user just spoke while viewing this active browser tab",

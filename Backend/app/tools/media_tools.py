@@ -1,7 +1,7 @@
 """Image-generation tool for the Magic Whiteboard Tutor.
 
 Migrated from Gemini 3 Pro image generation to the OpenAI Images API
-(``gpt-image-1``).  Returns base64 PNG bytes which are placed on the
+(``gpt-image-2`` by default). Returns base64 image bytes which are placed on the
 student's Excalidraw canvas via ``add_image_to_canvas`` (deferred-image
 bridge pattern, unchanged).
 """

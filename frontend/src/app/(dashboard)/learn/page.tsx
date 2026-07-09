@@ -26,9 +26,10 @@ export default function LearnWorkspace() {
 
   React.useEffect(() => {
     if (!activeCourse) router.replace("/discover");
+    else if (activeCourse.format === "rich") router.replace(`/learn/${activeCourse.id}`);
   }, [activeCourse, router]);
 
-  if (!activeCourse) {
+  if (!activeCourse || activeCourse.format === "rich") {
     return <div className="ls-empty" style={{ display: "grid", placeItems: "center" }}><p style={{ color: "var(--muted)" }}>Pick a course to begin your journey…</p></div>;
   }
   return <Workspace course={activeCourse} activeLessonId={activeLessonId} setActiveLesson={setActiveLesson} completeLesson={completeLesson} addXp={addXp} router={router} />;

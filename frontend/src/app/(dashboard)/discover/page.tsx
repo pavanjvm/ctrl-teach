@@ -1,518 +1,568 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { motion } from "framer-motion";
-import { Search, Star, ArrowRight, Loader2, Clock, AlertCircle, Play } from "lucide-react";
 import axios from "axios";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+  Check,
+  CircleAlert,
+  FileText,
+  Loader2,
+  Sparkles,
+  Upload,
+} from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { useLearner } from "@/lib/learner";
 import { API_URL } from "@/lib/constants";
-import type { Course, ContentPlatform, SkillLevel } from "@/lib/types";
-import GoalPathBuilder from "@/components/GoalPathBuilder";
+import {
+  isGenerationActive,
+  type GeneratedCourseJob,
+  type IntakeQuestion,
+} from "@/lib/generatedCourses";
 
 import "./discover.css";
 
-/* ── Platform gradient map + raw→Course transformer ──────────────────── */
+type SourceMode = "prompt" | "curriculum";
+type Phase = "source" | "interview" | "generating";
+type Answer = string | string[];
 
-const GRADIENTS: Record<string, string> = {
-  "LinkedIn Learning": "linear-gradient(135deg,#0a66c2,#0b3d91)",
-  "Udemy": "linear-gradient(135deg,#a435f0,#1c1d1f)",
-  "YouTube": "linear-gradient(135deg,#ff0000,#cc0000)",
-  "Documentation": "linear-gradient(135deg,#0ea5e9,#1e3a8a)",
-  "Blogs": "linear-gradient(135deg,#f59e0b,#b45309)",
-  "Articles": "linear-gradient(135deg,#10b981,#065f46)",
-};
+const GENERATION_STAGES = [
+  ["researching", "Researching authoritative sources"],
+  ["generating", "Writing your course and interactions"],
+  ["generating_images", "Creating original course artwork"],
+  ["ready", "Preparing your course overview"],
+] as const;
 
-interface DiscoverResult {
-  id?: string;
-  title: string;
-  platform: ContentPlatform;
-  instructor?: string;
-  description: string;
-  difficulty: SkillLevel;
-  duration: string;
-  rating?: number;
-  ratingCount?: number;
-  skills?: string[];
-  url?: string;
-  reason?: string;
+function errorMessage(error: unknown, fallback: string): string {
+  if (axios.isAxiosError(error)) {
+    return String(error.response?.data?.detail || fallback);
+  }
+  return fallback;
 }
-
-function toCourse(raw: DiscoverResult): Course {
-  return {
-    id: raw.id || `d${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    title: raw.title,
-    description: raw.description,
-    thumbnail: GRADIENTS[raw.platform] || "linear-gradient(135deg,#6366f1,#4338ca)",
-    instructor: raw.instructor || "Expert",
-    platform: raw.platform,
-    difficulty: raw.difficulty,
-    duration: raw.duration,
-    skills: raw.skills || [],
-    rating: raw.rating || 4.5,
-    ratingCount: raw.ratingCount || 0,
-    url: raw.url,
-    modules: [
-      {
-        id: "m1",
-        title: "Course overview",
-        lessons: [
-          {
-            id: "l1",
-            title: "Get started",
-            type: "study",
-            duration: "10m",
-            summary: "Start with this resource.",
-          },
-        ],
-      },
-    ],
-  };
-}
-
-/* Extend Course with optional reason carried from discovery results */
-type CourseWithReason = Course & { reason?: string };
-
-const PLATFORMS: ContentPlatform[] = [
-  "LinkedIn Learning",
-  "Udemy",
-  "YouTube",
-  "Documentation",
-  "Blogs",
-  "Articles",
-];
-
-const LEVELS: ("All" | SkillLevel)[] = ["All", "Beginner", "Intermediate", "Advanced"];
-
-const RECENT_KEY = "ctrlteach_recent_courses";
-
-/* ── Component ───────────────────────────────────────────────────────── */
 
 export default function DiscoverPage() {
-  return <GoalPathBuilder />;
-}
-
-function LegacyDiscoverPage() {
   const router = useRouter();
-  const { prefs, courses, addCourse, setActiveCourse, activeCourseId, activeCourse } =
-    useLearner();
   const { getToken } = useAuth();
+  const { addCourse } = useLearner();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const openingCourse = useRef(false);
 
-  // Redirect to onboarding if not onboarded.
-  useEffect(() => {
-    if (prefs && !prefs.onboarded) {
-      router.replace("/onboarding");
-    }
-  }, [prefs, router]);
-
-  const goal = prefs?.preparingFor ?? "";
-
-  const [query, setQuery] = useState(goal);
-  const [selectedPlatforms, setSelectedPlatforms] = useState<ContentPlatform[]>(
-    []
-  );
-  const [level, setLevel] = useState<"All" | SkillLevel>("All");
-
-  const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<Phase>("source");
+  const [sourceMode, setSourceMode] = useState<SourceMode>("prompt");
+  const [prompt, setPrompt] = useState("");
+  const [curriculum, setCurriculum] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [job, setJob] = useState<GeneratedCourseJob | null>(null);
+  const [answers, setAnswers] = useState<Record<string, Answer>>({});
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [results, setResults] = useState<CourseWithReason[]>([]);
 
-  const [searched, setSearched] = useState(false);
+  const questions = job?.questions ?? [];
+  const question = questions[questionIndex] ?? null;
 
-  const [browserFilter, setBrowserFilter] = useState("");
-  const [recentIds, setRecentIds] = useState<string[]>([]);
-
-  // Keep query in sync if prefs arrive later.
-  useEffect(() => {
-    if (goal) setQuery((q) => (q ? q : goal));
-  }, [goal]);
-
-  // Load recently viewed from localStorage.
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(RECENT_KEY);
-      if (raw) setRecentIds(raw.split(",").filter(Boolean));
-    } catch {}
+  const rememberJob = useCallback((id: string | null) => {
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set("generation", id);
+    else url.searchParams.delete("generation");
+    window.history.replaceState({}, "", url);
   }, []);
 
-  function pushRecent(courseId: string) {
-    setRecentIds((prev) => {
-      const next = [courseId, ...prev.filter((id) => id !== courseId)].slice(0, 6);
-      try {
-        localStorage.setItem(RECENT_KEY, next.join(","));
-      } catch {}
-      return next;
-    });
-  }
-
-  function togglePlatform(p: ContentPlatform) {
-    setSelectedPlatforms((prev) =>
-      prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]
+  const loadJob = useCallback(async (id: string) => {
+    const token = await getToken();
+    const response = await axios.get<GeneratedCourseJob>(
+      `${API_URL}/api/generated-courses/${id}`,
+      { headers: token ? { Authorization: token } : undefined }
     );
-  }
+    const next = response.data;
+    setJob(next);
+    if (next.status === "intake") {
+      const storedAnswers = next.answers ?? {};
+      const nextQuestions = next.questions ?? [];
+      const unansweredIndex = nextQuestions.findIndex((item) => {
+        const value = storedAnswers[item.id];
+        return value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
+      });
+      setAnswers(storedAnswers);
+      setQuestionIndex(unansweredIndex >= 0 ? unansweredIndex : Math.max(0, nextQuestions.length - 1));
+      setPhase("interview");
+    }
+    else if (next.status === "ready" && next.course) {
+      // Remove the resume marker before updating global learner state. Updating
+      // that state recreates the context callbacks and can re-run this page's
+      // resume effect while the route transition is still in flight.
+      if (openingCourse.current) return next;
+      openingCourse.current = true;
+      rememberJob(null);
+      addCourse(next.course);
+      router.replace(`/learn/${next.id}`);
+    } else setPhase("generating");
+    return next;
+  }, [addCourse, getToken, rememberJob, router]);
 
-  async function runSearch() {
-    setLoading(true);
-    setSearched(true);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("generation");
+    if (!id) return;
+    setBusy(true);
+    loadJob(id)
+      .catch((loadError) => {
+        if (openingCourse.current) return;
+        setError(errorMessage(loadError, "That generation could not be resumed."));
+      })
+      .finally(() => setBusy(false));
+  }, [loadJob, rememberJob]);
+
+  useEffect(() => {
+    if (!job || !isGenerationActive(job.status)) return;
+    const timer = window.setInterval(() => {
+      loadJob(job.id).catch((pollError) => {
+        setError(errorMessage(pollError, "Could not refresh generation progress."));
+      });
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [job, loadJob]);
+
+  async function beginIntake() {
     setError(null);
-    setResults([]);
+    const form = new FormData();
+    if (sourceMode === "prompt") {
+      if (prompt.trim().length < 8) {
+        setError("Describe what you want to learn in a little more detail.");
+        return;
+      }
+      form.append("prompt", prompt.trim());
+    } else if (file) {
+      form.append("curriculum_file", file);
+    } else {
+      if (curriculum.trim().length < 40) {
+        setError("Paste a more complete curriculum or choose a file.");
+        return;
+      }
+      form.append("curriculum_text", curriculum.trim());
+    }
+
+    setBusy(true);
     try {
       const token = await getToken();
-      const res = await axios.post(
-        `${API_URL}/api/discover`,
-        {
-          query,
-          platforms: selectedPlatforms,
-          level: level === "All" ? undefined : level,
-        },
+      const response = await axios.post<GeneratedCourseJob>(
+        `${API_URL}/api/generated-courses/intake`,
+        form,
         { headers: token ? { Authorization: token } : undefined }
       );
-      const rawList: DiscoverResult[] = res.data?.courses ?? [];
-      const mapped: CourseWithReason[] = rawList.map((r) => {
-        const c = toCourse(r);
-        addCourse(c);
-        return { ...c, reason: r.reason };
-      });
-      setResults(mapped);
-    } catch {
-      setError("Could not reach the discovery service — showing your catalog instead.");
+      setJob(response.data);
+      setAnswers(response.data.answers ?? {});
+      setQuestionIndex(0);
+      setPhase("interview");
+      rememberJob(response.data.id);
+    } catch (requestError) {
+      setError(errorMessage(requestError, "The course interview could not be created."));
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
-  function launch(course: Course) {
-    const firstLessonId = course.modules[0]?.lessons[0]?.id;
-    setActiveCourse(course.id, firstLessonId);
-    pushRecent(course.id);
-    router.push("/learn");
+  function setAnswer(id: string, value: Answer) {
+    setAnswers((current) => ({ ...current, [id]: value }));
   }
 
-  /* Derived: client-side catalog filter */
-  const catalogFiltered = useMemo(() => {
-    const f = browserFilter.trim().toLowerCase();
-    if (!f) return courses;
-    return courses.filter(
-      (c) =>
-        c.title.toLowerCase().includes(f) ||
-        c.description.toLowerCase().includes(f) ||
-        c.skills.some((s) => s.toLowerCase().includes(f))
+  function answerIsValid(item: IntakeQuestion | null): boolean {
+    if (!item) return false;
+    const value = answers[item.id];
+    if (!item.required) return true;
+    if (Array.isArray(value)) return value.length > 0;
+    return Boolean(value?.trim());
+  }
+
+  async function requestGeneration(targetJob: GeneratedCourseJob, targetAnswers: Record<string, Answer>) {
+    const token = await getToken();
+    const response = await axios.post<GeneratedCourseJob>(
+      `${API_URL}/api/generated-courses/${targetJob.id}/generate`,
+      { answers: targetAnswers },
+      { headers: token ? { Authorization: token } : undefined }
     );
-  }, [courses, browserFilter]);
+    setJob(response.data);
+    setPhase("generating");
+  }
 
-  /* Recommended for goal — loose keyword match on seeded catalog, top 3 */
-  const recommended = useMemo(() => {
-    const g = (goal || query).toLowerCase();
-    if (!g) return [];
-    const tokens = g.split(/\s+/).filter((t) => t.length > 3);
-    const scored = courses
-      .map((c) => {
-        const hay = `${c.title} ${c.description} ${c.skills.join(" ")}`.toLowerCase();
-        const score = tokens.reduce((n, t) => (hay.includes(t) ? n + 1 : n), 0);
-        return { c, score };
-      })
-      .filter((s) => s.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 3)
-      .map((s) => s.c);
-    return scored;
-  }, [courses, goal, query]);
+  async function startGeneration() {
+    if (!job) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await requestGeneration(job, answers);
+    } catch (requestError) {
+      setError(errorMessage(requestError, "Course generation could not start."));
+    } finally {
+      setBusy(false);
+    }
+  }
 
-  /* Recently viewed courses */
-  const recentCourses = useMemo(
-    () =>
-      recentIds
-        .map((id) => courses.find((c) => c.id === id))
-        .filter((c): c is Course => Boolean(c))
-        .slice(0, 3),
-    [recentIds, courses]
-  );
+  async function continueInterview() {
+    if (!question || !answerIsValid(question)) return;
+    const nextAnswers = { ...answers, [question.id]: answers[question.id] };
+    setBusy(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      const response = await axios.post<GeneratedCourseJob>(
+        `${API_URL}/api/generated-courses/${job?.id}/intake-answer`,
+        { questionId: question.id, answer: nextAnswers[question.id] },
+        { headers: token ? { Authorization: token } : undefined }
+      );
+      const nextJob = response.data;
+      const persistedAnswers = nextJob.answers ?? nextAnswers;
+      setJob(nextJob);
+      setAnswers(persistedAnswers);
+      if (nextJob.interviewComplete) {
+        await requestGeneration(nextJob, persistedAnswers);
+      } else {
+        setQuestionIndex(Math.max(0, (nextJob.questions?.length ?? 1) - 1));
+      }
+    } catch (requestError) {
+      setError(errorMessage(requestError, "The next interview question could not be prepared."));
+    } finally {
+      setBusy(false);
+    }
+  }
 
-  if (!prefs) return null;
+  function reset() {
+    setPhase("source");
+    setJob(null);
+    setAnswers({});
+    setQuestionIndex(0);
+    setError(null);
+    rememberJob(null);
+  }
 
-  /* ── Render ──────────────────────────────────────────────────────── */
+  if (phase === "generating" && job) {
+    return (
+      <GenerationView
+        job={job}
+        busy={busy}
+        error={error}
+        onRetry={startGeneration}
+        onReset={reset}
+      />
+    );
+  }
 
   return (
-    <div className="page dsc-page">
-      {/* ── 01 — Hero / Search ────────────────────────────────────────── */}
-      <section className="sec dsc-hero" id="discover-hero">
-        <div className="sec-eyebrow">01 / Discover</div>
-        <h1 className="sec-title">
-          Find the right course to learn {goal || "anything"}
-          <span className="stop">.</span>
-        </h1>
-        <p className="lede">
-          Search the web for the best courses across the platforms you trust, or browse
-          the curated catalog below. Every result launches straight into the workspace.
+    <div className="gen-page">
+      <header className="gen-heading">
+        <span className="gen-kicker">01 / Build your course</span>
+        <h1>Tell us what you want to master<span>.</span></h1>
+        <p>
+          Start with a goal or bring your own curriculum. Ctrl+Teach will ask
+          what matters, research the topic, and create the complete course.
         </p>
+      </header>
 
-        <div className="dsc-search-wrap">
-          <div className="dsc-search">
-            <Search size={18} className="dsc-search-icon" />
-            <input
-              className="dsc-search-input"
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") runSearch();
-              }}
-              placeholder="What do you want to learn?"
-              aria-label="Search query"
-            />
-            <button
-              className="dsc-search-btn"
-              onClick={runSearch}
-              disabled={loading}
-              type="button"
-            >
-              {loading ? <Loader2 size={15} className="dsc-spin" /> : <Search size={15} />}
-              {loading ? "Searching" : "Search"}
-            </button>
-          </div>
-
-          <div className="dsc-filters">
-            <div className="dsc-filter-row">
-              <span className="dsc-filter-label">Platforms</span>
-              <div className="dsc-chips">
-                {PLATFORMS.map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    className={`dsc-chip ${selectedPlatforms.includes(p) ? "on" : ""}`}
-                    onClick={() => togglePlatform(p)}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
+      <AnimatePresence mode="wait">
+        {phase === "source" ? (
+          <motion.section
+            key="source"
+            className="gen-card"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+          >
+            <div className="gen-source-tabs" role="tablist" aria-label="Course source">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={sourceMode === "prompt"}
+                className={sourceMode === "prompt" ? "active" : ""}
+                onClick={() => { setSourceMode("prompt"); setError(null); }}
+              >
+                <Sparkles size={16} /> Learning prompt
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={sourceMode === "curriculum"}
+                className={sourceMode === "curriculum" ? "active" : ""}
+                onClick={() => { setSourceMode("curriculum"); setError(null); }}
+              >
+                <FileText size={16} /> My curriculum
+              </button>
             </div>
 
-            <div className="dsc-filter-row">
-              <span className="dsc-filter-label">Level</span>
-              <div className="dsc-chips">
-                {LEVELS.map((l) => (
-                  <button
-                    key={l}
-                    type="button"
-                    className={`dsc-chip ${level === l ? "on" : ""}`}
-                    onClick={() => setLevel(l)}
-                  >
-                    {l}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── 02 — Continue learning ────────────────────────────────────── */}
-      {activeCourse && (
-        <section className="sec sec-tight dsc-resume" id="discover-resume">
-          <div className="sec-num">Continue learning</div>
-          <span className="gold-rule" />
-          <div className="dsc-resume-card">
-            <div
-              className="dsc-resume-thumb"
-              style={{ background: activeCourse.thumbnail }}
-              aria-hidden
-            />
-            <div className="dsc-resume-body">
-              <span className="dsc-resume-eyebrow">Resume · {activeCourse.platform}</span>
-              <h3 className="dsc-resume-title">{activeCourse.title}</h3>
-              <p className="dsc-resume-meta">
-                {activeCourse.instructor} · {activeCourse.difficulty} · {activeCourse.duration}
-              </p>
-              <Link href="/learn" className="cta cta-primary dsc-resume-cta">
-                <Play size={13} fill="currentColor" /> Resume
-              </Link>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ── 03 — Search results ───────────────────────────────────────── */}
-      {searched && (
-        <section className="sec dsc-results" id="discover-results">
-          <div className="sec-num">02 / Results</div>
-          <h2 className="sec-title dsc-results-title">
-            {loading ? "Searching the web" : error ? "Catalog fallback" : "What we found"}
-            <span className="stop">.</span>
-          </h2>
-
-          {loading && (
-            <div className="dsc-loading">
-              <Loader2 size={22} className="dsc-spin" />
-              <span>Drawing from across the platforms…</span>
-            </div>
-          )}
-
-          {error && !loading && (
-            <div className="dsc-note">
-              <AlertCircle size={14} />
-              <span>Could not reach the discovery service — showing your catalog instead.</span>
-            </div>
-          )}
-
-          {!loading && !error && results.length === 0 && (
-            <p className="lede">
-              No results yet. Refine your query, or browse the catalog below.
-            </p>
-          )}
-
-          {!loading && results.length > 0 && (
-            <div className="dsc-grid">
-              {results.map((c, i) => (
-                <CourseCard
-                  key={c.id}
-                  course={c}
-                  reason={c.reason}
-                  index={i}
-                  onLaunch={launch}
+            {sourceMode === "prompt" ? (
+              <div className="gen-source-body">
+                <label htmlFor="learning-prompt">What do you want to learn?</label>
+                <textarea
+                  id="learning-prompt"
+                  rows={7}
+                  value={prompt}
+                  onChange={(event) => setPrompt(event.target.value)}
+                  placeholder="Example: I want to understand distributed systems well enough to design a reliable event-driven architecture for a production SaaS product."
+                  autoFocus
                 />
-              ))}
+                <small>Be specific about the outcome; the interview will resolve everything else.</small>
+              </div>
+            ) : (
+              <div className="gen-source-body gen-curriculum-grid">
+                <div>
+                  <label htmlFor="curriculum-text">Paste curriculum or outline</label>
+                  <textarea
+                    id="curriculum-text"
+                    rows={9}
+                    value={curriculum}
+                    disabled={Boolean(file)}
+                    onChange={(event) => setCurriculum(event.target.value)}
+                    placeholder="Paste a syllabus, table of contents, training outline, or study plan…"
+                  />
+                </div>
+                <div className="gen-or"><span>or</span></div>
+                <button
+                  type="button"
+                  className={`gen-upload ${file ? "has-file" : ""}`}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    accept=".pdf,.docx,.pptx,.txt,.md,.markdown"
+                    onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+                  />
+                  {file ? <Check size={22} /> : <Upload size={22} />}
+                  <strong>{file ? file.name : "Choose curriculum file"}</strong>
+                  <span>{file ? "Ready to analyze" : "PDF, DOCX, PPTX, TXT, or Markdown · max 20 MB"}</span>
+                </button>
+                {file && (
+                  <button className="gen-clear-file" type="button" onClick={() => setFile(null)}>
+                    Use pasted text instead
+                  </button>
+                )}
+              </div>
+            )}
+
+            {error && <div className="gen-error"><CircleAlert size={16} /> {error}</div>}
+
+            <div className="gen-card-footer">
+              <div><span>Next</span><p>A short, adaptive course interview</p></div>
+              <button type="button" className="gen-primary" onClick={beginIntake} disabled={busy}>
+                {busy ? <Loader2 className="gen-spin" size={16} /> : <ArrowRight size={16} />}
+                {busy ? "Analyzing" : "Shape my course"}
+              </button>
             </div>
-          )}
-        </section>
-      )}
-
-      {/* ── 04 — Recommended for your goal ────────────────────────────── */}
-      {recommended.length > 0 && (
-        <section className="sec sec-tight dsc-recommended" id="discover-recommended">
-          <div className="sec-num">03 / Recommended</div>
-          <h2 className="sec-title">
-            Recommended for {goal || "you"}
-            <span className="stop">.</span>
-          </h2>
-          <p className="lede">A few catalog picks that line up with your goal.</p>
-          <div className="dsc-grid dsc-grid-3">
-            {recommended.map((c, i) => (
-              <CourseCard key={c.id} course={c} index={i} onLaunch={launch} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── 05 — Recently viewed ──────────────────────────────────────── */}
-      {recentCourses.length > 0 && (
-        <section className="sec sec-tight dsc-recent" id="discover-recent">
-          <div className="sec-num">04 / Recently viewed</div>
-          <h2 className="sec-title">
-            Where you left off<span className="stop">.</span>
-          </h2>
-          <div className="dsc-grid dsc-grid-3">
-            {recentCourses.map((c, i) => (
-              <CourseCard key={c.id} course={c} index={i} onLaunch={launch} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* ── 06 — Catalog ─────────────────────────────────────────────── */}
-      <section className="sec dsc-catalog" id="discover-catalog">
-        <div className="sec-num">05 / Catalog</div>
-        <h2 className="sec-title">
-          Browse the catalog<span className="stop">.</span>
-        </h2>
-        <p className="lede">
-          A hand-curated set of courses across every learning mode — study, lab,
-          assessment, and roleplay.
-        </p>
-
-        <div className="dsc-catalog-toolbar">
-          <Search size={16} className="dsc-catalog-search-icon" />
-          <input
-            className="dsc-catalog-filter"
-            type="text"
-            value={browserFilter}
-            onChange={(e) => setBrowserFilter(e.target.value)}
-            placeholder="Filter the catalog…"
-            aria-label="Filter the catalog"
+          </motion.section>
+        ) : question && job ? (
+          <InterviewView
+            key="interview"
+            job={job}
+            question={question}
+            index={questionIndex}
+            total={questions.length}
+            answer={answers[question.id]}
+            busy={busy}
+            error={error}
+            onAnswer={(value) => setAnswer(question.id, value)}
+            onBack={() => questionIndex > 0 ? setQuestionIndex((index) => index - 1) : reset()}
+            onContinue={() => { void continueInterview(); }}
+            valid={answerIsValid(question)}
           />
-        </div>
-
-        {catalogFiltered.length === 0 ? (
-          <p className="lede">No catalog courses match “{browserFilter}”.</p>
-        ) : (
-          <div className="dsc-grid">
-            {catalogFiltered.map((c, i) => (
-              <CourseCard key={c.id} course={c} index={i} onLaunch={launch} />
-            ))}
-          </div>
-        )}
-      </section>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }
 
-/* ── Course card ─────────────────────────────────────────────────────── */
-
-function CourseCard({
-  course,
-  reason,
+function InterviewView({
+  job,
+  question,
   index,
-  onLaunch,
+  total,
+  answer,
+  busy,
+  error,
+  valid,
+  onAnswer,
+  onBack,
+  onContinue,
 }: {
-  course: Course;
-  reason?: string;
+  job: GeneratedCourseJob;
+  question: IntakeQuestion;
   index: number;
-  onLaunch: (c: Course) => void;
+  total: number;
+  answer?: Answer;
+  busy: boolean;
+  error: string | null;
+  valid: boolean;
+  onAnswer: (answer: Answer) => void;
+  onBack: () => void;
+  onContinue: () => void;
 }) {
+  const progress = Math.min(90, (index + 1) * 20);
   return (
-    <motion.article
-      className="dsc-card"
+    <motion.section
+      className="gen-card gen-interview"
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: Math.min(index * 0.05, 0.4), ease: "easeOut" }}
-      data-platform={course.platform}
+      exit={{ opacity: 0, y: -8 }}
     >
-      <div className="dsc-card-thumb" style={{ background: course.thumbnail }} aria-hidden>
-        <span className="dsc-card-platform">{course.platform}</span>
-        <span className="dsc-card-level">{course.difficulty}</span>
+      <div className="gen-interview-context">
+        <span>Designing</span>
+        <strong>{job.topic}</strong>
+        <p>{job.summary}</p>
       </div>
-
-      <div className="dsc-card-body">
-        <h3 className="dsc-card-title">{course.title}</h3>
-        <p className="dsc-card-instructor">{course.instructor}</p>
-
-        <p className="dsc-card-desc">{course.description}</p>
-
-        {reason && <p className="dsc-card-reason">{reason}</p>}
-
-        <div className="dsc-card-meta">
-          <span className="dsc-card-duration">
-            <Clock size={12} />
-            {course.duration}
-          </span>
-          <span className="dsc-card-rating">
-            <Star size={12} fill="currentColor" />
-            {course.rating.toFixed(1)}
-            {course.ratingCount > 0 && (
-              <span className="dsc-card-rating-count"> · {course.ratingCount.toLocaleString()}</span>
-            )}
-          </span>
-        </div>
-
-        {course.skills.length > 0 && (
-          <div className="dsc-card-skills">
-            {course.skills.slice(0, 4).map((s) => (
-              <span key={s} className="dsc-card-skill">{s}</span>
-            ))}
-          </div>
-        )}
-
-        <button
-          type="button"
-          className="dsc-card-launch"
-          onClick={() => onLaunch(course)}
+      <div className="gen-question-progress">
+        <span>Question {index + 1} · adapts after every answer</span>
+        <div><i style={{ width: `${progress}%` }} /></div>
+      </div>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={question.id}
+          className="gen-question"
+          initial={{ opacity: 0, x: 18 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -18 }}
         >
-          Launch <ArrowRight size={13} />
+          <h2>{question.prompt}</h2>
+          {question.kind === "short_text" ? (
+            <textarea
+              rows={5}
+              value={typeof answer === "string" ? answer : ""}
+              onChange={(event) => onAnswer(event.target.value)}
+              placeholder="Write your answer…"
+              autoFocus
+            />
+          ) : (
+            <div className="gen-options">
+              {question.options.map((option) => {
+                const selected = Array.isArray(answer) ? answer.includes(option) : answer === option;
+                return (
+                  <button
+                    type="button"
+                    key={option}
+                    className={selected ? "selected" : ""}
+                    onClick={() => {
+                      if (question.kind === "multi_select") {
+                        const current = Array.isArray(answer) ? answer : [];
+                        onAnswer(selected ? current.filter((item) => item !== option) : [...current, option]);
+                      } else onAnswer(option);
+                    }}
+                  >
+                    <span>{selected && <Check size={14} />}</span>
+                    {option}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </motion.div>
+      </AnimatePresence>
+      {error && <div className="gen-error"><CircleAlert size={16} /> {error}</div>}
+      <div className="gen-interview-actions">
+        <button type="button" className="gen-back" onClick={onBack}><ArrowLeft size={15} /> Back</button>
+        <button type="button" className="gen-primary" onClick={onContinue} disabled={!valid || busy}>
+          {busy ? <Loader2 className="gen-spin" size={16} /> : <ArrowRight size={16} />}
+          {busy ? "Adapting" : "Continue"}
         </button>
       </div>
-    </motion.article>
+    </motion.section>
+  );
+}
+
+function GenerationView({
+  job,
+  busy,
+  error,
+  onRetry,
+  onReset,
+}: {
+  job: GeneratedCourseJob;
+  busy: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onReset: () => void;
+}) {
+  const percent = job.progress?.percent ?? 0;
+  const activeStage = job.progress?.stage || job.status;
+  const displayError = error || job.error;
+  const partialModules = (job.partialCourse?.modules || [])
+    .map((module) => ({
+      ...module,
+      lessons: module.lessons.filter((lesson) => (lesson.contentBlocks?.length || 0) > 0),
+    }))
+    .filter((module) => module.lessons.length > 0);
+  const completedLessonCount = partialModules.reduce((total, module) => total + module.lessons.length, 0);
+  const totalLessonCount = job.partialCourse?.modules.reduce((total, module) => total + module.lessons.length, 0) || 0;
+  return (
+    <div className={`gen-generation-page ${completedLessonCount > 0 ? "has-preview" : ""}`}>
+      <motion.div className="gen-orbit" animate={{ rotate: 360 }} transition={{ duration: 8, repeat: Infinity, ease: "linear" }}>
+        <Sparkles size={25} />
+      </motion.div>
+      <span className="gen-kicker">Ctrl+Teach course generation</span>
+      <h1>{job.status === "failed" ? "Generation paused" : "Building your course"}<span>.</span></h1>
+      <p>{job.progress?.message || "Preparing your course"}</p>
+      <strong className="gen-generation-topic">{job.topic}</strong>
+
+      <div className="gen-total-progress"><i style={{ width: `${percent}%` }} /></div>
+      <span className="gen-percent">{percent}%</span>
+
+      <div className="gen-stage-list">
+        {GENERATION_STAGES.map(([stage, label], index) => {
+          const activeIndex = GENERATION_STAGES.findIndex(([value]) => value === activeStage);
+          const complete = activeIndex > index || job.status === "ready";
+          const active = activeIndex === index;
+          return (
+            <div key={stage} className={`${complete ? "complete" : ""} ${active ? "active" : ""}`}>
+              <span>{complete ? <Check size={12} /> : index + 1}</span>
+              <small>{label}</small>
+            </div>
+          );
+        })}
+      </div>
+
+      {completedLessonCount > 0 && (
+        <section className="gen-live-course" aria-live="polite">
+          <header>
+            <div>
+              <span>Available while generation continues</span>
+              <strong>{job.partialCourse?.title || job.topic}</strong>
+            </div>
+            <small>{completedLessonCount} of {totalLessonCount} lessons written</small>
+          </header>
+          <div className="gen-live-modules">
+            {partialModules.map((module) => (
+              <section key={module.id}>
+                <h2>{module.title}</h2>
+                <div>
+                  {module.lessons.map((lesson) => {
+                    const firstContent = lesson.contentBlocks?.find((block) => block.type === "content");
+                    return (
+                      <article key={lesson.id}>
+                        <span>{lesson.duration || "Lesson ready"}</span>
+                        <strong>{lesson.title}</strong>
+                        <p>{firstContent?.paragraphs[0] || lesson.summary}</p>
+                        <small>{lesson.contentBlocks?.length || 0} learning blocks ready</small>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {displayError && <div className="gen-error"><CircleAlert size={16} /> {displayError}</div>}
+      {job.status === "failed" && (
+        <div className="gen-failure-actions">
+          <button type="button" className="gen-back" onClick={onReset}>Start over</button>
+          <button type="button" className="gen-primary" disabled={busy} onClick={onRetry}>
+            {busy ? <Loader2 className="gen-spin" size={16} /> : <Sparkles size={16} />}
+            Retry from last step
+          </button>
+        </div>
+      )}
+      <div className="gen-reassurance"><BookOpen size={14} /> You can safely leave this page and resume from My Library.</div>
+    </div>
   );
 }

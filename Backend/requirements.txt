@@ -24,6 +24,8 @@ websockets==15.0.1
 
 # HTTP & networking
 httpx==0.28.1
+firecrawl-py==4.30.3
+python-multipart>=0.0.20
 
 # Image processing
 pillow==12.1.1

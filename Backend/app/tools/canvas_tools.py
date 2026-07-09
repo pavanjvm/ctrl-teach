@@ -25,7 +25,7 @@ _V_PAD = 14                # vertical padding inside a box (each side)
 
 # Auto-advancing Y cursor so consecutive text writes stack vertically.
 # Reset by clear_canvas.
-_TEXT_SPACING = 20          # vertical gap between consecutive text blocks
+_TEXT_SPACING = 32          # vertical gap between consecutive text blocks
 _cursor_y: float = 60.0    # current vertical cursor position
 _CURSOR_Y_INIT: float = 60.0
 _CURSOR_MARGIN: float = 40.0  # gap between existing content and new tutor text
@@ -36,6 +36,22 @@ _CURSOR_MARGIN: float = 40.0  # gap between existing content and new tutor text
 _FLOW_LABEL_MAX_WIDTH = 320.0
 _MINDMAP_LABEL_MAX_WIDTH = 300.0
 _GENERIC_LABEL_MAX_WIDTH = 560.0
+_BOARD_SAFE_RIGHT = 860.0
+_BOARD_TEXT_MAX_WIDTH = 680.0
+_board_safe_right: float = _BOARD_SAFE_RIGHT
+
+
+def update_board_viewport_width(view_width: Any) -> None:
+    """Keep generated text inside the learner's actual visible board width."""
+    global _board_safe_right
+    try:
+        width = float(view_width)
+    except (TypeError, ValueError):
+        return
+    if width <= 0 or width != width:
+        return
+    # Leave room for Excalidraw chrome and the hand-drawn glyph overhang.
+    _board_safe_right = max(320.0, min(1200.0, width - 36.0))
 
 
 def update_cursor_from_canvas(elements: List[Dict[str, Any]]) -> None:
@@ -419,6 +435,13 @@ def write_text_on_canvas(
     # Normalise ASCII math shorthands → Unicode symbols
     text = _normalize_math_text(text)
 
+    # Keep generated writing inside a predictable board column. The classroom
+    # is narrower than the full browser once the lesson path and transcript are
+    # visible, so unconstrained one-line text otherwise disappears off-screen.
+    x = max(32.0, min(float(x), max(32.0, _board_safe_right - 180.0)))
+    available_width = max(160.0, min(_BOARD_TEXT_MAX_WIDTH, _board_safe_right - x))
+    text = _wrap_text(text, font_size, available_width)
+
     # Auto-position: place below the last text written
     if y < 0:
         y = _cursor_y
@@ -444,6 +467,8 @@ def write_text_on_canvas(
             "x": x,
             "y": line_y,
             "text": line,
+            "width": min(_measure_text_width(line, font_size), available_width),
+            "height": line_height,
             "fontSize": font_size,
             "strokeColor": color,
             "fontFamily": 1,
@@ -467,7 +492,7 @@ def write_text_on_canvas(
 
     # Advance cursor past all lines
     total_h = len(lines) * line_height
-    _cursor_y = y + total_h + _TEXT_SPACING
+    _cursor_y = y + total_h + _TEXT_SPACING + max(0.0, (len(lines) - 1) * 6.0)
 
     logger.info(
         "write_text_on_canvas at (%.0f, %.0f): %d lines, %s",
@@ -501,6 +526,10 @@ def draw_diagram(
         the existing canvas content.
     """
     global _cursor_y
+
+    # Structured diagrams are designed to fit within ~700px from this origin.
+    # Clamp model-supplied origins so their right edge remains on the board.
+    x = max(40.0, min(float(x), 160.0))
 
     items = items or []
     elements: List[Dict[str, Any]] = []
@@ -543,7 +572,7 @@ def draw_diagram(
             "autoResize": False,
         })
         _anim_groups.append((_title_start, len(elements)))
-        content_y = y + title_h + 32
+        content_y = y + title_h + 48
         diagram_bottom = content_y
 
     # Generate elements based on diagram type
@@ -614,7 +643,7 @@ def draw_diagram(
             branches.append((wrapped, text_w, text_h, box_w, box_h))
 
         branch_width = max((entry[3] for entry in branches), default=220.0)
-        branch_gap = 28.0
+        branch_gap = 36.0
         branch_top = content_y
         branch_total_h = sum(entry[4] for entry in branches)
         if len(branches) > 1:
@@ -733,7 +762,7 @@ def draw_diagram(
 
         inner_w = max((row[1] for row in rows), default=300.0)
         inner_w = min(max(inner_w, 300.0), _GENERIC_LABEL_MAX_WIDTH)
-        row_gap = 12.0
+        row_gap = 18.0
         rows_h = sum(row[2] for row in rows)
         if len(rows) > 1:
             rows_h += row_gap * (len(rows) - 1)
@@ -911,13 +940,21 @@ def clear_canvas() -> Dict[str, Any]:
     return _defer_elements("clear_canvas", "clear", [])
 
 
-def point_at_whiteboard(x: float, y: float, label: str = "right here") -> Dict[str, Any]:
+def point_at_whiteboard(
+    x: float,
+    y: float,
+    label: str = "right here",
+    target_area: str = "board",
+) -> Dict[str, Any]:
     """Move Clicky's cursor to a point in the latest whiteboard screenshot.
 
-    Coordinates must be in the pixel coordinate space of the latest whiteboard
-    viewport image sent to the model: top-left origin, x increasing right,
-    y increasing down. The frontend maps those image pixels back to the live
-    whiteboard viewport before animating Clicky.
+    Coordinates are a rough hint in the latest whiteboard screenshot. A
+    dedicated GPT-5.5 visual grounding pass corrects the final pixel before the
+    frontend animates Clicky. Set target_area to ``course_image`` when the
+    target is inside the generated lesson image; Excalidraw then supplies its
+    exact visible bounds and localization runs only inside that crop. Always
+    use a concrete label such as ``Docker image blueprint box`` rather than
+    ``this`` or ``right here``.
     """
     return {
         "status": "ok",
@@ -926,6 +963,7 @@ def point_at_whiteboard(x: float, y: float, label: str = "right here") -> Dict[s
             "x": x,
             "y": y,
             "label": label or "right here",
+            "targetArea": "course_image" if target_area == "course_image" else "board",
         },
     }
 

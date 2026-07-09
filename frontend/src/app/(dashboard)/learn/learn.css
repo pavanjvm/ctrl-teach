@@ -102,6 +102,49 @@
 @keyframes labPulse { 0%{box-shadow:0 0 0 0 rgba(99,102,241,.5)} 70%{box-shadow:0 0 0 14px rgba(99,102,241,0)} 100%{box-shadow:0 0 0 0 rgba(99,102,241,0)} }
 .lab-coach-text { font-size: 12.5px; font-weight: 600; color: #6366f1; letter-spacing: .02em; }
 
+.generated-lab-wrap { background: var(--bg); }
+.generated-lab-grid { display: grid; grid-template-columns: minmax(280px,.8fr) minmax(380px,1.3fr); gap: 18px; min-height: calc(100% - 42px); }
+.generated-lab-brief,
+.generated-lab-workspace { border: 1px solid var(--border); background: #fff; }
+.generated-lab-brief { padding: 24px; overflow-y: auto; }
+.generated-lab-kicker,
+.generated-lab-task span,
+.generated-lab-context span,
+.generated-lab-workspace-head span { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.generated-lab-brief h3 { margin-top: 8px; font-size: 22px; font-weight: 400; line-height: 1.25; }
+.generated-lab-brief > p { margin-top: 9px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.generated-lab-task { display: flex; gap: 11px; margin: 20px 0; padding: 15px; border-left: 2px solid #6366f1; background: #f7f7ff; }
+.generated-lab-task svg { flex: none; color: #6366f1; }
+.generated-lab-task p,
+.generated-lab-context p { margin-top: 4px; color: var(--fg); font-size: 12.5px; line-height: 1.5; }
+.generated-lab-context { margin-bottom: 22px; padding: 14px; border: 1px solid var(--border); background: var(--bg); }
+.generated-lab-criteria { display: flex; margin-top: 10px; flex-direction: column; gap: 7px; }
+.generated-lab-criteria button { display: flex; align-items: flex-start; gap: 9px; padding: 8px 0; border: 0; background: transparent; color: var(--muted); font-size: 12px; line-height: 1.4; text-align: left; }
+.generated-lab-criteria button > span { display: grid; width: 17px; height: 17px; flex: none; place-items: center; border: 1px solid var(--baseline); }
+.generated-lab-criteria button.met { color: var(--fg); }
+.generated-lab-criteria button.met > span { border-color: var(--success); background: var(--success); color: #fff; }
+.generated-lab-workspace { display: flex; min-height: 540px; flex-direction: column; }
+.generated-lab-workspace-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 18px 20px; border-bottom: 1px solid var(--border); }
+.generated-lab-workspace-head > div { display: flex; flex-direction: column; }
+.generated-lab-workspace-head strong { margin-top: 3px; font-size: 13px; font-weight: 500; }
+.generated-lab-workspace-head small { color: var(--muted); font-size: 10px; }
+.generated-lab-workspace > textarea { min-height: 320px; flex: 1; padding: 22px; border: 0; outline: 0; background: #fff; color: var(--fg); font: inherit; font-size: 14px; line-height: 1.7; resize: none; }
+.generated-lab-review { display: flex; gap: 11px; margin: 0 20px 14px; padding: 13px; border: 1px solid var(--border); background: var(--bg); }
+.generated-lab-review.ready { border-color: var(--success); background: var(--success-bg); }
+.generated-lab-review.needs-work { border-color: var(--accent); background: #fff8e9; }
+.generated-lab-review svg { flex: none; color: var(--accent); }
+.generated-lab-review strong { display: block; font-size: 12px; font-weight: 600; }
+.generated-lab-review p { margin-top: 3px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+.generated-lab-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--border); }
+.generated-lab-actions button { display: inline-flex; align-items: center; gap: 7px; padding: 9px 13px; border: 1px solid var(--fg); font-size: 11px; font-weight: 600; }
+.generated-lab-review-btn { background: transparent; color: var(--fg); }
+.generated-lab-complete-btn { background: var(--fg); color: var(--bg); }
+.generated-lab-actions button:disabled { opacity: .4; cursor: not-allowed; }
+
+@media (max-width: 900px) {
+  .generated-lab-grid { grid-template-columns: 1fr; }
+}
+
 .study-wrap { display: grid; grid-template-rows: 1fr; height: 100%; }
 .study-canvas { position: relative; width: 100%; height: 100%; }
 .study-resources { position: absolute; bottom: 16px; right: 16px; z-index: 7; display: flex; gap: 8px; }

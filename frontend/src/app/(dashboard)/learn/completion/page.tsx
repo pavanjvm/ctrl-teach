@@ -95,6 +95,10 @@ export default function CompletionPage() {
   }
 
   const learnerName = user?.displayName || user?.username || "Learner";
+  const certificate = activeCourse.certificateCriteria;
+  const verifiedSkills = certificate?.skills?.length
+    ? certificate.skills
+    : activeCourse.skills;
   const completedOn = new Date().toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -121,15 +125,18 @@ export default function CompletionPage() {
         </p>
         <span className="gold-rule" />
 
-        <div className="cmp-cert" role="figure" aria-label="Certificate of completion">
+        <div className="cmp-cert" role="figure" aria-label={certificate?.title ?? "Certificate of completion"}>
           <div className="cmp-cert-inner">
-            <div className="cmp-cert-eyebrow">Certificate of completion</div>
+            <div className="cmp-cert-eyebrow">{certificate?.title ?? "Certificate of completion"}</div>
             <div className="cmp-cert-name">{learnerName}</div>
             <span className="cmp-cert-hairline" />
             <p className="cmp-cert-line">
               has successfully completed
             </p>
             <p className="cmp-cert-course">{activeCourse.title}</p>
+            {certificate?.statement && (
+              <p className="cmp-cert-proof">{certificate.statement}</p>
+            )}
             <p className="cmp-cert-instructor">
               with {activeCourse.instructor} · {activeCourse.platform}
             </p>
@@ -157,14 +164,14 @@ export default function CompletionPage() {
       </section>
 
       {/* ── 02 — Skills learned ─────────────────────────────────────── */}
-      {activeCourse.skills.length > 0 && (
+      {verifiedSkills.length > 0 && (
         <section className="sec sec-tight cmp-skills">
           <div className="sec-num">02 / Skills learned</div>
           <h2 className="sec-title">
             What you can now do<span className="stop">.</span>
           </h2>
           <div className="cmp-skills-row">
-            {activeCourse.skills.map((s) => (
+            {verifiedSkills.map((s) => (
               <span key={s} className="cmp-skill-chip">{s}</span>
             ))}
           </div>

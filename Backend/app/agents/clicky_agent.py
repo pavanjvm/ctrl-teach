@@ -1,12 +1,11 @@
-"""Clicky Realtime Agent — global voice-interactive tab assistant.
+"""Page-assistance mode for the unified Clicky companion.
 
-Unlike the Tutor (which manages an Excalidraw whiteboard), Clicky is a
-lightweight "always-on" companion that listens, answers in voice, and
-points at things on the user's current tab.
+This mode listens, answers in voice, and points at things on the current tab.
+Teaching modes use the same identity with a narrower instructional tool set.
 
 Architecture:
-- Runs over the SAME WebSocket endpoint as the Tutor (`/ws/{user_id}/{session_id}`)
-  selected via the `?agent=clicky` query parameter.
+- Runs over the shared WebSocket in `mode=page`. The legacy `agent=clicky`
+  selector remains accepted for extension compatibility.
 - Backed by `gpt-realtime-2` (configured at the runner level in main.py).
 - Single tool: `point_at` — the model emits this when pointing would help.
 
@@ -27,6 +26,8 @@ from typing import Optional
 
 from agents import function_tool
 from agents.realtime import RealtimeAgent
+
+from app.agents.companion_identity import COMPANION_AGENT_NAME, with_companion_identity
 
 logger = logging.getLogger(__name__)
 
@@ -79,10 +80,11 @@ element pointing:
   label="...")`. use the screenshot's pixel dimensions as the coordinate \
   space — they're provided with each new screen context message. origin is \
   top-left, x increases rightward, y increases downward.
-- when a second gridded media crop is provided, use that image for anything \
-  inside the video. set `coordinate_space="media"` and read x/y on its labeled \
-  0-1000 grid; the browser maps those local coordinates through the exact \
-  live video rectangle. otherwise use `coordinate_space="viewport"`.
+- when a second gridded non-DOM crop is provided, use that image for anything \
+  inside its video, iframe, canvas, or image. set `coordinate_space="media"` \
+  and read x/y on its labeled 0-1000 grid; the browser maps those local \
+  coordinates through the exact live region rectangle. otherwise use \
+  `coordinate_space="viewport"`.
 - elements near screen edges are valid targets. use the full image dimensions; \
   never pull an accurate edge coordinate inward.
 - pass `label` as a short 1-3 word description ("search bar", "play button", \
@@ -119,8 +121,8 @@ element to another or to indicate direction.
   end_x/end_y is the bottom-right of the marked area. for raw underline, \
   line, or arrow coordinates, they are the exact two endpoints. always pass \
   both endpoints for video/canvas annotations.
-- when the gridded media crop is present, video annotations must set \
-  `coordinate_space="media"` and use its 0-1000 grid for both axes.
+- when the gridded non-DOM crop is present, annotations inside that region \
+  must set `coordinate_space="media"` and use its 0-1000 grid for both axes.
 - use multiple draw calls when a visual explanation needs multiple marks, but \
   keep it clean and minimal. never read ids or coordinates aloud.
 
@@ -262,13 +264,13 @@ def interact_with_page(
 def build_clicky_agent() -> RealtimeAgent:
     """Construct the Clicky RealtimeAgent tree (no sub-agents)."""
     root = RealtimeAgent(
-        name="clicky_agent",
-        instructions=CLICKY_INSTRUCTION,
+        name=COMPANION_AGENT_NAME,
+        instructions=with_companion_identity(CLICKY_INSTRUCTION),
         tools=[point_at, draw_on_screen, clear_screen_drawings, interact_with_page],
         handoffs=[],
     )
     logger.info(
-        "Clicky realtime agent built: root=%s tools=point_at,draw_on_screen,clear_screen_drawings,interact_with_page",
+        "Unified companion built: mode=page root=%s tools=point_at,draw_on_screen,clear_screen_drawings,interact_with_page",
         root.name,
     )
     return root

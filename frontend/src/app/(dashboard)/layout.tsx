@@ -6,7 +6,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { useClicky } from "@/lib/clicky";
 import {
+    ArrowLeft,
+    BookOpen,
     LayoutDashboard,
+    Presentation,
     Users,
     PenTool,
     Trophy,
@@ -114,7 +117,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     };
 
     const navItems = [
-        { name: "Discover", href: "/discover" },
+        { name: "Create", href: "/discover" },
+        { name: "My Library", href: "/library" },
         { name: "Workspace", href: "/learn" },
         { name: "Dashboard", href: "/dashboard" },
         { name: "Calendar", href: "/schedule" },
@@ -126,11 +130,45 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const isWizard = pathname === "/tutors/create";
     const isBoard = pathname === "/board";
     const isLearn = pathname === "/learn" || pathname.startsWith("/learn");
+    const generatedCourseMatch = pathname.match(/^\/learn\/(generated-[^/]+)/);
+    const generatedCourseId = generatedCourseMatch?.[1] ?? null;
+    const isGeneratedCourse = Boolean(generatedCourseId);
+    const isLiveClassroom = Boolean(generatedCourseId && pathname === `/learn/${generatedCourseId}/classroom`);
+    const isGeneratedOverview = Boolean(generatedCourseId && pathname === `/learn/${generatedCourseId}`);
+    const generatedLessonId = !isLiveClassroom ? pathname.split("/")[3] : null;
 
     return (
         <div className={`dash-app ${isBoard ? "board-shell" : ""}`}>
             {/* ── Top Navbar ──────────────────────────────────────────── */}
-            {!isWizard && (
+            {!isWizard && isGeneratedCourse && generatedCourseId && (
+                <header className="course-mode-topbar">
+                    <Link href="/library" className="course-mode-back" aria-label="Return to My Library">
+                        <ArrowLeft size={15} />
+                        <span>My Library</span>
+                    </Link>
+                    <nav className="course-mode-nav" aria-label="Course modes">
+                        <Link
+                            href={`/learn/${generatedCourseId}`}
+                            className={!isLiveClassroom ? "active" : ""}
+                            aria-current={!isLiveClassroom ? "page" : undefined}
+                        >
+                            <BookOpen size={15} /> Course
+                        </Link>
+                        <Link
+                            href={`/learn/${generatedCourseId}/classroom${generatedLessonId ? `?lesson=${encodeURIComponent(generatedLessonId)}` : ""}`}
+                            className={isLiveClassroom ? "active" : ""}
+                            aria-current={isLiveClassroom ? "page" : undefined}
+                        >
+                            <Presentation size={15} /> Live Classroom
+                        </Link>
+                    </nav>
+                    <Link href="/" className="course-mode-brand" aria-label="Ctrl+Teach home">
+                        Ctrl<span>+</span>Teach
+                    </Link>
+                </header>
+            )}
+
+            {!isWizard && !isGeneratedCourse && (
                 <header className="dash-topbar">
                     {/* 1. Logo Zone */}
                     <div className="topbar-logo-zone">
@@ -316,7 +354,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
 
             {/* ── Main Content Area ──────────────────────────────── */}
-            <main className={`dash-main ${pathname === "/tutors" || isWizard || isBoard || isLearn ? "no-padding" : ""} ${isWizard ? "wizard-mode" : ""} ${isBoard || isLearn ? "board-mode" : ""}`}>
+            <main className={`dash-main ${pathname === "/tutors" || isWizard || isBoard || isLearn ? "no-padding" : ""} ${isWizard ? "wizard-mode" : ""} ${isBoard || isLearn ? "board-mode" : ""} ${isGeneratedOverview ? "course-overview-mode" : ""}`}>
                 {children}
             </main>
         </div>

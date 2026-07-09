@@ -1,4 +1,4 @@
-"""Root Tutor Agent — the primary voice-interactive whiteboard tutor.
+"""Teaching mode for the unified Clicky companion.
 
 Migrated to the OpenAI Agents SDK realtime layer.  The model is configured
 at the session level (RealtimeRunner) — per-agent model fields are not
@@ -16,6 +16,7 @@ import logging
 from agents import function_tool
 from agents.realtime import RealtimeAgent, realtime_handoff
 
+from app.agents.companion_identity import COMPANION_AGENT_NAME, with_companion_identity
 from app.agents.planner_agent import build_planner_agent
 from app.agents.progress_agent import build_progress_agent
 from app.agents.clicky_agent import draw_on_screen, clear_screen_drawings
@@ -110,6 +111,11 @@ You can adjust x_min, x_max to zoom in/out. The tool auto-scales the Y axis.
 - Default spoken replies should be concise: 1-3 sentences unless the student
   explicitly asks for a detailed explanation.
 - Ask ONE question at a time. Do not stack multiple options/questions in one turn.
+- Teach in small beats. Finish the current sentence, then pause. Do not begin
+  the next concept or the next question until the learner has answered the
+  current one.
+- After you ask a check question, stop. Do not immediately answer it yourself
+  or continue into the next section.
 - Use the whiteboard only when the student asks to learn/explain/show/draw
   something, or when a visual would clearly help. Do not draw for simple greetings.
 - Match the user's energy and length. Short user message = short tutor response.
@@ -243,7 +249,14 @@ def _wrap(fn) -> "function_tool":  # type: ignore[name-defined]
     return function_tool(fn, strict_mode=False)
 
 
-def build_tutor_agent(custom_instruction: str | None = None) -> RealtimeAgent:
+def build_tutor_agent(
+    custom_instruction: str | None = None,
+    extra_tool_functions: list[object] | None = None,
+    include_image_generation: bool = True,
+    include_handoffs: bool = True,
+    include_progress_tools: bool = True,
+    excluded_canvas_tools: set[str] | None = None,
+) -> RealtimeAgent:
     """Construct the realtime agent tree with handoff sub-agents.
 
     Parameters
@@ -253,36 +266,44 @@ def build_tutor_agent(custom_instruction: str | None = None) -> RealtimeAgent:
         tutor-specific dynamic instruction built by prompt_builder.
     """
 
-    # Sub-agents (real-time handoffs) — calendar dropped in this build
-    planner = build_planner_agent()
-    progress = build_progress_agent()
-
-    media_tools = MediaTools()
-    generate_and_show_image = _wrap(media_tools.generate_and_show_image)
-
-    instruction = (custom_instruction if custom_instruction else TUTOR_INSTRUCTION)
+    instruction = with_companion_identity(
+        custom_instruction if custom_instruction else TUTOR_INSTRUCTION
+    )
     instruction += BOARD_CLICKY_DRAWING_INSTRUCTION
 
     # Direct function tools on the tutor
+    excluded = excluded_canvas_tools or set()
     direct_tools = [
-        *[_wrap(fn) for fn in _canvas_tool_fns],
-        _wrap(get_progress),
-        _wrap(update_progress),
-        _wrap(save_session_notes),
-        _wrap(upload_canvas_snapshot),
-        generate_and_show_image,
+        *[_wrap(fn) for fn in _canvas_tool_fns if fn.__name__ not in excluded],
         draw_on_screen,
         clear_screen_drawings,
     ]
+    if include_progress_tools:
+        direct_tools.extend([
+            _wrap(get_progress),
+            _wrap(update_progress),
+            _wrap(save_session_notes),
+            _wrap(upload_canvas_snapshot),
+        ])
+    if include_image_generation:
+        media_tools = MediaTools()
+        direct_tools.append(_wrap(media_tools.generate_and_show_image))
+    direct_tools.extend(_wrap(fn) for fn in (extra_tool_functions or []))
 
-    root = RealtimeAgent(
-        name="tutor_agent",
-        instructions=instruction,
-        tools=direct_tools,
-        handoffs=[
+    handoffs = []
+    if include_handoffs:
+        planner = build_planner_agent()
+        progress = build_progress_agent()
+        handoffs = [
             realtime_handoff(planner, tool_description_override="Transfer to the study planner agent"),
             realtime_handoff(progress, tool_description_override="Transfer to the progress/quiz agent"),
-        ],
+        ]
+
+    root = RealtimeAgent(
+        name=COMPANION_AGENT_NAME,
+        instructions=instruction,
+        tools=direct_tools,
+        handoffs=handoffs,
     )
 
     logger.info(

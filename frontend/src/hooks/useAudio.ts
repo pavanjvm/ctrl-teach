@@ -7,8 +7,11 @@
 
 import { useCallback, useRef, useState } from "react";
 
+const PLAYBACK_IDLE_GRACE_MS = 90;
+
 export function useAudio() {
   const [isRecording, setIsRecording] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   // Recorder refs
   const recorderCtxRef = useRef<AudioContext | null>(null);
@@ -20,6 +23,34 @@ export function useAudio() {
   const playerCtxRef = useRef<AudioContext | null>(null);
   const playerSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const playerNextStartRef = useRef(0);
+  const playbackActiveRef = useRef(false);
+  const playbackIdleTimerRef = useRef<number | null>(null);
+  const playbackWaitersRef = useRef<Set<() => void>>(new Set());
+
+  const settlePlayback = useCallback(() => {
+    if (playbackIdleTimerRef.current !== null) {
+      window.clearTimeout(playbackIdleTimerRef.current);
+      playbackIdleTimerRef.current = null;
+    }
+    playbackActiveRef.current = false;
+    setIsPlaying(false);
+    const waiters = [...playbackWaitersRef.current];
+    playbackWaitersRef.current.clear();
+    waiters.forEach((resolve) => resolve());
+  }, []);
+
+  const schedulePlaybackIdleCheck = useCallback(() => {
+    if (playbackIdleTimerRef.current !== null) {
+      window.clearTimeout(playbackIdleTimerRef.current);
+    }
+    playbackIdleTimerRef.current = window.setTimeout(() => {
+      playbackIdleTimerRef.current = null;
+      const ctx = playerCtxRef.current;
+      const queueDrained = playerSourcesRef.current.size === 0
+        && (!ctx || playerNextStartRef.current <= ctx.currentTime + 0.01);
+      if (queueDrained) settlePlayback();
+    }, PLAYBACK_IDLE_GRACE_MS);
+  }, [settlePlayback]);
 
   // ── Start Microphone Recording ───────────────────────────────────────────
 
@@ -140,6 +171,15 @@ export function useAudio() {
     const ctx = playerCtxRef.current;
     if (!ctx || pcmArrayBuffer.byteLength < 2) return;
 
+    if (playbackIdleTimerRef.current !== null) {
+      window.clearTimeout(playbackIdleTimerRef.current);
+      playbackIdleTimerRef.current = null;
+    }
+    if (!playbackActiveRef.current) {
+      playbackActiveRef.current = true;
+      setIsPlaying(true);
+    }
+
     // Best effort for browsers that briefly suspend an already-unlocked
     // context when the tab loses focus.
     if (ctx.state === "suspended") void ctx.resume();
@@ -158,6 +198,7 @@ export function useAudio() {
     source.onended = () => {
       playerSourcesRef.current.delete(source);
       source.disconnect();
+      if (playerSourcesRef.current.size === 0) schedulePlaybackIdleCheck();
     };
 
     // Schedule chunks back-to-back. A small initial lead avoids underruns
@@ -165,11 +206,35 @@ export function useAudio() {
     const startAt = Math.max(playerNextStartRef.current, ctx.currentTime + 0.025);
     source.start(startAt);
     playerNextStartRef.current = startAt + audioBuffer.duration;
-  }, []);
+  }, [schedulePlaybackIdleCheck]);
+
+  // Realtime `response.done`/agent-end means the model finished producing
+  // audio, not that the browser finished playing its scheduled PCM buffers.
+  // Consumers await this after turn completion to synchronize captions,
+  // lesson state, and the microphone with what the learner actually heard.
+  const waitForPlaybackComplete = useCallback((): Promise<void> => {
+    const ctx = playerCtxRef.current;
+    const queueDrained = playerSourcesRef.current.size === 0
+      && (!ctx || playerNextStartRef.current <= ctx.currentTime + 0.01);
+    if (queueDrained && playbackIdleTimerRef.current === null) {
+      settlePlayback();
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      playbackWaitersRef.current.add(resolve);
+      if (playerSourcesRef.current.size === 0) schedulePlaybackIdleCheck();
+    });
+  }, [schedulePlaybackIdleCheck, settlePlayback]);
+
+  const isPlaybackActive = useCallback(() => playbackActiveRef.current, []);
 
   // ── Clear audio buffer (on interruption) ─────────────────────────────────
 
   const clearPlayback = useCallback(() => {
+    if (playbackIdleTimerRef.current !== null) {
+      window.clearTimeout(playbackIdleTimerRef.current);
+      playbackIdleTimerRef.current = null;
+    }
     for (const source of playerSourcesRef.current) {
       try {
         source.stop();
@@ -177,7 +242,8 @@ export function useAudio() {
     }
     playerSourcesRef.current.clear();
     playerNextStartRef.current = playerCtxRef.current?.currentTime ?? 0;
-  }, []);
+    settlePlayback();
+  }, [settlePlayback]);
 
   const getPlaybackState = useCallback(
     () => playerCtxRef.current?.state ?? "uninitialized",
@@ -195,11 +261,14 @@ export function useAudio() {
 
   return {
     isRecording,
+    isPlaying,
     startRecording,
     stopRecording,
     initPlayer,
     resumeContexts,
     playAudioChunk,
+    waitForPlaybackComplete,
+    isPlaybackActive,
     clearPlayback,
     getPlaybackState,
     cleanup,

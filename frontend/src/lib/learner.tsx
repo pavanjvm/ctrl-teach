@@ -139,6 +139,35 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
+  // Pull this learner's completed generated courses into their local catalog.
+  // Backend versions win by id so direct URLs and My Library stay in sync.
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await axios.get(`${API_URL}/api/generated-courses`, {
+          headers: { Authorization: token },
+        });
+        const generated: Course[] = Array.isArray(res.data?.courses)
+          ? res.data.courses
+              .filter((job: { status?: string; course?: Course }) => job.status === "ready" && job.course)
+              .map((job: { course: Course }) => job.course)
+          : [];
+        if (!generated.length) return;
+        const ids = new Set(generated.map((course) => course.id));
+        setState((current) => ({
+          ...current,
+          savedCourses: [
+            ...generated,
+            ...current.savedCourses.filter((course) => !ids.has(course.id)),
+          ],
+        }));
+      } catch {}
+    })();
+  }, [user, getToken]);
+
   // Mirror prefs to backend (debounced by ref-key).
   useEffect(() => {
     if (!state.prefs || !user) return;
