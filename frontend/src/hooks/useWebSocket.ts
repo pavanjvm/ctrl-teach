@@ -569,7 +569,7 @@ export function useWebSocket() {
         return;
       }
 
-      // Live Classroom points are grounded by GPT-5.5 against the current
+      // Live Classroom points are grounded by GPT-5.6 Sol against the current
       // viewport (and, when applicable, the exact Excalidraw image crop).
       if (event.type === "classroom_point" && event.response) {
         const resp = event.response;

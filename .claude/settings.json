@@ -16,7 +16,9 @@
       "Bash(npx -y firecrawl-cli@latest scrape \"https://www.tripoto.com/chikmagalur/trips/10-places-in-south-india-on-a-shoe-string-budget-part-1-3-5d9b5089db340\" -o .firecrawl/budget-scrape.md)",
       "Bash(npx -y firecrawl-cli@latest search \"Kolli Hills Tamil Nadu boys trip places to visit activities trekking budget\" --limit 5 -o .firecrawl/kolli-hills.md)",
       "Bash(npx -y firecrawl-cli@latest scrape \"https://www.treebo.com/blog/places-to-visit-in-kolli-hills/\" -o .firecrawl/kolli-details.md)",
-      "Bash(npx -y firecrawl-cli@latest scrape \"https://www.treebo.com/blog/places-to-visit-in-kodaikanal/\" -o .firecrawl/kodaikanal-details.md)"
+      "Bash(npx -y firecrawl-cli@latest scrape \"https://www.treebo.com/blog/places-to-visit-in-kodaikanal/\" -o .firecrawl/kodaikanal-details.md)",
+      "Bash(firecrawl search *)",
+      "Bash(firecrawl scrape *)"
     ]
   }
 }

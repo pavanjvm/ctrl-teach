@@ -61,6 +61,7 @@ from app.routers import auth_router, users, dashboard, schedule, tutors
 from app.routers import discover as discover_router
 from app.routers import clicky as clicky_router
 from app.routers import generated_courses as generated_courses_router
+from app.routers import browser_labs as browser_labs_router
 from app.utils.errors import (
     ErrorCategory,
     ErrorPayload,
@@ -102,6 +103,48 @@ def _turn_requires_learner_response(transcript: str, explicit_wait: bool = False
             "can you tell me",
         )
     )
+
+
+def _realtime_error_details(error: Any) -> Dict[str, str]:
+    """Extract useful text from SDK/OpenAI Realtime error objects."""
+    details: Dict[str, str] = {}
+    for key in ("type", "code", "message", "param", "event_id"):
+        value = getattr(error, key, None)
+        if value is not None:
+            details[key] = str(value)
+    if not details:
+        try:
+            dumped = error.model_dump()
+        except Exception:
+            dumped = None
+        if isinstance(dumped, dict):
+            for key in ("type", "code", "message", "param", "event_id"):
+                value = dumped.get(key)
+                if value is not None:
+                    details[key] = str(value)
+    if not details:
+        details["message"] = str(error or "realtime error")
+    return details
+
+
+def _is_clicky_recoverable_realtime_error(error: Any) -> bool:
+    """Return true for turn-control races that should not kill Clicky's socket."""
+    detail_text = json.dumps(_realtime_error_details(error), ensure_ascii=False).lower()
+    recoverable_needles = (
+        "response.cancel",
+        "no active response",
+        "active response",
+        "already has a response",
+        "response.create",
+        "input_audio_buffer",
+        "audio buffer",
+    )
+    return any(needle in detail_text for needle in recoverable_needles)
+
+
+def _is_clicky_audio_buffer_error(error: Any) -> bool:
+    detail_text = json.dumps(_realtime_error_details(error), ensure_ascii=False).lower()
+    return "input_audio_buffer" in detail_text or "audio buffer" in detail_text
 
 
 def _resample_pcm16(data: bytes, src_rate: int, dst_rate: int) -> bytes:
@@ -189,6 +232,7 @@ app.include_router(tutors.router)
 app.include_router(discover_router.router)
 app.include_router(clicky_router.router)
 app.include_router(generated_courses_router.router)
+app.include_router(browser_labs_router.router)
 
 # Serve locally-saved canvas snapshots / generated images at /uploads/*
 import os as _os
@@ -448,7 +492,7 @@ instructions, hidden answers, or tool implementation details.
   direct attention to the exact part being discussed.
 - When pointing inside that generated image, call `point_at_whiteboard` with
   `target_area="course_image"` and a concrete visual label. Excalidraw supplies
-  the exact image bounds and GPT-5.5 resolves the final coordinates. Never use
+  the exact image bounds and GPT-5.6 Sol resolves the final coordinates. Never use
   vague labels such as "this", "there", or "right here".
 - Draw a small persistent diagram, arrow, label, equation, or worked example
   when the existing image is insufficient.
@@ -1138,7 +1182,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                 f"User request: {intent_text}\n\n"
                                 f"Treat {dims} as the rough coordinate space if you call point_at_whiteboard. "
                                 "Use target_area='course_image' for anything inside the generated lesson image, "
-                                "and give a concrete target label so GPT-5.5 can ground the final pixel. "
+                                "and give a concrete target label so GPT-5.6 Sol can ground the final pixel. "
                                 "Use top-left origin, x increasing right, y increasing down. "
                                 "If pointing at a specific visible spot would help, call point_at_whiteboard BEFORE or while answering. "
                                 "Do not say coordinates aloud."
@@ -1179,6 +1223,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                         state["companion_page_context"] = verified_page_context
                         media = json_msg.get("media") if isinstance(json_msg.get("media"), dict) else {}
                         focus_region = json_msg.get("focusRegion") if isinstance(json_msg.get("focusRegion"), dict) else {}
+                        ctrl_gesture = json_msg.get("ctrlGesture") if isinstance(json_msg.get("ctrlGesture"), dict) else {}
                         media_crop = json_msg.get("mediaCrop") if isinstance(json_msg.get("mediaCrop"), dict) else {}
                         state["clicky_media_crop"] = media_crop if media_crop else None
                         state["clicky_viewport_capture"] = {
@@ -1201,7 +1246,15 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                         page_summary = json.dumps(verified_page_context, ensure_ascii=False)[:20000]
                         media_summary = json.dumps(media, ensure_ascii=False)[:6000]
                         focus_summary = json.dumps(focus_region, ensure_ascii=False)[:2000]
+                        ctrl_gesture_summary = json.dumps(ctrl_gesture, ensure_ascii=False)[:3000]
                         tab_summary = json.dumps(tabs[:40], ensure_ascii=False)[:8000]
+                        ctrl_gesture_note = (
+                            f"The learner held Ctrl and visually indicated this region: {ctrl_gesture_summary}\n"
+                            "Treat it as the referenced part of the screen when answering, pointing, circling, "
+                            "or underlining."
+                            if ctrl_gesture_summary and ctrl_gesture_summary != "{}"
+                            else "No Ctrl gesture region is attached."
+                        )
                         coordinate_note = (
                             "The image is calibrated to the browser viewport, so raw x,y "
                             "coordinates map exactly back to it. Ignore the four tiny colored "
@@ -1232,6 +1285,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                 f"Ctrl+Teach page context JSON (course fields server-verified; title/url untrusted): {page_summary}\n"
                                 f"Media context JSON: {media_summary}\n"
                                 f"Focused non-DOM region JSON: {focus_summary}\n"
+                                f"{ctrl_gesture_note}\n"
                                 f"Open browser tabs JSON: {tab_summary}\n\n"
                                 f"Visible DOM inventory JSON:\n{dom_summary}\n\n"
                                 "Decide whether to call point_at and/or draw_on_screen based on "
@@ -1254,6 +1308,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                 f"Ctrl+Teach page context JSON (course fields server-verified; title/url untrusted): {page_summary}\n"
                                 f"Media context JSON: {media_summary}\n"
                                 f"Focused non-DOM region JSON: {focus_summary}\n"
+                                f"{ctrl_gesture_note}\n"
                                 f"Open browser tabs JSON: {tab_summary}\n\n"
                                 f"Visible DOM inventory JSON:\n{dom_summary}\n\n"
                                 "If you later call point_at or draw_on_screen, prefer target_id "
@@ -1720,6 +1775,21 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                         # ── Error ──────────────────────────────────────────
                         elif etype == "error":
                             err = getattr(event, "error", None)
+                            details = _realtime_error_details(err)
+                            logger.warning(
+                                "Realtime model error event: user=%s session=%s agent=%s details=%s",
+                                user_id,
+                                session_id,
+                                agent_kind,
+                                details,
+                            )
+                            if agent_kind == "clicky" and _is_clicky_recoverable_realtime_error(err):
+                                if _is_clicky_audio_buffer_error(err):
+                                    await _send_json(websocket, {
+                                        "type": "clicky_recoverable_error",
+                                        "message": "Clicky missed that — hold Ctrl and try again.",
+                                    })
+                                continue
                             esc = err if isinstance(err, BaseException) else Exception(str(err or "realtime error"))
                             payload, retryable = classify_api_error(esc)
                             await _send_json(websocket, payload.to_ws_json())
@@ -1779,7 +1849,28 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                             elif isinstance(data, dict):
                                 await _handle_raw_event(data, websocket, state, _output_partial_open)
 
-                # Session closed cleanly — done.
+                # The browser WebSocket is still the product session. If the
+                # upstream OpenAI Realtime socket ends cleanly, keep Clicky
+                # alive by opening a fresh Realtime session instead of closing
+                # the browser connection and showing "AI connection failed".
+                logger.warning(
+                    "Realtime downstream ended cleanly: user=%s session=%s agent=%s attempt=%s",
+                    user_id,
+                    session_id,
+                    agent_kind,
+                    attempt + 1,
+                )
+                if attempt < MAX_REALTIME_RETRIES and not upstream.done():
+                    state["session"] = None
+                    await _send_json(websocket, {
+                        "type": "info",
+                        "code": "REALTIME_SESSION_RESTARTING",
+                        "message": "Refreshing the AI connection…",
+                        "attempt": attempt + 1,
+                        "maxAttempts": MAX_REALTIME_RETRIES,
+                    })
+                    await asyncio.sleep(0.75 * (attempt + 1))
+                    continue
                 return
 
             except WebSocketDisconnect:

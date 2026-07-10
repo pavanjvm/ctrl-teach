@@ -127,6 +127,41 @@ export interface LabBlueprint {
   successCriteria: string[];
 }
 
+export interface BrowserLabAssertion {
+  id: string;
+  kind:
+    | "visit_host"
+    | "url_contains"
+    | "click_text"
+    | "input_changed"
+    | "page_text"
+    | "interaction_observed";
+  value?: string;
+  description: string;
+}
+
+export interface BrowserLabStep {
+  id: string;
+  instruction: string;
+  expectedEvidence: string;
+  assertionIds?: string[];
+}
+
+export interface BrowserLabBlueprint {
+  platformId: string;
+  platform?: string;
+  launchUrl: string;
+  allowedHosts: string[];
+  objective: string;
+  prerequisites?: string[];
+  steps: BrowserLabStep[];
+  successCriteria: string[];
+  cleanupSteps: BrowserLabStep[];
+  taskAssertions: BrowserLabAssertion[];
+  cleanupAssertions: BrowserLabAssertion[];
+  estimatedDuration?: string;
+}
+
 export interface CertificateCriteria {
   title: string;
   requiredScore: number;
@@ -243,6 +278,8 @@ export interface Lesson {
   roleplay?: RoleplayScenario;
   whiteboardPlan?: WhiteboardTeachingPlan;
   lab?: LabBlueprint;
+  browserLab?: BrowserLabBlueprint;
+  sourceLessonId?: string;
   contentBlocks?: CourseContentBlock[];
   done?: boolean;
   bookmarked?: boolean;

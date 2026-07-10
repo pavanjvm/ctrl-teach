@@ -25,11 +25,12 @@
   const SPRING_C = 2 * SPRING_DAMPING * SPRING_OMEGA;
   const SENSITIVE_TEXT = /\b(buy|purchase|pay|checkout|place order|delete|remove|erase|send|submit|publish|post|sign out|log out|change password|reset password|upload|download|allow|grant|confirm booking|book now)\b/i;
 
-  let extensionState = { enabled: false, suspended: false, active: false, cursor: { x: 80, y: 120 } };
+  let extensionState = { enabled: false, suspended: false, active: false, labActive: false, activeLabId: "", cursor: { x: 80, y: 120 } };
   let mode = "idle";
   let pttHeld = false;
   let currentContextId = "";
   let currentTargets = new Map();
+  let lastCollectedElements = [];
   let mouse = { x: 45, y: 95 };
   let position = { x: 80, y: 120 };
   let velocity = { x: 0, y: 0 };
@@ -42,6 +43,12 @@
   // bubble lifecycle: ~3s hold + ~0.5s fade + return flight).
   let drawingsClearTimer = 0;
   const DRAWINGS_AUTO_CLEAR_MS = 6000;
+  let ctrlTrailPoints = [];
+  let ctrlGesturePoints = [];
+  let ctrlTrailGroup = null;
+  let ctrlTrailFrame = 0;
+  let ctrlGesture = null;
+  let lastLabInputAt = 0;
   let lastFrame = 0;
   let cursorReportAt = 0;
   let statusText = "";
@@ -93,6 +100,7 @@
       .stroke.dashed { stroke-dasharray: 8 6; }
       .stroke.dotted { stroke-dasharray: 2 5; stroke-linecap: round; }
       .annotation.provisional { opacity: .42; }
+      .ctrl-trail-segment { stroke: #14b8a6; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 6px rgba(20,184,166,.5)); }
       .draw-text { font: 600 13px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 4px; stroke-linejoin: round; animation: draw .35s ease forwards; }
       @keyframes spin { to { transform: rotate(360deg); } }
       @keyframes wave { from { transform: scaleY(.58); opacity: .72; } to { transform: scaleY(1.18); opacity: 1; } }
@@ -312,6 +320,42 @@
     return element.matches("button,a[href],input:not([type='password']):not([type='file']),textarea,select,[role='button'],[role='link'],[role='tab'],[role='menuitem'],[role='switch'],[role='checkbox']");
   }
 
+  function selectorHint(element) {
+    if (!(element instanceof HTMLElement)) return "";
+    if (element.id) return `#${element.id.slice(0, 80)}`;
+    const aria = element.getAttribute("aria-label") || element.getAttribute("name") || element.getAttribute("placeholder");
+    if (aria) return `${element.tagName.toLowerCase()}[${aria.replace(/\s+/g, " ").trim().slice(0, 80)}]`;
+    return element.tagName.toLowerCase();
+  }
+
+  function labElementPayload(element) {
+    if (!(element instanceof HTMLElement) || element === host || host.contains(element)) return null;
+    const rect = element.getBoundingClientRect();
+    return {
+      url: location.href,
+      title: document.title,
+      tagName: element.tagName.toLowerCase(),
+      role: elementRole(element),
+      text: elementLabel(element),
+      label: element.getAttribute("aria-label") || element.getAttribute("title") || element.getAttribute("placeholder") || "",
+      selector: selectorHint(element),
+      actionable: isActionable(element),
+      rect: {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+      },
+    };
+  }
+
+  function emitLabInteraction(kind, element) {
+    if (!extensionState.labActive) return;
+    const payload = labElementPayload(element);
+    if (!payload) return;
+    void chrome.runtime.sendMessage({ type: "CLICKY_LAB_INTERACTION", kind, payload });
+  }
+
   function collectDomTargets(contextId) {
     const selector = [
       "button", "a[href]", "input", "textarea", "select", "[role='button']", "[role='link']",
@@ -359,6 +403,7 @@
     }
     currentTargets = targetMap;
     currentContextId = contextId;
+    lastCollectedElements = elements;
     return elements;
   }
 
@@ -455,6 +500,7 @@
     const media = visibleMedia();
     if (media && !media.paused) media.pause();
     clearDrawings();
+    startCtrlTrail(mouse);
     transcriptText = "";
     setBubble("");
   }
@@ -473,6 +519,7 @@
         },
         media: mediaContext(),
         focusRegion: nonDomRegionContext(),
+        ctrlGesture,
         elements,
       },
     };
@@ -588,6 +635,177 @@
     clearTimeout(drawingsClearTimer);
     drawingsClearTimer = 0;
     drawings.replaceChildren();
+    ctrlTrailGroup = null;
+    ctrlTrailPoints = [];
+  }
+
+  function clippedRect(rect) {
+    return {
+      x: Math.max(0, rect.left),
+      y: Math.max(0, rect.top),
+      width: Math.max(1, Math.min(innerWidth, rect.right) - Math.max(0, rect.left)),
+      height: Math.max(1, Math.min(innerHeight, rect.bottom) - Math.max(0, rect.top)),
+    };
+  }
+
+  function nearestElementSummary(point) {
+    let element = document.elementFromPoint(point.x, point.y);
+    if (element && host.contains(element)) element = null;
+    if (element instanceof HTMLElement && element !== host) {
+      const rect = element.getBoundingClientRect();
+      if (rect.width >= 2 && rect.height >= 2) {
+        return {
+          role: elementRole(element),
+          text: elementLabel(element),
+          actionable: isActionable(element),
+          rect: clippedRect(rect),
+        };
+      }
+    }
+    const nearest = lastCollectedElements
+      .map((item) => {
+        const rect = item.rect || {};
+        const cx = Number(rect.x || 0) + Number(rect.width || 0) / 2;
+        const cy = Number(rect.y || 0) + Number(rect.height || 0) / 2;
+        return { item, distance: Math.hypot(cx - point.x, cy - point.y) };
+      })
+      .sort((a, b) => a.distance - b.distance)[0];
+    return nearest?.distance < 90 ? nearest.item : null;
+  }
+
+  const CTRL_TRAIL_LIFETIME_MS = 320;
+  const CTRL_TRAIL_MAX_POINTS = 72;
+  const CTRL_GESTURE_MAX_POINTS = 220;
+
+  function ensureCtrlTrailGroup() {
+    if (ctrlTrailGroup) return ctrlTrailGroup;
+    ctrlTrailGroup = svgElement("g", { "data-clicky-ctrl-trail": "true" });
+    drawings.appendChild(ctrlTrailGroup);
+    return ctrlTrailGroup;
+  }
+
+  function scheduleCtrlTrailRender() {
+    if (ctrlTrailFrame) return;
+    ctrlTrailFrame = requestAnimationFrame(() => {
+      ctrlTrailFrame = 0;
+      renderCtrlTrail();
+      if (pttHeld || ctrlTrailPoints.length) scheduleCtrlTrailRender();
+    });
+  }
+
+  function renderCtrlTrail() {
+    const now = performance.now();
+    ctrlTrailPoints = ctrlTrailPoints.filter((point) => now - point.t <= CTRL_TRAIL_LIFETIME_MS);
+    if (!ctrlTrailPoints.length) {
+      if (ctrlTrailGroup) ctrlTrailGroup.remove();
+      ctrlTrailGroup = null;
+      return;
+    }
+
+    const group = ensureCtrlTrailGroup();
+    group.replaceChildren();
+    for (let index = 1; index < ctrlTrailPoints.length; index += 1) {
+      const previous = ctrlTrailPoints[index - 1];
+      const point = ctrlTrailPoints[index];
+      const age = Math.max(0, now - previous.t);
+      const opacity = Math.max(0, Math.min(0.78, 1 - age / CTRL_TRAIL_LIFETIME_MS));
+      if (opacity <= 0.03) continue;
+      group.appendChild(svgElement("line", {
+        class: "ctrl-trail-segment",
+        x1: previous.x.toFixed(1),
+        y1: previous.y.toFixed(1),
+        x2: point.x.toFixed(1),
+        y2: point.y.toFixed(1),
+        opacity: opacity.toFixed(3),
+      }));
+    }
+  }
+
+  function startCtrlTrail(point) {
+    const stamped = { x: point.x, y: point.y, t: performance.now() };
+    ctrlTrailPoints = [stamped];
+    ctrlGesturePoints = [stamped];
+    ctrlGesture = null;
+    ensureCtrlTrailGroup();
+    renderCtrlTrail();
+    scheduleCtrlTrailRender();
+  }
+
+  function recordCtrlTrailPoint(point) {
+    if (!pttHeld) return;
+    const previous = ctrlTrailPoints[ctrlTrailPoints.length - 1];
+    if (previous && Math.hypot(previous.x - point.x, previous.y - point.y) < 4) return;
+    const stamped = { x: point.x, y: point.y, t: performance.now() };
+    ctrlTrailPoints.push(stamped);
+    ctrlGesturePoints.push(stamped);
+    if (ctrlTrailPoints.length > CTRL_TRAIL_MAX_POINTS) ctrlTrailPoints.shift();
+    if (ctrlGesturePoints.length > CTRL_GESTURE_MAX_POINTS) ctrlGesturePoints.shift();
+    renderCtrlTrail();
+    scheduleCtrlTrailRender();
+  }
+
+  function finishCtrlTrail() {
+    const points = ctrlGesturePoints.slice();
+    scheduleCtrlTrailRender();
+    if (!points.length) return null;
+    const xs = points.map((point) => point.x);
+    const ys = points.map((point) => point.y);
+    const left = Math.min(...xs);
+    const right = Math.max(...xs);
+    const top = Math.min(...ys);
+    const bottom = Math.max(...ys);
+    const width = right - left;
+    const height = bottom - top;
+    const pathLength = points.slice(1).reduce((total, point, index) => {
+      const previous = points[index];
+      return total + Math.hypot(point.x - previous.x, point.y - previous.y);
+    }, 0);
+    const start = points[0];
+    const end = points[points.length - 1];
+    const startEnd = Math.hypot(end.x - start.x, end.y - start.y);
+    let gesture = {
+      type: "point",
+      x: end.x,
+      y: end.y,
+      label: "pointed region",
+      nearestElement: nearestElementSummary(end),
+    };
+    if (pathLength >= 30 && width >= Math.max(60, height * 2.4)) {
+      const leftPoint = start.x <= end.x ? start : end;
+      const rightPoint = start.x <= end.x ? end : start;
+      gesture = {
+        type: "underline",
+        x: leftPoint.x,
+        y: leftPoint.y,
+        end_x: rightPoint.x,
+        end_y: rightPoint.y,
+        label: "underlined region",
+        nearestElement: nearestElementSummary({ x: (left + right) / 2, y: (top + bottom) / 2 }),
+      };
+    } else if (pathLength >= 80 && width >= 28 && height >= 28 && startEnd <= Math.max(36, Math.min(width, height) * .55)) {
+      gesture = {
+        type: "circle",
+        x: left,
+        y: top,
+        end_x: right,
+        end_y: bottom,
+        label: "circled region",
+        nearestElement: nearestElementSummary({ x: (left + right) / 2, y: (top + bottom) / 2 }),
+      };
+    } else if (width >= 28 || height >= 28) {
+      gesture = {
+        type: "region",
+        x: left,
+        y: top,
+        end_x: right,
+        end_y: bottom,
+        label: "selected region",
+        nearestElement: nearestElementSummary({ x: (left + right) / 2, y: (top + bottom) / 2 }),
+      };
+    }
+    ctrlGesture = gesture;
+    ctrlGesturePoints = [];
+    return gesture;
   }
 
   // Schedule all on-screen drawings to fade and clear after a few seconds,
@@ -759,15 +977,31 @@
 
   window.addEventListener("mousemove", (event) => {
     mouse = { x: event.clientX, y: event.clientY };
+    recordCtrlTrailPoint(mouse);
     if (visible() && performance.now() - cursorReportAt > 120) {
       cursorReportAt = performance.now();
       void chrome.runtime.sendMessage({ type: "CLICKY_CURSOR_POSITION", x: mouse.x, y: mouse.y });
     }
   }, true);
 
+  window.addEventListener("click", (event) => {
+    emitLabInteraction("click", event.target);
+  }, true);
+
+  window.addEventListener("input", (event) => {
+    if (performance.now() - lastLabInputAt < 700) return;
+    lastLabInputAt = performance.now();
+    emitLabInteraction("input", event.target);
+  }, true);
+
+  window.addEventListener("change", (event) => {
+    emitLabInteraction("change", event.target);
+  }, true);
+
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Control" || event.metaKey || event.altKey || event.repeat || !visible() || pttHeld) return;
     pttHeld = true;
+    startCtrlTrail(mouse);
     setMode("listening");
     setStatus("Clicky listening — release Ctrl");
     void chrome.runtime.sendMessage({ type: "CLICKY_PTT_START" });
@@ -776,6 +1010,7 @@
   window.addEventListener("keyup", (event) => {
     if (event.key !== "Control" || !pttHeld) return;
     pttHeld = false;
+    finishCtrlTrail();
     setMode("thinking");
     setStatus("Clicky thinking");
     void chrome.runtime.sendMessage({ type: "CLICKY_PTT_STOP" });
@@ -784,6 +1019,7 @@
   window.addEventListener("blur", () => {
     if (!pttHeld) return;
     pttHeld = false;
+    finishCtrlTrail();
     void chrome.runtime.sendMessage({ type: "CLICKY_PTT_STOP" });
   });
 
@@ -805,6 +1041,29 @@
           renderVisibility();
         }
         window.postMessage({ type: "CTRLTEACH_CLICKY_CONFIG_ACK", requestId: event.data.requestId, response }, event.origin);
+      });
+    } else if (event.data?.type === "CTRLTEACH_BROWSER_LAB_START") {
+      void chrome.runtime.sendMessage({
+        type: "CTRLTEACH_BROWSER_LAB_START",
+        attemptId: event.data.attemptId,
+        launchUrl: event.data.launchUrl,
+        lab: event.data.lab,
+      }).then((response) => {
+        window.postMessage({ type: "CTRLTEACH_BROWSER_LAB_ACK", requestId: event.data.requestId, response }, event.origin);
+      });
+    } else if (event.data?.type === "CTRLTEACH_BROWSER_LAB_STOP") {
+      void chrome.runtime.sendMessage({
+        type: "CTRLTEACH_BROWSER_LAB_STOP",
+        attemptId: event.data.attemptId,
+      }).then((response) => {
+        window.postMessage({ type: "CTRLTEACH_BROWSER_LAB_ACK", requestId: event.data.requestId, response }, event.origin);
+      });
+    } else if (event.data?.type === "CTRLTEACH_BROWSER_LAB_CLEANUP_READY") {
+      void chrome.runtime.sendMessage({
+        type: "CTRLTEACH_BROWSER_LAB_CLEANUP_READY",
+        attemptId: event.data.attemptId,
+      }).then((response) => {
+        window.postMessage({ type: "CTRLTEACH_BROWSER_LAB_ACK", requestId: event.data.requestId, response }, event.origin);
       });
     }
   });

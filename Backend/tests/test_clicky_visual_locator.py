@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from app.services.clicky_visual_locator import (
     LocalizationResult,
     _spatial_result,
+    locate_visual_target,
     refine_clicky_payload,
 )
 
@@ -44,6 +45,35 @@ class SpatialResultTests(unittest.TestCase):
 
 
 class RefinePayloadTests(unittest.IsolatedAsyncioTestCase):
+    async def test_locate_visual_target_uses_computer_use_action(self) -> None:
+        fake_response = SimpleNamespace(output=[
+            SimpleNamespace(
+                type="computer_call",
+                action=SimpleNamespace(type="click", x=321, y=123),
+            )
+        ])
+        fake_client = SimpleNamespace(
+            responses=SimpleNamespace(create=AsyncMock(return_value=fake_response))
+        )
+
+        with patch("app.services.clicky_visual_locator._openai_client", return_value=fake_client):
+            result = await locate_visual_target(
+                image_base64="abc",
+                mime_type="image/png",
+                width=640,
+                height=360,
+                description="submit button",
+                mode="point",
+                model="gpt-5.6-sol",
+            )
+
+        self.assertEqual(result, LocalizationResult(mode="point", start=(321, 123)))
+        kwargs = fake_client.responses.create.await_args.kwargs
+        self.assertEqual(kwargs["model"], "gpt-5.6-sol")
+        self.assertEqual(kwargs["tools"][0]["type"], "computer_use_preview")
+        self.assertEqual(kwargs["tools"][0]["display_width"], 640)
+        self.assertEqual(kwargs["tools"][0]["environment"], "browser")
+
     async def test_replaces_realtime_bounds_with_computer_use_bounds(self) -> None:
         payload = {
             "coordinate_space": "media",

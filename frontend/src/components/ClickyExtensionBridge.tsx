@@ -93,7 +93,7 @@ export default function ClickyExtensionBridge() {
       if (!enabled || !user) {
         sessionRef.current = null;
         postBridgeMessage("CTRLTEACH_CLICKY_CONFIG", {
-          config: { enabled: false, suspended, userId: "", wsUrl: WS_URL },
+          config: { enabled: false, suspended, userId: "", apiUrl: API_URL, wsUrl: WS_URL },
         });
         return;
       }
@@ -119,6 +119,7 @@ export default function ClickyExtensionBridge() {
             suspended,
             userId: session.user_id,
             accessToken: session.access_token,
+            apiUrl: API_URL,
             wsUrl: WS_URL,
           },
         });
@@ -134,7 +135,7 @@ export default function ClickyExtensionBridge() {
         console.warn("[ClickyExtension] Falling back to in-app Clicky", error);
         sessionRef.current = null;
         postBridgeMessage("CTRLTEACH_CLICKY_CONFIG", {
-          config: { enabled: false, suspended: false, userId: "", wsUrl: WS_URL },
+          config: { enabled: false, suspended: false, userId: "", apiUrl: API_URL, wsUrl: WS_URL },
         });
         setExtensionAvailable(false);
         setStatus("Clicky extension unavailable — using this tab only");

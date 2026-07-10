@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from app.auth.dependencies import get_current_user
 from app.auth.extension_tokens import create_clicky_extension_token
 from app.config import settings
+from app.services.clicky_visual_locator import locate_visual_target
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/clicky", tags=["clicky"])
@@ -68,23 +69,14 @@ SCHEMA: dict[str, Any] = {
         "answer": {"type": "string", "minLength": 8},
         "targetId": {"anyOf": [{"type": "string"}, {"type": "null"}]},
         "action": {"enum": ["none", "click"]},
-        "point": {
+        "pointHint": {
             "anyOf": [
-                {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "x": {"type": "number"},
-                        "y": {"type": "number"},
-                        "label": {"type": "string"},
-                    },
-                    "required": ["x", "y", "label"],
-                },
+                {"type": "string"},
                 {"type": "null"},
             ]
         },
     },
-    "required": ["answer", "targetId", "action", "point"],
+    "required": ["answer", "targetId", "action", "pointHint"],
 }
 
 
@@ -173,16 +165,15 @@ async def ask_clicky(req: ClickyRequest, _user: dict = Depends(get_current_user)
         "When a user greets you with 'chat' or 'hey chat', treat it as addressing you and respond as Clicky. "
         "You also receive a DOM inventory of visible page elements with exact viewport rects. "
         "For pointing accuracy, ALWAYS prefer returning targetId from the DOM inventory when a relevant element exists. "
-        "Only use point as a fallback for things visible in the screenshot but not represented in the DOM inventory. "
+        "Only use pointHint as a fallback for things visible in the screenshot but not represented in the DOM inventory. "
         "You may set action='click' only when the user clearly asks you to click, press, open, select, choose, or start something, "
         "and only when targetId refers to a DOM element whose actionable field is true. Otherwise set action='none'. "
         "Answer briefly but specifically to the user's request. The answer must be non-empty and must never be a generic filler like 'I can help with that.' "
-        "If the request is unclear, ask one short clarifying question. If pointing would help, return either targetId OR a point. "
+        "If the request is unclear, ask one short clarifying question. If pointing would help, return either targetId OR pointHint. "
         "Never mention target IDs, pixel positions, x/y values, coordinates, or JSON in the answer; those are internal control fields only. "
         "If pointing, say a natural phrase like 'this button' or 'right here' instead of giving numbers. "
-        "Coordinate space for point is exactly the provided image: "
-        f"width={req.width}, height={req.height}, origin top-left, x right, y down. "
-        "If targetId is used, set point to null. If no pointing helps, set both targetId and point to null."
+        "For pointHint, provide a short natural visual target description only, never coordinates. "
+        "If targetId is used, set pointHint to null. If no pointing helps, set both targetId and pointHint to null."
     )
     try:
         history_messages: list[dict[str, str]] = []
@@ -226,12 +217,27 @@ async def ask_clicky(req: ClickyRequest, _user: dict = Depends(get_current_user)
         action = data.get("action") if data.get("action") in {"none", "click"} else "none"
         if action == "click" and (not target_id or str(target_id) not in actionable_ids):
             action = "none"
-        point = data.get("point")
-        if point:
-            point["x"] = max(0, min(float(point.get("x", 0)), req.width))
-            point["y"] = max(0, min(float(point.get("y", 0)), req.height))
+        point = None
         if target_id:
             point = None
+        else:
+            point_hint = str(data.get("pointHint") or "").strip()
+            if point_hint:
+                located = await locate_visual_target(
+                    image_base64=req.image,
+                    mime_type=req.mimeType,
+                    width=req.width,
+                    height=req.height,
+                    description=f"{point_hint} (user request: {prompt})",
+                    mode="point",
+                    model=settings.clicky_visual_locator_model,
+                )
+                if located is not None:
+                    point = {
+                        "x": max(0, min(float(located.start[0]), req.width)),
+                        "y": max(0, min(float(located.start[1]), req.height)),
+                        "label": point_hint[:80] or "right here",
+                    }
         answer = str(data.get("answer") or "").strip()
         if not answer or answer.lower() in {"i can help with that.", "i can help with that"}:
             logger.warning("clicky model returned generic/empty answer: prompt=%r data=%r", prompt, data)

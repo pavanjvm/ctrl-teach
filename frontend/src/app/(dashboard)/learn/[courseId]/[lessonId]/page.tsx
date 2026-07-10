@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
+import BrowserLabPanel from "@/components/learn/BrowserLabPanel";
 import { API_URL } from "@/lib/constants";
 import { assetUrl, type GeneratedCourseJob } from "@/lib/generatedCourses";
 import { useLearner } from "@/lib/learner";
@@ -41,6 +42,7 @@ export default function RichLessonPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [quizCompletion, setQuizCompletion] = useState<Record<string, boolean>>({});
+  const [browserLabVerified, setBrowserLabVerified] = useState(false);
   const hydratedRef = useRef("");
 
   const load = useCallback(async () => {
@@ -69,15 +71,22 @@ export default function RichLessonPage() {
   }, [getToken, params.courseId, params.lessonId, router]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setQuizCompletion({}); }, [params.lessonId]);
+  useEffect(() => {
+    setQuizCompletion({});
+    setBrowserLabVerified(false);
+  }, [params.lessonId]);
 
   const lessons = useMemo(() => course?.modules.flatMap((module) => module.lessons) ?? [], [course]);
   const lessonIndex = lessons.findIndex((item) => item.id === params.lessonId);
   const lesson = lessonIndex >= 0 ? lessons[lessonIndex] : null;
   const previous = lessonIndex > 0 ? lessons[lessonIndex - 1] : null;
   const next = lessonIndex >= 0 && lessonIndex < lessons.length - 1 ? lessons[lessonIndex + 1] : null;
+  const isBrowserLab = Boolean(lesson?.browserLab);
   const quizBlocks = lesson?.contentBlocks?.filter((block) => block.type === "quiz") ?? [];
-  const quizzesDone = Boolean(lesson && progress.completedLessons.includes(lesson.id)) || quizBlocks.every((block) => quizCompletion[block.id]);
+  const lessonAlreadyComplete = Boolean(lesson && progress.completedLessons.includes(lesson.id));
+  const quizzesDone = isBrowserLab
+    ? lessonAlreadyComplete || browserLabVerified
+    : lessonAlreadyComplete || quizBlocks.every((block) => quizCompletion[block.id]);
 
   function goTo(lessonId: string) {
     setActiveLesson(lessonId);
@@ -139,7 +148,21 @@ export default function RichLessonPage() {
         </header>
 
         <div className="rich-blocks">
-          {lesson.contentBlocks?.map((block, index) => (
+          {lesson.browserLab ? (
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+              <BrowserLabPanel
+                courseId={params.courseId}
+                lessonId={lesson.id}
+                browserLab={lesson.browserLab}
+                completed={lessonAlreadyComplete || browserLabVerified}
+                getToken={getToken}
+                onVerified={() => {
+                  setBrowserLabVerified(true);
+                  completeLesson(lesson.id);
+                }}
+              />
+            </motion.div>
+          ) : lesson.contentBlocks?.map((block, index) => (
             <motion.div
               key={block.id}
               initial={{ opacity: 0, y: 12 }}
@@ -173,7 +196,7 @@ export default function RichLessonPage() {
             <ChevronLeft size={15} /> Previous
           </button>
           <div>
-            {!quizzesDone && <small>Answer every quiz question to complete this lesson.</small>}
+            {!quizzesDone && <small>{isBrowserLab ? "Complete the lab and cleanup after backend verification." : "Answer every quiz question to complete this lesson."}</small>}
             <button type="button" className="rich-primary" disabled={!quizzesDone} onClick={finishLesson}>
               {next ? "Complete & continue" : "Complete course"} <ChevronRight size={15} />
             </button>

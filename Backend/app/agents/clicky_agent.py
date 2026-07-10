@@ -14,9 +14,8 @@ Pointing strategy (two-tier, like the Swift macOS Clicky):
   screenshot; the model picks a `dom-N` id; the frontend maps that to a
   live `getBoundingClientRect()` and flies the triangle cursor there.
 - Vision fallback path: for things not in the DOM (e.g. pixels inside a
-  cross-origin iframe video), the model emits raw `{x,y}` in the
-  screenshot's coordinate space; the frontend scales to viewport and
-  flies. Tolerance ~±15-25px (matches production Clicky).
+  cross-origin iframe video), the model names the visual target. A dedicated
+  computer-use grounding pass resolves final pixels before the cursor flies.
 """
 
 from __future__ import annotations
@@ -75,11 +74,9 @@ element pointing:
   browser will resolve that text range precisely inside the element. use raw \
   x,y only when the text has no matching DOM inventory entry.
 - for things visible on screen but NOT in the DOM inventory (e.g. pixels \
-  inside a cross-origin iframe, canvas drawings, video content), fall back \
-  to vision: call `point_at(x=<integer>, y=<integer>, action="none", \
-  label="...")`. use the screenshot's pixel dimensions as the coordinate \
-  space — they're provided with each new screen context message. origin is \
-  top-left, x increases rightward, y increases downward.
+  inside a cross-origin iframe, canvas drawings, video content), call \
+  `point_at(label="...")` with a concrete visual target. raw x/y values are \
+  only rough hints; final pixels are resolved by the dedicated grounding pass.
 - when a second gridded non-DOM crop is provided, use that image for anything \
   inside its video, iframe, canvas, or image. set `coordinate_space="media"` \
   and read x/y on its labeled 0-1000 grid; the browser maps those local \
@@ -113,8 +110,8 @@ element to another or to indicate direction.
   `target_id`; the browser uses the live element rectangle.
 - for an arrow or line between DOM elements, pass `from_target_id` and \
   `to_target_id`.
-- only use raw `x`, `y`, `end_x`, `end_y` for content missing from the DOM \
-  inventory, using the calibrated screenshot pixel space.
+- for content missing from the DOM inventory, provide a concrete `label`; \
+  raw `x`, `y`, `end_x`, `end_y` are rough hints only, not final geometry.
 - never use the DOM id of an entire video, iframe, or canvas when the user \
   wants a mark around an object inside its pixels; use raw coordinates.
 - for raw circle/rectangle/highlight coordinates, x/y is the top-left and \

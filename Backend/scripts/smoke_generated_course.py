@@ -99,7 +99,7 @@ def main() -> None:
             course = row.payload["course"]
 
         lessons = [lesson for module in course["modules"] for lesson in module["lessons"]]
-        blocks = [block for lesson in lessons for block in lesson["contentBlocks"]]
+        blocks = [block for lesson in lessons for block in lesson.get("contentBlocks", [])]
         image_blocks = [block for block in blocks if block["type"] == "image"]
         assert course["citations"], "Expected live URL citations"
         assert course["coverImage"]["sizeBytes"] > 0, "Expected a real generated cover"

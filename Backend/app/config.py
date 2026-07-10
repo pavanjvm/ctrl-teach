@@ -29,8 +29,8 @@ class Settings(BaseSettings):
     course_generation_model: str = "gpt-5.4-mini"
     image_model: str = "gpt-image-2"
     clicky_visual_locator_enabled: bool = True
-    clicky_visual_locator_model: str = "gpt-5.5"
-    clicky_visual_locator_trial_models: str = "gpt-5.4,gpt-5.5"
+    clicky_visual_locator_model: str = "gpt-5.6-sol"
+    clicky_visual_locator_trial_models: str = "gpt-5.6-sol"
     clicky_visual_locator_reasoning_effort: str = "medium"
     clicky_visual_locator_timeout_seconds: float = 20.0
 

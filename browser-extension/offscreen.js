@@ -258,6 +258,15 @@ function handleServerEvent(event) {
     void emit({ type: "CLICKY_ACTION", response: event.response || {} });
     return;
   }
+  if (event.type === "clicky_recoverable_error") {
+    clearPlayback();
+    void emit({
+      type: "CLICKY_STATUS",
+      mode: "idle",
+      text: event.message || "Clicky missed that — hold Ctrl and try again.",
+    });
+    return;
+  }
   if (event.interrupted) {
     clearPlayback();
     // This interruption is requested when a new Ctrl turn begins. The content
@@ -418,6 +427,7 @@ async function finishPtt(turn) {
   }));
   const sourceMedia = turn.context.media || {};
   const sourceFocusRegion = turn.context.focusRegion || null;
+  const ctrlGesture = turn.context.ctrlGesture || null;
   const scaleRect = (rect) => rect ? {
     x: Math.round(rect.x * scaleX),
     y: Math.round(rect.y * scaleY),
@@ -464,6 +474,7 @@ async function finishPtt(turn) {
     page: turn.context.page || {},
     media,
     focusRegion,
+    ctrlGesture,
     mediaCrop,
     tabs: turn.tabs || [],
     intentText: "user just spoke while viewing this active browser tab",

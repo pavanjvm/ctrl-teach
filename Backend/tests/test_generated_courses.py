@@ -194,6 +194,43 @@ class GeneratedCourseServiceTests(unittest.TestCase):
         self.assertEqual(generated_service.course_shape("5–8 hours")[:2], (4, 12))
         self.assertEqual(generated_service.course_shape("10+ hours")[:2], (6, 18))
 
+    def test_outline_shape_can_be_repaired_to_requested_distribution(self) -> None:
+        outline = CourseOutline.model_validate(
+            {
+                "title": "AWS Console Basics",
+                "description": "A practical course about learning the AWS Console safely.",
+                "difficulty": "Beginner",
+                "audience": "Cloud learners",
+                "outcomes": ["Navigate AWS", "Practice safely"],
+                "prerequisites": [],
+                "skills": ["AWS", "Cloud basics"],
+                "coverPrompt": "An educational cloud console illustration with no logos",
+                "modules": [
+                    {"title": "Start", "lessons": [{"title": "Open the console", "summary": "Learn the console layout safely."}]},
+                    {"title": "Practice", "lessons": [{"title": "Find services", "summary": "Use search and navigation to find services."}]},
+                ],
+            }
+        )
+
+        repaired = generated_service._normalize_outline_shape(
+            outline,
+            topic="AWS Console",
+            module_count=3,
+            lesson_count=8,
+            distribution=[3, 3, 2],
+        )
+
+        self.assertTrue(
+            generated_service._outline_matches_shape(
+                repaired,
+                module_count=3,
+                lesson_count=8,
+                distribution=[3, 3, 2],
+            )
+        )
+        self.assertEqual([len(module.lessons) for module in repaired.modules], [3, 3, 2])
+        self.assertEqual(repaired.modules[0].lessons[0].title, "Open the console")
+
     def test_long_course_lessons_must_be_substantive(self) -> None:
         lesson = LessonContent.model_validate(
             {
@@ -342,6 +379,66 @@ class GeneratedCourseServiceTests(unittest.TestCase):
         self.assertEqual(first_blocks[1]["type"], "content")
         self.assertEqual(first_blocks[0]["citationIds"], ["src-1"])
         self.assertEqual(first_blocks[3]["questions"][0]["answerIndex"], 1)
+
+    def test_prepare_course_injects_browser_lab_after_practical_platform_lesson(self) -> None:
+        outline = CourseOutline.model_validate(
+            {
+                "title": "GitHub Workflow",
+                "description": "A course about using GitHub issues and pull requests in a real team workflow.",
+                "difficulty": "Beginner",
+                "audience": "New software team members",
+                "outcomes": ["Navigate GitHub", "Use a reversible practice workflow"],
+                "prerequisites": [],
+                "skills": ["GitHub", "Code collaboration"],
+                "coverPrompt": "A practical software collaboration illustration with repository branches",
+                "modules": [
+                    {"title": "Practice", "lessons": [{"title": "Use GitHub issues", "summary": "Practice navigating issues in GitHub."}]},
+                    {"title": "Concepts", "lessons": [{"title": "Collaboration concepts", "summary": "Understand review etiquette and team norms."}]},
+                ],
+            }
+        )
+        lesson_payload = {
+            "summary": "Practice using GitHub issues safely.",
+            "duration": "20m",
+            "blocks": [
+                {"type": "content", "heading": "Workflow", "paragraphs": ["Use GitHub issues to inspect work."], "citationIds": []},
+                {"type": "grid_cards", "heading": "Areas", "cards": [{"title": "Issues", "body": "Track work."}, {"title": "Labels", "body": "Classify work."}], "citationIds": []},
+                {"type": "numbered_list", "heading": "Steps", "items": [{"title": "Open", "body": "Open GitHub."}, {"title": "Inspect", "body": "Inspect an issue."}], "citationIds": []},
+                {"type": "quiz", "heading": "Check", "questions": [{"question": "What tracks work?", "choices": ["Issues", "Themes"], "answerIndex": 0, "explanation": "Issues track work."}, {"question": "What classifies work?", "choices": ["Labels", "Fonts"], "answerIndex": 0, "explanation": "Labels classify work."}], "citationIds": []},
+            ],
+            "browserLab": {
+                "platformId": "github",
+                "objective": "Practice opening GitHub and inspecting an issue list.",
+                "prerequisites": ["A GitHub account is optional for public repositories."],
+                "steps": [
+                    {"id": "open-github", "instruction": "Open GitHub in the browser.", "expectedEvidence": "Clicky observes GitHub open.", "assertionIds": ["visit-platform"]},
+                    {"id": "open-issues", "instruction": "Click Issues on a repository.", "expectedEvidence": "Clicky observes the Issues interaction.", "assertionIds": ["issues-click"]},
+                ],
+                "successCriteria": ["Clicky observes the task and cleanup."],
+                "cleanupSteps": [{"id": "close", "instruction": "Leave without creating or editing an issue.", "expectedEvidence": "Clicky observes neutral cleanup review.", "assertionIds": ["cleanup"]}],
+                "taskAssertions": [{"id": "issues-click", "kind": "click_text", "value": "Issues", "description": "Clicky observed the Issues label."}],
+                "cleanupAssertions": [{"id": "cleanup", "kind": "interaction_observed", "value": "", "description": "Clicky observed cleanup review."}],
+                "estimatedDuration": "15m",
+            },
+        }
+        conceptual_payload = {**lesson_payload, "summary": "Understand collaboration concepts.", "browserLab": None}
+        lessons = [LessonContent.model_validate(lesson_payload), LessonContent.model_validate(conceptual_payload)]
+        payload = {
+            "source": {"type": "prompt", "label": "Learning prompt"},
+            "answers": {"time_budget": "Up to 1 hour"},
+            "intake": INTAKE,
+            "research": {"citations": [{"id": "src-1", "title": "Primary source", "url": "https://example.com"}]},
+        }
+
+        course = generated_service._prepare_course("generated-github", payload, outline, lessons)
+        module_lessons = course["modules"][0]["lessons"]
+
+        self.assertEqual(module_lessons[0]["type"], "study")
+        self.assertEqual(module_lessons[1]["type"], "lab")
+        self.assertEqual(module_lessons[1]["sourceLessonId"], module_lessons[0]["id"])
+        self.assertEqual(module_lessons[1]["browserLab"]["launchUrl"], "https://github.com/")
+        self.assertIn("github.com", module_lessons[1]["browserLab"]["allowedHosts"])
+        self.assertEqual(course["modules"][1]["lessons"][0]["type"], "study")
 
     def test_real_asset_bytes_are_persisted_to_uploads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -949,7 +949,7 @@ def point_at_whiteboard(
     """Move Clicky's cursor to a point in the latest whiteboard screenshot.
 
     Coordinates are a rough hint in the latest whiteboard screenshot. A
-    dedicated GPT-5.5 visual grounding pass corrects the final pixel before the
+    dedicated GPT-5.6 Sol visual grounding pass corrects the final pixel before the
     frontend animates Clicky. Set target_area to ``course_image`` when the
     target is inside the generated lesson image; Excalidraw then supplies its
     exact visible bounds and localization runs only inside that crop. Always

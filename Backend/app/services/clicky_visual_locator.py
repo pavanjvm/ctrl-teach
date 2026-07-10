@@ -19,7 +19,6 @@ from typing import Any, Literal
 
 from openai import AsyncOpenAI
 from PIL import Image
-from pydantic import BaseModel, Field
 
 from app.config import settings
 
@@ -37,16 +36,6 @@ class LocalizationResult:
     mode: LocalizationMode
     start: tuple[float, float]
     end: tuple[float, float] | None = None
-
-
-class VisualCoordinateResult(BaseModel):
-    """Validated normalized geometry returned by the GPT-5.5 vision pass."""
-
-    found: bool
-    start_x: float = Field(ge=0, le=1000)
-    start_y: float = Field(ge=0, le=1000)
-    end_x: float | None = Field(default=None, ge=0, le=1000)
-    end_y: float | None = Field(default=None, ge=0, le=1000)
 
 
 def _openai_client() -> AsyncOpenAI | None:
@@ -147,33 +136,6 @@ def _prompt_for(mode: LocalizationMode, description: str, shape: str) -> str:
     return shared + "Return one left click at the exact visual center of the target."
 
 
-def _coordinate_prompt(mode: LocalizationMode, description: str, shape: str) -> str:
-    target = description.strip() or "the object requested by the user"
-    shared = (
-        "Locate exactly one visual target in the supplied image. Ignore nearby labels, "
-        "controls, borders, and background. Return normalized coordinates from 0 to 1000, "
-        "where (0,0) is the image's top-left and (1000,1000) is its bottom-right. "
-        "Set found=false only when the named target is genuinely absent.\n\n"
-        f"Target: {target}\n"
-    )
-    if mode == "bounds":
-        return shared + (
-            "Return the target's tight top-left boundary as start_x/start_y and its tight "
-            "bottom-right boundary as end_x/end_y."
-        )
-    if mode == "segment":
-        direction = (
-            "left endpoint to right endpoint of a tight underline directly beneath the target"
-            if shape == "underline"
-            else "requested visual connection, preserving the requested arrow direction"
-        )
-        return shared + f"Return start and end coordinates for the {direction}."
-    return shared + (
-        "Return start_x/start_y at the exact visual center of the target. "
-        "Set end_x and end_y to null."
-    )
-
-
 def _clamp_result(result: LocalizationResult, width: int, height: int) -> LocalizationResult:
     def clamp(point: tuple[float, float]) -> tuple[float, float]:
         return (
@@ -199,7 +161,7 @@ async def locate_visual_target(
     shape: str = "",
     model: str | None = None,
 ) -> LocalizationResult | None:
-    """Locate a target with GPT-5.5 direct vision and Structured Outputs."""
+    """Locate a target with the dedicated GPT-5.6 Sol computer-use model."""
 
     client = _openai_client()
     if client is None or not settings.clicky_visual_locator_enabled:
@@ -208,12 +170,12 @@ async def locate_visual_target(
         return None
 
     selected_model = model or settings.clicky_visual_locator_model
-    prompt = _coordinate_prompt(mode, description, shape)
+    prompt = _prompt_for(mode, description, shape)
     started_at = time.perf_counter()
 
     try:
         response = await asyncio.wait_for(
-            client.responses.parse(
+            client.responses.create(
                 model=selected_model,
                 input=[{
                     "role": "user",
@@ -226,34 +188,30 @@ async def locate_visual_target(
                         },
                     ],
                 }],
+                tools=[{
+                    "type": "computer_use_preview",
+                    "display_width": width,
+                    "display_height": height,
+                    "environment": "browser",
+                }],
+                tool_choice={"type": "computer_use_preview"},
+                max_tool_calls=1,
+                parallel_tool_calls=False,
                 reasoning={"effort": settings.clicky_visual_locator_reasoning_effort},
-                text_format=VisualCoordinateResult,
                 # Reasoning tokens count against this limit. Keep enough room
                 # for deployments that intentionally select high/xhigh while
-                # still returning the tiny structured coordinate payload.
+                # still returning the tiny computer action payload.
                 max_output_tokens=2048,
             ),
             timeout=settings.clicky_visual_locator_timeout_seconds,
         )
-        parsed = response.output_parsed
-        if parsed is None or not parsed.found:
+        computer_call = _computer_call(response)
+        if computer_call is None:
             return None
-
-        def pixels(x: float, y: float) -> tuple[float, float]:
-            return x * width / 1000.0, y * height / 1000.0
-
-        start = pixels(parsed.start_x, parsed.start_y)
-        end = (
-            pixels(parsed.end_x, parsed.end_y)
-            if parsed.end_x is not None and parsed.end_y is not None
-            else None
-        )
-        if mode == "bounds" and end is not None:
-            start, end = (
-                (min(start[0], end[0]), min(start[1], end[1])),
-                (max(start[0], end[0]), max(start[1], end[1])),
-            )
-        result = _clamp_result(LocalizationResult(mode=mode, start=start, end=end), width, height)
+        raw_result = _spatial_result(computer_call, mode)
+        if raw_result is None:
+            return None
+        result = _clamp_result(raw_result, width, height)
         logger.info(
             "Clicky visual locator model=%s mode=%s target=%r start=%s end=%s image=%dx%d latency_ms=%d",
             selected_model,
@@ -482,7 +440,7 @@ async def refine_classroom_point(
     """Ground a Live Classroom point against its exact captured viewport.
 
     For targets inside the generated course image, Excalidraw provides the
-    authoritative visible image rectangle. We crop to it first, let GPT-5.5
+    authoritative visible image rectangle. We crop to it first, let GPT-5.6 Sol
     find the semantic target inside that crop, then translate the result back
     into the original screenshot coordinate space.
     """

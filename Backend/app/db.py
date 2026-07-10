@@ -3,7 +3,7 @@
 Replaces Firebase / Firestore entirely.  Exposes:
   - engine, SessionLocal, Base
   - ORM models: User, Profile, Session, Progress, Quiz, StudyPlan, Tutor,
-    ScheduledSession, GeneratedCourse
+    ScheduledSession, GeneratedCourse, BrowserLabRun
   - get_session() generator (FastAPI dependency)
   - init_db() called at import time: creates tables + seeds users from
     settings.app_users (bcrypt-hashed).
@@ -23,6 +23,7 @@ from sqlalchemy import (
     Float,
     Integer,
     String,
+    UniqueConstraint,
     create_engine,
     select,
 )
@@ -226,6 +227,45 @@ class GeneratedCourse(Base):
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class BrowserLabRun(Base):
+    """A learner-owned, server-verified run of one generated browser lab.
+
+    The course JSON is the source of the lab definition, but a run retains an
+    immutable snapshot so a later course regeneration cannot change what a
+    learner needs to prove. Evidence remains in the run rather than being
+    accepted as a client-side completion flag.
+    """
+
+    __tablename__ = "browser_lab_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_user_id",
+            "course_id",
+            "lesson_id",
+            name="uq_browser_lab_run_owner_course_lesson",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(Integer, index=True)
+    course_id: Mapped[str] = mapped_column(String(128), index=True)
+    lesson_id: Mapped[str] = mapped_column(String(192), index=True)
+    platform_id: Mapped[str] = mapped_column(String(128), default="")
+    launch_url: Mapped[str] = mapped_column(String(2048), default="")
+    allowed_hosts: Mapped[list] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(32), default="running", index=True)
+    plan_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    evidence: Mapped[list] = mapped_column(JSON, default=list)
+    verification: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────

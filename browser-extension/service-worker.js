@@ -9,6 +9,7 @@ let state = {
   enabled: false,
   suspended: false,
   userId: "",
+  apiUrl: "",
   wsUrl: "",
 };
 let accessToken = "";
@@ -17,6 +18,7 @@ let activeTabId = null;
 let latestCursor = { x: 80, y: 120 };
 let currentTurn = null;
 let activeContext = null;
+let activeBrowserLab = null;
 let micSetupOpened = false;
 
 async function loadState() {
@@ -116,8 +118,134 @@ function publicState(tabId) {
     enabled: state.enabled && Boolean(accessToken),
     suspended: state.suspended,
     active: tabId === activeTabId,
+    labActive: Boolean(activeBrowserLab),
+    activeLabId: activeBrowserLab?.attemptId || "",
     cursor: latestCursor,
   };
+}
+
+function urlHost(url = "") {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function hostAllowed(host, allowedHosts = []) {
+  const clean = String(host || "").toLowerCase();
+  if (!clean) return false;
+  return allowedHosts.some((allowed) => {
+    const item = String(allowed || "").toLowerCase();
+    return clean === item || clean.endsWith(`.${item}`);
+  });
+}
+
+function tokens(value = "") {
+  return String(value || "")
+    .toLowerCase()
+    .match(/[a-z0-9][a-z0-9_-]{1,}/g) || [];
+}
+
+function textMatches(value, blob) {
+  const wanted = tokens(value).filter((token) => !["the", "and", "for", "with", "into"].includes(token));
+  if (!wanted.length) return true;
+  const haystack = String(blob || "").toLowerCase();
+  return wanted.slice(0, 5).every((token) => haystack.includes(token));
+}
+
+function labEventText(payload = {}) {
+  return [
+    payload.text,
+    payload.label,
+    payload.role,
+    payload.title,
+    payload.selector,
+    payload.tagName,
+    payload.visibleText,
+  ].filter(Boolean).join(" ");
+}
+
+function assertionMatchesEvent(assertion, kind, payload = {}) {
+  const assertionKind = assertion?.kind;
+  const value = String(assertion?.value || "");
+  const phase = assertion?.phase || "task";
+  if (phase === "cleanup" && payload.phase !== "cleanup") return false;
+  if (assertionKind === "visit_host") return Boolean(payload.url && hostAllowed(urlHost(payload.url), activeBrowserLab?.allowedHosts || []));
+  if (assertionKind === "url_contains") return Boolean(value && String(payload.url || "").toLowerCase().includes(value.toLowerCase()));
+  if (assertionKind === "click_text") return kind === "click" && textMatches(value, labEventText(payload));
+  if (assertionKind === "input_changed") return ["input", "change"].includes(kind) && textMatches(value, labEventText(payload));
+  if (assertionKind === "page_text") return ["navigation", "page_snapshot"].includes(kind) && textMatches(value, labEventText(payload));
+  if (assertionKind === "interaction_observed") {
+    return ["click", "input", "change", "navigation", "page_snapshot"].includes(kind) && textMatches(value, labEventText(payload));
+  }
+  return false;
+}
+
+async function postLabEvidence(kind, payload = {}) {
+  if (!activeBrowserLab || !state.apiUrl || !accessToken) return null;
+  const base = String(state.apiUrl).replace(/\/$/, "");
+  const body = {
+    clientEventId: crypto.randomUUID(),
+    kind,
+    payload,
+  };
+  try {
+    const response = await fetch(`${base}/api/browser-labs/attempts/${encodeURIComponent(activeBrowserLab.attemptId)}/evidence`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`lab evidence rejected (${response.status})`);
+    const data = await response.json().catch(() => null);
+    if (data?.attempt?.status === "verified") {
+      activeBrowserLab.verified = true;
+      await publishState(activeTabId);
+    }
+    return data;
+  } catch (error) {
+    console.warn("[Clicky] browser lab evidence failed", error);
+    return null;
+  }
+}
+
+async function recordLabEvent(kind, payload = {}) {
+  if (!activeBrowserLab) return;
+  const host = urlHost(payload.url || "");
+  if (payload.url && !hostAllowed(host, activeBrowserLab.allowedHosts)) return;
+  const safePayload = {
+    ...payload,
+    url: String(payload.url || "").slice(0, 2048),
+    title: String(payload.title || "").slice(0, 240),
+    text: String(payload.text || "").slice(0, 240),
+    label: String(payload.label || "").slice(0, 240),
+    role: String(payload.role || "").slice(0, 80),
+    selector: String(payload.selector || "").slice(0, 180),
+    tagName: String(payload.tagName || "").slice(0, 40),
+    visibleText: String(payload.visibleText || "").slice(0, 700),
+    phase: activeBrowserLab.phase || "task",
+  };
+  await postLabEvidence(kind, safePayload);
+  const assertions = [
+    ...(activeBrowserLab.taskAssertions || []),
+    ...(activeBrowserLab.cleanupAssertions || []),
+  ];
+  for (const assertion of assertions) {
+    const assertionId = String(assertion?.id || "");
+    if (!assertionId || activeBrowserLab.observedAssertionIds.has(assertionId)) continue;
+    if (!assertionMatchesEvent(assertion, kind, safePayload)) continue;
+    activeBrowserLab.observedAssertionIds.add(assertionId);
+    await postLabEvidence("assertion_observed", {
+      assertionId,
+      observedKind: kind,
+      url: safePayload.url,
+      title: safePayload.title,
+      text: safePayload.text || safePayload.label || safePayload.visibleText,
+    });
+  }
 }
 
 async function publishState(tabId = activeTabId) {
@@ -132,6 +260,7 @@ async function configureFromApp(config, sender) {
     enabled: Boolean(config.enabled),
     suspended: Boolean(config.suspended),
     userId: String(config.userId || ""),
+    apiUrl: String(config.apiUrl || state.apiUrl || ""),
     wsUrl: String(config.wsUrl || ""),
   };
   accessToken = state.enabled ? String(config.accessToken || accessToken || "") : "";
@@ -155,6 +284,58 @@ async function configureFromApp(config, sender) {
     extensionActive: state.enabled && Boolean(accessToken),
     state: publicState(sender.tab?.id),
   };
+}
+
+async function startBrowserLab(message, sender) {
+  if (!isTrustedBridgeSender(sender)) return { ok: false, error: "untrusted_origin" };
+  await loadState();
+  if (!state.enabled || !accessToken) return { ok: false, error: "clicky_disabled" };
+  const lab = message.lab || {};
+  const attemptId = String(message.attemptId || "");
+  const launchUrl = String(message.launchUrl || lab.launchUrl || "");
+  const allowedHosts = (lab.allowedHosts || []).map((host) => String(host || "").toLowerCase()).filter(Boolean);
+  if (!attemptId || !launchUrl || !hostAllowed(urlHost(launchUrl), allowedHosts)) {
+    return { ok: false, error: "invalid_lab" };
+  }
+  activeBrowserLab = {
+    attemptId,
+    launchUrl,
+    allowedHosts,
+    taskAssertions: lab.taskAssertions || [],
+    cleanupAssertions: (lab.cleanupAssertions || []).map((assertion) => ({ ...assertion, phase: "cleanup" })),
+    observedAssertionIds: new Set(),
+    phase: "task",
+    verified: false,
+  };
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(tabs.map((tab) => publishState(tab.id)));
+  await recordLabEvent("lab_started", {
+    url: launchUrl,
+    title: String(lab.objective || "Browser lab").slice(0, 240),
+  });
+  const created = await chrome.tabs.create({ url: launchUrl, active: true }).catch(() => null);
+  if (created?.id) activeTabId = created.id;
+  return { ok: true, attemptId, state: publicState(sender.tab?.id) };
+}
+
+async function stopBrowserLab(message, sender) {
+  if (!isTrustedBridgeSender(sender)) return { ok: false, error: "untrusted_origin" };
+  if (activeBrowserLab && (!message.attemptId || message.attemptId === activeBrowserLab.attemptId)) {
+    await recordLabEvent("lab_stopped", {});
+    activeBrowserLab = null;
+    const tabs = await chrome.tabs.query({});
+    await Promise.all(tabs.map((tab) => publishState(tab.id)));
+  }
+  return { ok: true };
+}
+
+async function markBrowserLabCleanupReady(message, sender) {
+  if (!isTrustedBridgeSender(sender)) return { ok: false, error: "untrusted_origin" };
+  if (activeBrowserLab && (!message.attemptId || message.attemptId === activeBrowserLab.attemptId)) {
+    activeBrowserLab.phase = "cleanup";
+    return { ok: true, phase: "cleanup" };
+  }
+  return { ok: false, error: "no_active_lab" };
 }
 
 async function beginPushToTalk(tabId, trigger = "keyboard") {
@@ -287,6 +468,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case "CTRLTEACH_CLICKY_CONFIG":
         sendResponse(await configureFromApp(message.config || {}, sender));
         return;
+      case "CTRLTEACH_BROWSER_LAB_START":
+        sendResponse(await startBrowserLab(message, sender));
+        return;
+      case "CTRLTEACH_BROWSER_LAB_STOP":
+        sendResponse(await stopBrowserLab(message, sender));
+        return;
+      case "CTRLTEACH_BROWSER_LAB_CLEANUP_READY":
+        sendResponse(await markBrowserLabCleanupReady(message, sender));
+        return;
       case "CLICKY_PAGE_READY":
         if (sender.tab?.active) activeTabId = sender.tab.id;
         sendResponse({ ok: true, state: publicState(sender.tab?.id) });
@@ -296,6 +486,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       case "CLICKY_CURSOR_POSITION":
         if (sender.tab?.id === activeTabId) latestCursor = { x: Number(message.x) || 0, y: Number(message.y) || 0 };
+        sendResponse({ ok: true });
+        return;
+      case "CLICKY_LAB_INTERACTION":
+        await recordLabEvent(message.kind || "event", {
+          ...(message.payload || {}),
+          url: sender.tab?.url || message.payload?.url || "",
+          title: sender.tab?.title || message.payload?.title || "",
+        });
         sendResponse({ ok: true });
         return;
       case "CLICKY_PTT_START":
@@ -335,6 +533,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (tab.active && changeInfo.status === "complete") {
     activeTabId = tabId;
     await publishState(tabId);
+  }
+  if (changeInfo.status === "complete" && activeBrowserLab && tab.url) {
+    await recordLabEvent("navigation", {
+      url: tab.url,
+      title: tab.title || "",
+    });
   }
 });
 
