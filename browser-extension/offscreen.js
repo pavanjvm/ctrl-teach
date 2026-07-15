@@ -11,6 +11,14 @@ let micInitPromise = null;
 let playerContext = null;
 let playerNextStart = 0;
 const playerSources = new Set();
+const playbackCompletion = TarsPlaybackGate.createPlaybackCompletionGate(() => {
+  void emit({
+    type: "TARS_STATUS",
+    mode: "idle",
+    text: "Tars ready — hold Ctrl to talk",
+    delayed: true,
+  });
+});
 const MIN_VOICED_MS = 72;
 const MIN_CONTINUOUS_VOICE_MS = 32;
 let ambientNoise = { rms: 0.004, flux: 0.0025, peak: 0.012 };
@@ -101,12 +109,15 @@ resetSpeechStats();
 
 function emit(event) {
   return chrome.runtime.sendMessage({
-    type: "CLICKY_OFFSCREEN_EVENT",
+    type: "TARS_OFFSCREEN_EVENT",
     event,
   });
 }
 
 function clearPlayback() {
+  // Reset before stopping sources because AudioBufferSourceNode.onended also
+  // runs for an explicit stop. It must not complete an interrupted old turn.
+  playbackCompletion.reset();
   for (const source of playerSources) {
     try { source.stop(); } catch {}
   }
@@ -127,25 +138,43 @@ async function ensurePlayer() {
 }
 
 async function playPcm(base64) {
-  await ensurePlayer();
-  const bytes = base64ToBytes(base64);
-  if (bytes.byteLength < 2) return;
-  const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
-  const buffer = playerContext.createBuffer(1, pcm.length, 24_000);
-  const channel = buffer.getChannelData(0);
-  for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
-  const source = playerContext.createBufferSource();
-  source.buffer = buffer;
-  source.connect(playerContext.destination);
-  playerSources.add(source);
-  source.onended = () => {
-    playerSources.delete(source);
-    source.disconnect();
-  };
-  const startAt = Math.max(playerNextStart, playerContext.currentTime + 0.025);
-  source.start(startAt);
-  playerNextStart = startAt + buffer.duration;
-  void emit({ type: "CLICKY_STATUS", mode: "speaking" });
+  // Increment synchronously, before the first await, so a turnComplete event
+  // arriving in the same WebSocket message cannot declare playback finished.
+  playbackCompletion.beginScheduling();
+  let source = null;
+  try {
+    await ensurePlayer();
+    const bytes = base64ToBytes(base64);
+    if (bytes.byteLength < 2) {
+      playbackCompletion.schedulingFailed();
+      return;
+    }
+    const pcm = new Int16Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 2));
+    const buffer = playerContext.createBuffer(1, pcm.length, 24_000);
+    const channel = buffer.getChannelData(0);
+    for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 32768;
+    source = playerContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(playerContext.destination);
+    playerSources.add(source);
+    source.onended = () => {
+      playerSources.delete(source);
+      source.disconnect();
+      playbackCompletion.sourceEnded();
+    };
+    const startAt = Math.max(playerNextStart, playerContext.currentTime + 0.025);
+    source.start(startAt);
+    playerNextStart = startAt + buffer.duration;
+    playbackCompletion.sourceScheduled();
+    void emit({ type: "TARS_STATUS", mode: "speaking" });
+  } catch (error) {
+    if (source) {
+      playerSources.delete(source);
+      try { source.disconnect(); } catch {}
+    }
+    playbackCompletion.schedulingFailed();
+    throw error;
+  }
 }
 
 async function ensureMic() {
@@ -160,7 +189,7 @@ async function ensureMic() {
       micContext = new AudioContext({ sampleRate: 16_000 });
       await micContext.audioWorklet.addModule("pcm-worklet.js");
       const source = micContext.createMediaStreamSource(micStream);
-      micNode = new AudioWorkletNode(micContext, "clicky-pcm-processor");
+      micNode = new AudioWorkletNode(micContext, "tars-pcm-processor");
       const silent = micContext.createGain();
       silent.gain.value = 0;
       source.connect(micNode);
@@ -184,8 +213,8 @@ async function ensureMic() {
       await micContext.resume().catch(() => undefined);
       return true;
     } catch (error) {
-      console.warn("[Clicky] microphone unavailable", error);
-      void emit({ type: "CLICKY_MIC_REQUIRED" });
+      console.warn("[Tars] microphone unavailable", error);
+      void emit({ type: "TARS_MIC_REQUIRED" });
       return false;
     } finally {
       micInitPromise = null;
@@ -201,7 +230,7 @@ function disconnect() {
   if (socket) {
     const previous = socket;
     socket = null;
-    previous.close(1000, "Clicky disabled");
+    previous.close(1000, "Tars disabled");
   }
 }
 
@@ -214,48 +243,57 @@ function connect() {
   clearTimeout(reconnectTimer);
   const sessionId = crypto.randomUUID();
   const base = String(config.wsUrl).replace(/\/$/, "");
-  const protocol = `ctrlteach-clicky-auth.${config.accessToken}`;
+  const protocol = `ctrlteach-tars-auth.${config.accessToken}`;
   socket = new WebSocket(
-    `${base}/ws/${encodeURIComponent(config.userId)}/${sessionId}?mode=page&agent=clicky`,
+    `${base}/ws/${encodeURIComponent(config.userId)}/${sessionId}?mode=page&agent=tars`,
     protocol,
   );
-  socket.onopen = () => void emit({ type: "CLICKY_STATUS", mode: "connecting", text: "Clicky connecting" });
+  socket.onopen = () => void emit({ type: "TARS_STATUS", mode: "connecting", text: "Tars connecting" });
   socket.onmessage = (event) => {
     if (typeof event.data !== "string") return;
-    try { handleServerEvent(JSON.parse(event.data)); } catch (error) { console.warn("[Clicky] bad server event", error); }
+    try { handleServerEvent(JSON.parse(event.data)); } catch (error) { console.warn("[Tars] bad server event", error); }
   };
   socket.onclose = (event) => {
     socket = null;
     realtimeReady = false;
-    void emit({ type: "CLICKY_STATUS", mode: "offline", text: event.reason || "Clicky disconnected" });
+    void emit({ type: "TARS_STATUS", mode: "offline", text: event.reason || "Tars disconnected" });
     if (config?.enabled && !config.suspended && event.code !== 1008) {
       reconnectTimer = setTimeout(connect, 1500);
     }
   };
-  socket.onerror = () => void emit({ type: "CLICKY_STATUS", mode: "offline", text: "Clicky backend unavailable" });
+  socket.onerror = () => void emit({ type: "TARS_STATUS", mode: "offline", text: "Tars backend unavailable" });
 }
 
 function handleServerEvent(event) {
   if (event.type === "realtime_ready") {
     realtimeReady = true;
     void ensureMic();
-    void emit({ type: "CLICKY_STATUS", mode: "idle", text: "Clicky ready — hold Ctrl to talk" });
+    void emit({ type: "TARS_STATUS", mode: "idle", text: "Tars ready — hold Ctrl to talk" });
     return;
   }
-  if (event.type === "clicky_point") {
-    void emit({ type: "CLICKY_POINT", response: event.response || {} });
+  if (event.type === "tars_point") {
+    void emit({ type: "TARS_POINT", response: event.response || {} });
     return;
   }
-  if (event.type === "clicky_draw") {
-    void emit({ type: "CLICKY_DRAW", tool: event.tool, response: event.response || {} });
+  if (event.type === "tars_draw") {
+    void emit({ type: "TARS_DRAW", tool: event.tool, response: event.response || {} });
     return;
   }
-  if (event.type === "clicky_draw_batch") {
-    void emit({ type: "CLICKY_DRAW_BATCH", tool: event.tool, responses: event.responses || [] });
+  if (event.type === "tars_draw_batch") {
+    void emit({ type: "TARS_DRAW_BATCH", tool: event.tool, responses: event.responses || [] });
     return;
   }
-  if (event.type === "clicky_action") {
-    void emit({ type: "CLICKY_ACTION", response: event.response || {} });
+  if (event.type === "tars_action") {
+    void emit({ type: "TARS_ACTION", response: event.response || {} });
+    return;
+  }
+  if (event.type === "tars_recoverable_error") {
+    clearPlayback();
+    void emit({
+      type: "TARS_STATUS",
+      mode: "idle",
+      text: event.message || "Tars missed that — hold Ctrl and try again.",
+    });
     return;
   }
   if (event.interrupted) {
@@ -265,18 +303,22 @@ function handleServerEvent(event) {
     // here would erase the waveform or spinner with a stale acknowledgement.
   }
   if (event.outputTranscription?.text) {
-    void emit({ type: "CLICKY_STATUS", mode: "speaking", text: event.outputTranscription.text, append: true });
+    void emit({ type: "TARS_STATUS", mode: "speaking", text: event.outputTranscription.text, append: true });
   }
   for (const part of event.content?.parts || []) {
     if (part.inlineData?.mimeType?.startsWith("audio/pcm") && part.inlineData.data) {
-      void playPcm(part.inlineData.data);
+      void playPcm(part.inlineData.data).catch((error) => {
+        console.warn("[Tars] audio playback failed", error);
+      });
     }
   }
   if (event.turnComplete && !event.interrupted) {
-    void emit({ type: "CLICKY_STATUS", mode: "idle", text: "Clicky ready — hold Ctrl to talk", delayed: true });
+    // Network streaming is complete, but scheduled PCM may still be audible.
+    // Keep the transcript visible until the final AudioBufferSourceNode ends.
+    playbackCompletion.markTurnComplete();
   }
   if (event.type === "error") {
-    void emit({ type: "CLICKY_STATUS", mode: "offline", text: event.message || "Clicky error" });
+    void emit({ type: "TARS_STATUS", mode: "offline", text: event.message || "Tars error" });
   }
 }
 
@@ -361,7 +403,7 @@ async function createMediaGridCrop(dataUrl, mediaRect) {
 async function startPtt(message) {
   const micReady = await ensureMic();
   if (!micReady || !realtimeReady || socket?.readyState !== WebSocket.OPEN) {
-    void emit({ type: "CLICKY_STATUS", mode: "offline", text: "Clicky is not ready yet" });
+    void emit({ type: "TARS_STATUS", mode: "offline", text: "Tars is not ready yet" });
     return;
   }
   await ensurePlayer();
@@ -371,15 +413,15 @@ async function startPtt(message) {
   resetSpeechStats();
   pttActive = true;
   if (micContext?.state === "suspended") await micContext.resume().catch(() => undefined);
-  void emit({ type: "CLICKY_STATUS", mode: "listening", text: "Clicky listening — release Ctrl" });
+  void emit({ type: "TARS_STATUS", mode: "listening", text: "Tars listening — release Ctrl" });
 }
 
 function cancelPtt() {
   pttActive = false;
   currentTurn = null;
   resetSpeechStats();
-  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "clicky_cancel_audio" }));
-  void emit({ type: "CLICKY_STATUS", mode: "idle", text: "Clicky ready — hold Ctrl to talk" });
+  if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "tars_cancel_audio" }));
+  void emit({ type: "TARS_STATUS", mode: "idle", text: "Tars ready — hold Ctrl to talk" });
 }
 
 function endPtt(message) {
@@ -392,9 +434,9 @@ function endPtt(message) {
     currentTurn = null;
     resetSpeechStats();
     if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: "clicky_cancel_audio" }));
+      socket.send(JSON.stringify({ type: "tars_cancel_audio" }));
     }
-    void emit({ type: "CLICKY_STATUS", mode: "idle", text: "Clicky ready — hold Ctrl to talk" });
+    void emit({ type: "TARS_STATUS", mode: "idle", text: "Tars ready — hold Ctrl to talk" });
   }
   return analysis;
 }
@@ -418,6 +460,7 @@ async function finishPtt(turn) {
   }));
   const sourceMedia = turn.context.media || {};
   const sourceFocusRegion = turn.context.focusRegion || null;
+  const ctrlGesture = turn.context.ctrlGesture || null;
   const scaleRect = (rect) => rect ? {
     x: Math.round(rect.x * scaleX),
     y: Math.round(rect.y * scaleY),
@@ -425,19 +468,24 @@ async function finishPtt(turn) {
     height: Math.max(1, Math.round(rect.height * scaleY)),
   } : null;
   const actualMediaRect = scaleRect(sourceMedia.rect);
-  // Keep the legacy `mediaRect` coordinate mapping, but allow its crop to be
-  // any dominant non-DOM surface. This gives Computer Use a high-resolution,
-  // low-clutter image for iframes, canvases, and images as well as videos.
-  const mediaRect = actualMediaRect || scaleRect(sourceFocusRegion?.rect);
+  // Keep the legacy `mediaRect` coordinate mapping for media/canvas surfaces.
+  // Static webpage images are grounded against the complete lossless tab
+  // screenshot. Do not create a second crop/grid for <img> content: Sol gets
+  // the exact same full frame that the Realtime agent used for context.
+  const focusCropRect = TarsGroundingGeometry.shouldCropFocusRegion(sourceFocusRegion)
+    ? scaleRect(sourceFocusRegion?.rect)
+    : null;
+  const mediaRect = actualMediaRect || focusCropRect;
   const media = { ...sourceMedia, rect: actualMediaRect };
-  const focusRegion = mediaRect ? {
-    kind: actualMediaRect ? (sourceMedia.kind || "video") : (sourceFocusRegion?.kind || "region"),
-    label: actualMediaRect ? "visible media" : (sourceFocusRegion?.label || "non-DOM region"),
-    rect: mediaRect,
+  const scaledFocusRect = scaleRect(sourceFocusRegion?.rect);
+  const focusRegion = scaledFocusRect ? {
+    kind: sourceFocusRegion?.kind || "region",
+    label: sourceFocusRegion?.label || "non-DOM region",
+    rect: scaledFocusRect,
   } : null;
   const mediaCrop = mediaRect
     ? await createMediaGridCrop(turn.screenshotDataUrl, mediaRect).catch((error) => {
-      console.warn("[Clicky] media crop failed", error);
+      console.warn("[Tars] media crop failed", error);
       return null;
     })
     : null;
@@ -449,11 +497,11 @@ async function finishPtt(turn) {
     viewport,
     mediaRect,
   };
-  await emit({ type: "CLICKY_CONTEXT_BOUND", context });
+  await emit({ type: "TARS_CONTEXT_BOUND", context });
   const [header, data = ""] = turn.screenshotDataUrl.split(",", 2);
   const mimeType = header.match(/^data:([^;]+)/)?.[1] || "image/jpeg";
   socket.send(JSON.stringify({
-    type: "clicky_screen",
+    type: "tars_screen",
     contextId: turn.contextId,
     data,
     mimeType,
@@ -464,36 +512,37 @@ async function finishPtt(turn) {
     page: turn.context.page || {},
     media,
     focusRegion,
+    ctrlGesture,
     mediaCrop,
     tabs: turn.tabs || [],
     intentText: "user just spoke while viewing this active browser tab",
   }));
   socket.send(new Int16Array(1600).buffer);
-  socket.send(JSON.stringify({ type: "clicky_commit_audio" }));
+  socket.send(JSON.stringify({ type: "tars_commit_audio" }));
   currentTurn = null;
   resetSpeechStats();
-  void emit({ type: "CLICKY_STATUS", mode: "thinking", text: "Clicky thinking" });
+  void emit({ type: "TARS_STATUS", mode: "thinking", text: "Tars thinking" });
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.target !== "offscreen") return false;
   void (async () => {
     let response = { ok: true };
-    if (message.type === "CLICKY_CONFIG") {
+    if (message.type === "TARS_CONFIG") {
       const changedIdentity = config?.accessToken !== message.config?.accessToken || config?.userId !== message.config?.userId;
       config = message.config;
       if (changedIdentity) disconnect();
       connect();
       if (config?.enabled && !config.suspended) void ensureMic();
-    } else if (message.type === "CLICKY_PTT_START") {
+    } else if (message.type === "TARS_PTT_START") {
       await startPtt(message);
-    } else if (message.type === "CLICKY_PTT_CANCEL") {
+    } else if (message.type === "TARS_PTT_CANCEL") {
       cancelPtt();
-    } else if (message.type === "CLICKY_PTT_END") {
+    } else if (message.type === "TARS_PTT_END") {
       response = { ok: true, ...endPtt(message) };
-    } else if (message.type === "CLICKY_PTT_CONTEXT") {
+    } else if (message.type === "TARS_PTT_CONTEXT") {
       await finishPtt(message.turn);
-    } else if (message.type === "CLICKY_RETRY_MIC") {
+    } else if (message.type === "TARS_RETRY_MIC") {
       if (micStream) micStream.getTracks().forEach((track) => track.stop());
       micStream = null;
       micNode = null;

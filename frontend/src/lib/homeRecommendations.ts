@@ -1,0 +1,190 @@
+import type {
+  Course,
+  LearnerSkillProfile,
+  OnboardingPrefs,
+} from "@/lib/types";
+
+export interface CprimeCourseRecommendation {
+  id: string;
+  title: string;
+  summary: string;
+  category: string;
+  difficulty: "Beginner" | "Intermediate" | "Advanced";
+  duration: string;
+  tags: string[];
+  url: string;
+}
+
+export interface RankedCourseRecommendation {
+  course: Course;
+  reason: string;
+  score: number;
+}
+
+export interface RankedCprimeRecommendation {
+  course: CprimeCourseRecommendation;
+  reason: string;
+  score: number;
+}
+
+interface RecommendationSignals {
+  prefs?: Partial<OnboardingPrefs> | null;
+  skillProfile?: Partial<LearnerSkillProfile> | null;
+  activeCourse?: Course | null;
+  completedCourses?: Course[] | null;
+}
+
+const GENERIC_RECOMMENDATION_WORDS = new Set([
+  "and",
+  "building",
+  "course",
+  "for",
+  "from",
+  "fundamentals",
+  "learning",
+  "mastery",
+  "practical",
+  "that",
+  "the",
+  "with",
+  "work",
+]);
+
+const MEANINGFUL_SHORT_WORDS = new Set(["ai", "ba", "bi", "ux"]);
+
+export const CPRIME_COURSES: CprimeCourseRecommendation[] = [
+  {
+    id: "cprime-effective-user-stories",
+    url: "https://www.cprime.com/learning/courses/user-story-workshop/",
+    title: "Effective User Stories",
+    summary: "Write focused stories, testable acceptance criteria, and clearer requirements with your team.",
+    category: "Business analysis",
+    difficulty: "Intermediate",
+    duration: "1 day",
+    tags: ["User Stories", "Acceptance Criteria", "Product Ownership", "Agile", "Requirements"],
+  },
+  {
+    id: "cprime-agentic-openai",
+    url: "https://www.cprime.com/learning/courses/building-agentic-apps-with-the-openai-sdk/",
+    title: "Building Agentic Apps with the OpenAI SDK",
+    summary: "Design reliable tool-using agents, structured workflows, guardrails, and production evaluations.",
+    category: "Data and AI",
+    difficulty: "Advanced",
+    duration: "2 days",
+    tags: ["AI", "Agents", "OpenAI", "LLM Tooling", "Structured Outputs", "Evals"],
+  },
+  {
+    id: "cprime-jira-agile",
+    url: "https://www.cprime.com/learning/courses/jira-and-agile-projects/",
+    title: "Jira and Agile Projects",
+    summary: "Build practical Jira workflows that support backlogs, sprint delivery, reporting, and team collaboration.",
+    category: "Atlassian",
+    difficulty: "Beginner",
+    duration: "1 day",
+    tags: ["Jira", "Agile", "Scrum", "Backlog Grooming", "Sprint Planning", "Product Management"],
+  },
+];
+
+function tokens(value: string): Set<string> {
+  return new Set(
+    value
+      .toLowerCase()
+      .split(/[^a-z0-9+#.]+/)
+      .filter((token) => (
+        !GENERIC_RECOMMENDATION_WORDS.has(token)
+        && (token.length > 2 || MEANINGFUL_SHORT_WORDS.has(token))
+      )),
+  );
+}
+
+function safeTerms(values: unknown[]): string[] {
+  return values.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function courseTitle(course: Course): string {
+  return typeof course.title === "string" && course.title.trim().length > 0 ? course.title : "this course";
+}
+
+function courseRating(course: Course): number {
+  return Number.isFinite(course.rating) ? course.rating : 0;
+}
+
+function overlaps(left: string[], right: string[]): boolean {
+  const leftTokens = tokens(left.join(" "));
+  const rightTokens = tokens(right.join(" "));
+  return Array.from(leftTokens).some((token) => rightTokens.has(token));
+}
+
+function courseTerms(course: Course): string[] {
+  return safeTerms([courseTitle(course), ...(Array.isArray(course.skills) ? course.skills : [])]);
+}
+
+function scoreTerms(terms: string[], signals: RecommendationSignals): { score: number; reason: string } {
+  const normalizedTerms = safeTerms(terms);
+  const completedCourses = Array.isArray(signals.completedCourses) ? signals.completedCourses : [];
+  const focusAreas = Array.isArray(signals.skillProfile?.focusAreas) ? signals.skillProfile.focusAreas : [];
+  const interests = Array.isArray(signals.prefs?.interests) ? signals.prefs.interests : [];
+
+  const completedMatch = completedCourses.find((course) =>
+    overlaps(normalizedTerms, courseTerms(course)),
+  );
+  if (completedMatch) {
+    return { score: 60, reason: `Because you completed ${courseTitle(completedMatch)}` };
+  }
+
+  if (signals.activeCourse && overlaps(normalizedTerms, courseTerms(signals.activeCourse))) {
+    return { score: 50, reason: `Because you are studying ${courseTitle(signals.activeCourse)}` };
+  }
+
+  const focusMatch = focusAreas.find((skill) =>
+    overlaps(normalizedTerms, safeTerms([skill.name])),
+  );
+  if (focusMatch) {
+    return { score: 40, reason: `Strengthen your ${focusMatch.name} skills` };
+  }
+
+  const interestMatch = interests.find((interest) =>
+    overlaps(normalizedTerms, safeTerms([interest])),
+  );
+  if (interestMatch) {
+    return { score: 30, reason: `Matches your interest in ${interestMatch}` };
+  }
+
+  if (signals.prefs?.preparingFor && overlaps(normalizedTerms, [signals.prefs.preparingFor])) {
+    return { score: 20, reason: `Supports your goal: ${signals.prefs.preparingFor}` };
+  }
+
+  if (signals.prefs?.role && overlaps(normalizedTerms, [signals.prefs.role])) {
+    return { score: 10, reason: `Relevant to your work as ${signals.prefs.role}` };
+  }
+
+  return { score: 0, reason: "Featured for Ctrl+Teach learners" };
+}
+
+export function rankCourseRecommendations(
+  courses: Course[],
+  startedCourseIds: Set<string>,
+  signals: RecommendationSignals,
+  limit = 3,
+): RankedCourseRecommendation[] {
+  return courses
+    .filter((course) => !startedCourseIds.has(course.id))
+    .map((course) => ({ course, ...scoreTerms(courseTerms(course), signals) }))
+    .sort((left, right) => (
+      right.score - left.score
+      || courseRating(right.course) - courseRating(left.course)
+      || courseTitle(left.course).localeCompare(courseTitle(right.course))
+    ))
+    .slice(0, limit);
+}
+
+export function rankCprimeRecommendations(
+  signals: RecommendationSignals,
+): RankedCprimeRecommendation[] {
+  return CPRIME_COURSES
+    .map((course) => ({
+      course,
+      ...scoreTerms(safeTerms([course.title, ...(Array.isArray(course.tags) ? course.tags : [])]), signals),
+    }))
+    .sort((left, right) => right.score - left.score || left.course.title.localeCompare(right.course.title));
+}

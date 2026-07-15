@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Ctrl+Teach Clicky",
-  "version": "0.1.0",
-  "description": "Browser-wide Clicky voice, pointing, and page assistance.",
+  "name": "Ctrl+Teach Tars",
+  "version": "0.1.1",
+  "description": "Browser-wide Tars voice, pointing, and page assistance.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "tabs", "offscreen", "scripting"],
   "host_permissions": ["<all_urls>"],
@@ -10,12 +10,12 @@
     "service_worker": "service-worker.js"
   },
   "action": {
-    "default_title": "Talk to Clicky"
+    "default_title": "Talk to Tars"
   },
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["content.js"],
+      "js": ["grounding-geometry.js", "drawing-lifetime.js", "content.js"],
       "run_at": "document_start",
       "all_frames": false
     }

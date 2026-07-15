@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { base64ToArrayBuffer } from "@/lib/utils";
-import type { ClickyDrawCommand } from "@/lib/clickyBoardBridge";
+import type { TarsDrawCommand } from "@/lib/tarsBoardBridge";
 import type {
   TranscriptEntry,
   CanvasCommand,
@@ -34,15 +34,15 @@ export function useWebSocket() {
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const [messages, setMessages] = useState<TranscriptEntry[]>([]);
   const [canvasCommands, setCanvasCommands] = useState<CanvasCommand[]>([]);
-  const [clickyPoint, setClickyPoint] = useState<{
+  const [tarsPoint, setTarsPoint] = useState<{
     x: number;
     y: number;
     label?: string;
     id: string;
   } | null>(null);
-  // Page-mode Clicky pointing events. Payload is
+  // Page-mode Tars pointing events. Payload is
   // either `{targetId}` for DOM-exact pointing or `{x,y}` for vision fallback.
-  const [clickyAgentPoint, setClickyAgentPoint] = useState<{
+  const [tarsAgentPoint, setTarsAgentPoint] = useState<{
     targetId?: string | null;
     x?: number | null;
     y?: number | null;
@@ -50,7 +50,7 @@ export function useWebSocket() {
     action?: "none" | "click";
     id: string;
   } | null>(null);
-  const [clickyAgentDraws, setClickyAgentDraws] = useState<ClickyDrawCommand[]>([]);
+  const [tarsAgentDraws, setTarsAgentDraws] = useState<TarsDrawCommand[]>([]);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [isSavingProgress, setIsSavingProgress] = useState(false);
   const [realtimeReady, setRealtimeReady] = useState(false);
@@ -181,7 +181,11 @@ export function useWebSocket() {
 
     let ws: WebSocket;
     try {
-      ws = new WebSocket(url);
+      const sessionToken = opts?.authToken?.replace(/^Bearer\s+/i, "").trim();
+      const protocols = sessionToken
+        ? [`ctrlteach-auth.${sessionToken}`]
+        : undefined;
+      ws = protocols ? new WebSocket(url, protocols) : new WebSocket(url);
     } catch {
       setStatus("disconnected");
       onErrorRef.current?.("Could not open the realtime connection.");
@@ -334,6 +338,16 @@ export function useWebSocket() {
     }
   }, [beginAssistantTurn]);
 
+  const sendRoleplayStart = useCallback((instruction: string) => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      // Start the actor without showing the configuration packet as a learner
+      // transcript message.
+      beginAssistantTurn();
+      ws.send(JSON.stringify({ type: "roleplay_start", instruction }));
+    }
+  }, [beginAssistantTurn]);
+
   const sendCompanionContext = useCallback((page: {
     route: string;
     url?: string;
@@ -422,12 +436,12 @@ export function useWebSocket() {
     []
   );
 
-  // Clicky-only: push a current-tab screenshot + lightweight DOM inventory as
+  // Tars-only: push a current-tab screenshot + lightweight DOM inventory as
   // a side-channel message. The backend forwards this to the Realtime session
   // as a conversation message the model can reason about when it decides
   // whether to call `point_at(target_id=...)` (DOM-exact) or `point_at(x,y)`
   // (vision fallback).
-  const sendClickyScreen = useCallback(
+  const sendTarsScreen = useCallback(
     (
       base64Data: string,
       mimeType: string,
@@ -456,7 +470,7 @@ export function useWebSocket() {
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(
           JSON.stringify({
-            type: "clicky_screen",
+            type: "tars_screen",
             data: base64Data,
             mimeType,
             width: meta.width,
@@ -472,17 +486,17 @@ export function useWebSocket() {
     []
   );
 
-  const sendClickyCommitAudio = useCallback(() => {
+  const sendTarsCommitAudio = useCallback(() => {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "clicky_commit_audio" }));
+      ws.send(JSON.stringify({ type: "tars_commit_audio" }));
     }
   }, []);
 
-  const sendClickyCancelAudio = useCallback(() => {
+  const sendTarsCancelAudio = useCallback(() => {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "clicky_cancel_audio" }));
+      ws.send(JSON.stringify({ type: "tars_cancel_audio" }));
     }
   }, []);
 
@@ -553,11 +567,11 @@ export function useWebSocket() {
         return;
       }
 
-      // ─ Clicky `point_at` envelope from clicky_agent ─
-      //   Shape: {type:"clicky_point", tool:"point_at", response:{targetId,x,y,label,action}}
-      if (event.type === "clicky_point" && event.response) {
+      // ─ Tars `point_at` envelope from tars_agent ─
+      //   Shape: {type:"tars_point", tool:"point_at", response:{targetId,x,y,label,action}}
+      if (event.type === "tars_point" && event.response) {
         const resp = event.response;
-        setClickyAgentPoint({
+        setTarsAgentPoint({
           targetId: resp.targetId ?? null,
           x: typeof resp.x === "number" ? resp.x : null,
           y: typeof resp.y === "number" ? resp.y : null,
@@ -565,18 +579,18 @@ export function useWebSocket() {
           action: resp.action === "click" ? "click" : "none",
           id: crypto.randomUUID(),
         });
-        console.log("[WS] Clicky point_at:", JSON.stringify(resp));
+        console.log("[WS] Tars point_at:", JSON.stringify(resp));
         return;
       }
 
-      // Live Classroom points are grounded by GPT-5.5 against the current
+      // Live Classroom points are grounded by GPT-5.6 Sol against the current
       // viewport (and, when applicable, the exact Excalidraw image crop).
       if (event.type === "classroom_point" && event.response) {
         const resp = event.response;
         const x = Number(resp.x);
         const y = Number(resp.y);
         if (Number.isFinite(x) && Number.isFinite(y)) {
-          setClickyPoint({
+          setTarsPoint({
             x,
             y,
             label: typeof resp.label === "string" ? resp.label : undefined,
@@ -590,12 +604,12 @@ export function useWebSocket() {
       }
 
       if (
-        (event.type === "clicky_draw" && event.response) ||
-        (event.type === "clicky_draw_batch" && Array.isArray(event.responses))
+        (event.type === "tars_draw" && event.response) ||
+        (event.type === "tars_draw_batch" && Array.isArray(event.responses))
       ) {
         const allowedShapes = new Set(["circle", "rectangle", "highlight", "underline", "arrow", "line"]);
         const allowedColors = new Set(["blue", "teal", "red", "amber", "purple"]);
-        const responses = event.type === "clicky_draw_batch" ? event.responses : [event.response];
+        const responses = event.type === "tars_draw_batch" ? event.responses : [event.response];
         const drawEvents = responses.map((response: Record<string, unknown>) => {
           const annotationId = typeof response.annotation_id === "string"
             ? response.annotation_id
@@ -622,9 +636,9 @@ export function useWebSocket() {
             annotationId,
             provisional,
             replace: response.replace === true,
-          } as ClickyDrawCommand);
+          } as TarsDrawCommand);
         });
-        setClickyAgentDraws((current) => [...current, ...drawEvents].slice(-32));
+        setTarsAgentDraws((current) => [...current, ...drawEvents].slice(-32));
         return;
       }
 
@@ -768,12 +782,12 @@ export function useWebSocket() {
               // release its barrier instead of waiting for the watchdog.
               acknowledgeVisualSync(resp.visualSyncId);
             }
-            if (resp?.tool === "point_at_whiteboard" && resp?.clickyPoint) {
-              const p = resp.clickyPoint;
+            if (resp?.tool === "point_at_whiteboard" && resp?.tarsPoint) {
+              const p = resp.tarsPoint;
               const x = Number(p.x);
               const y = Number(p.y);
               if (Number.isFinite(x) && Number.isFinite(y)) {
-                setClickyPoint({
+                setTarsPoint({
                   x,
                   y,
                   label: typeof p.label === "string" ? p.label : undefined,
@@ -875,9 +889,9 @@ export function useWebSocket() {
     status,
     messages,
     canvasCommands,
-    clickyPoint,
-    clickyAgentPoint,
-    clickyAgentDraws,
+    tarsPoint,
+    tarsAgentPoint,
+    tarsAgentDraws,
     isGeneratingImage,
     isSavingProgress,
     realtimeReady,
@@ -889,14 +903,15 @@ export function useWebSocket() {
     acknowledgeVisualSync,
     sendText,
     sendClassroomStart,
+    sendRoleplayStart,
     sendCompanionContext,
     sendAudio,
     sendImage,
     sendCanvasSnapshot,
     sendCanvasElements,
-    sendClickyScreen,
-    sendClickyCommitAudio,
-    sendClickyCancelAudio,
+    sendTarsScreen,
+    sendTarsCommitAudio,
+    sendTarsCancelAudio,
   };
 }
 

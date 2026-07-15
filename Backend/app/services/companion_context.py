@@ -1,4 +1,4 @@
-"""Authenticated page-context assembly for the unified Clicky companion."""
+"""Authenticated page-context assembly for the unified Tars companion."""
 
 from __future__ import annotations
 

@@ -1,11 +1,11 @@
 (() => {
-  if (window.__ctrlTeachClickyExtensionLoaded) return;
-  window.__ctrlTeachClickyExtensionLoaded = true;
+  if (window.__ctrlTeachTarsExtensionLoaded) return;
+  window.__ctrlTeachTarsExtensionLoaded = true;
 
   // A reloaded unpacked extension leaves its old closed-shadow host in tabs
   // that were already open. A newly injected content-script world removes that
   // orphan before mounting the live overlay.
-  document.getElementById("ctrlteach-clicky-extension")?.remove();
+  document.getElementById("ctrlteach-tars-extension")?.remove();
 
   const CTRLTEACH_ORIGINS = new Set([
     "http://localhost:3000",
@@ -25,11 +25,12 @@
   const SPRING_C = 2 * SPRING_DAMPING * SPRING_OMEGA;
   const SENSITIVE_TEXT = /\b(buy|purchase|pay|checkout|place order|delete|remove|erase|send|submit|publish|post|sign out|log out|change password|reset password|upload|download|allow|grant|confirm booking|book now)\b/i;
 
-  let extensionState = { enabled: false, suspended: false, active: false, cursor: { x: 80, y: 120 } };
+  let extensionState = { enabled: false, suspended: false, active: false, labActive: false, activeLabId: "", cursor: { x: 80, y: 120 } };
   let mode = "idle";
   let pttHeld = false;
   let currentContextId = "";
   let currentTargets = new Map();
+  let lastCollectedElements = [];
   let mouse = { x: 45, y: 95 };
   let position = { x: 80, y: 120 };
   let velocity = { x: 0, y: 0 };
@@ -37,18 +38,22 @@
   // Monotonic token that cancels any in-progress pointing/navigation when a
   // new point arrives, so a stale return-flight never clobbers a fresh target.
   let navToken = 0;
-  // Auto-clear timer for screen drawings. Real Clicky fades annotations after
-  // a few seconds; we clear them after 6s of inactivity (matching the pointing
-  // bubble lifecycle: ~3s hold + ~0.5s fade + return flight).
-  let drawingsClearTimer = 0;
   const DRAWINGS_AUTO_CLEAR_MS = 6000;
+  let drawingLifetime = null;
+  let ctrlTrailPoints = [];
+  let ctrlGesturePoints = [];
+  let ctrlTrailGroup = null;
+  let ctrlTrailFrame = 0;
+  let ctrlGesture = null;
+  let lastLabInputAt = 0;
   let lastFrame = 0;
   let cursorReportAt = 0;
   let statusText = "";
   let transcriptText = "";
+  let bubbleClearTimer = 0;
 
   const host = document.createElement("div");
-  host.id = "ctrlteach-clicky-extension";
+  host.id = "ctrlteach-tars-extension";
   Object.assign(host.style, {
     position: "fixed",
     inset: "0",
@@ -63,13 +68,13 @@
       #layer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
       #drawings { position: fixed; inset: 0; width: 100vw; height: 100vh; overflow: visible; pointer-events: none; }
       #cursor { position: fixed; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
-      #triangle { position: absolute; left: -8px; top: 0; width: 16px; height: 13.856px; background: #4f46e5; clip-path: polygon(50% 0, 100% 100%, 0 100%); opacity: 1; transition: opacity .13s ease, background-color .13s ease; filter: drop-shadow(0 0 7px rgba(79,70,229,.55)); }
-      #waveform { position: absolute; left: -7px; top: -6px; height: 18px; display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity .16s ease; filter: drop-shadow(0 0 5px rgba(20,184,166,.6)); }
+      #triangle { position: absolute; left: -8px; top: 0; width: 16px; height: 13.856px; background: #79a925; clip-path: polygon(50% 0, 100% 100%, 0 100%); opacity: 1; transition: opacity .13s ease, background-color .13s ease; filter: drop-shadow(0 0 7px rgba(121,169,37,.45)); }
+      #waveform { position: absolute; left: -7px; top: -6px; height: 18px; display: flex; align-items: center; gap: 1px; opacity: 0; transform-origin: 7px 6px; transition: opacity .16s ease; filter: drop-shadow(0 0 5px rgba(20,184,166,.6)); }
       #waveform span { width: 2px; border-radius: 999px; background: #14b8a6; transform-origin: center; animation: wave .78s ease-in-out infinite alternate; }
       #waveform span:nth-child(1), #waveform span:nth-child(5) { height: 5px; }
       #waveform span:nth-child(2), #waveform span:nth-child(4) { height: 9px; animation-delay: .09s; }
       #waveform span:nth-child(3) { height: 13px; animation-delay: .18s; }
-      #ring { position: absolute; left: -8px; top: -8px; width: 12px; height: 12px; border: 2px solid rgba(79,70,229,.2); border-top-color: #4f46e5; border-right-color: rgba(79,70,229,.72); border-radius: 999px; opacity: 0; transition: opacity .16s ease; filter: drop-shadow(0 0 5px rgba(79,70,229,.44)); }
+      #ring { position: absolute; left: -8px; top: -8px; width: 12px; height: 12px; border: 2px solid rgba(121,169,37,.2); border-top-color: #79a925; border-right-color: rgba(121,169,37,.72); border-radius: 999px; opacity: 0; transition: opacity .16s ease; filter: drop-shadow(0 0 5px rgba(121,169,37,.4)); }
       #cursor[data-mode="listening"] #triangle, #cursor[data-mode="thinking"] #triangle { opacity: 0; }
       #cursor[data-mode="listening"] #waveform { opacity: 1; }
       #cursor[data-mode="thinking"] #ring { opacity: 1; animation: spin .9s linear infinite; }
@@ -78,7 +83,7 @@
       #bubble.visible { opacity: 1; transform: translateY(0) scale(1); }
       #bubble.pop { animation: bubblePop .26s cubic-bezier(.2,1.5,.35,1); }
       @keyframes bubblePop { from { transform: translateY(5px) scale(.5); } to { transform: translateY(0) scale(1); } }
-      #status { position: fixed; right: 18px; bottom: 18px; max-width: 320px; padding: 8px 11px; border: 1px solid rgba(79,70,229,.18); border-radius: 999px; background: rgba(255,255,255,.94); color: #4338ca; font: 650 11px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; box-shadow: 0 8px 25px rgba(27,24,18,.12); opacity: 0; transition: opacity .2s ease; }
+      #status { position: fixed; right: 18px; bottom: 18px; max-width: 320px; padding: 8px 11px; border: 1px solid #d8dbd1; border-radius: 6px; background: rgba(255,255,255,.96); color: #4f7716; font: 650 11px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; box-shadow: 0 8px 25px rgba(16,18,15,.1); opacity: 0; transition: opacity .2s ease; }
       #status.visible { opacity: 1; }
       #confirm { position: fixed; inset: 0; display: none; place-items: center; background: rgba(17,24,39,.2); pointer-events: auto; }
       #confirm.visible { display: grid; }
@@ -88,11 +93,11 @@
       #confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
       .confirm-button { border: 0; border-radius: 10px; padding: 9px 13px; font: 700 12px Inter, ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
       #confirm-cancel { background: #f3f4f6; color: #374151; }
-      #confirm-accept { background: #4f46e5; color: white; }
+      #confirm-accept { background: #b7ec52; color: #26320f; }
       .stroke { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .55s cubic-bezier(.22,.8,.24,1) forwards; }
       .stroke.dashed { stroke-dasharray: 8 6; }
       .stroke.dotted { stroke-dasharray: 2 5; stroke-linecap: round; }
-      .annotation.provisional { opacity: .42; }
+      .ctrl-trail-segment { stroke: #14b8a6; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 6px rgba(20,184,166,.5)); }
       .draw-text { font: 600 13px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 4px; stroke-linejoin: round; animation: draw .35s ease forwards; }
       @keyframes spin { to { transform: rotate(360deg); } }
       @keyframes wave { from { transform: scaleY(.58); opacity: .72; } to { transform: scaleY(1.18); opacity: 1; } }
@@ -109,7 +114,7 @@
       <div id="status"></div>
       <div id="confirm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
         <div id="confirm-card">
-          <h2 id="confirm-title">Confirm Clicky action</h2>
+          <h2 id="confirm-title">Confirm Tars action</h2>
           <p id="confirm-copy"></p>
           <div id="confirm-actions">
             <button id="confirm-cancel" class="confirm-button" type="button">Cancel</button>
@@ -120,6 +125,7 @@
     </div>`;
 
   const cursor = shadow.getElementById("cursor");
+  const waveform = shadow.getElementById("waveform");
   const bubble = shadow.getElementById("bubble");
   const bubbleAnchor = shadow.getElementById("bubble-anchor");
   const status = shadow.getElementById("status");
@@ -130,9 +136,32 @@
   const confirmCancel = shadow.getElementById("confirm-cancel");
   let pendingConfirmation = null;
 
+  const createDrawingLifetimeGate = globalThis.TarsDrawingLifetime?.createDrawingLifetimeGate
+    || ((onExpire) => ({
+      // Drawing expiry is optional. If its helper ever fails to load, keep the
+      // core cursor alive and leave annotations visible instead of aborting.
+      markDrawn() {},
+      setActive() {},
+      clear() {},
+      onExpire,
+    }));
+  drawingLifetime = createDrawingLifetimeGate(() => {
+    // Only remove the annotations that existed when expiry began. A late
+    // grounded stroke must never be removed by an older fade callback.
+    const expiredChildren = [...drawings.children];
+    expiredChildren.forEach((child) => {
+      child.style.transition = "opacity .5s ease";
+      child.style.opacity = "0";
+    });
+    setTimeout(() => {
+      expiredChildren.forEach((child) => child.remove());
+      if (ctrlTrailGroup && !ctrlTrailGroup.isConnected) ctrlTrailGroup = null;
+    }, 500);
+  }, { delayMs: DRAWINGS_AUTO_CLEAR_MS });
+
   function mount() {
     // Fullscreen hides siblings outside the fullscreen top-layer element. Move
-    // Clicky's overlay inside a fullscreen player container so annotations stay
+    // Tars's overlay inside a fullscreen player container so annotations stay
     // visible over YouTube and other HTML video players.
     const parent = document.fullscreenElement || document.documentElement || document;
     if (host.parentNode !== parent) parent.appendChild(host);
@@ -158,15 +187,26 @@
   function setMode(next) {
     const previous = mode;
     mode = next || "idle";
+    if (mode !== "idle" && bubbleClearTimer) {
+      clearTimeout(bubbleClearTimer);
+      bubbleClearTimer = 0;
+    }
     if (mode === "listening" && previous !== "listening") {
       transcriptText = "";
       setBubble("");
     }
     cursor.dataset.mode = mode;
+    // Thinking and speaking are part of the same visual turn. The drawing's
+    // lifetime begins only after the playback gate reports idle.
+    drawingLifetime?.setActive(mode !== "idle");
   }
 
   function setBubble(text) {
     const clean = String(text || "").replace(/\s+/g, " ").trim().slice(0, 260);
+    if (clean && bubbleClearTimer) {
+      clearTimeout(bubbleClearTimer);
+      bubbleClearTimer = 0;
+    }
     // Reset the pointing-lifecycle decorations so transcript/status text never
     // inherits a stale bounce animation or a slow fade transition.
     bubble.classList.remove("pop");
@@ -190,8 +230,11 @@
   function transformCursor(x, y, rotation = DEFAULT_ROTATION, scale = 1) {
     position = { x, y };
     cursor.style.transform = `translate3d(${x}px,${y}px,0) rotate(${rotation}deg) scale(${scale})`;
+    // The cursor tilts toward its movement, but a listening waveform should
+    // remain level with upright bars instead of inheriting that rotation.
+    waveform.style.transform = `rotate(${-rotation}deg)`;
     // The pointer rotates to face its movement. Counter-rotate the bubble so
-    // Clicky's response text always remains level and readable.
+    // Tars's response text always remains level and readable.
     bubbleAnchor.style.transform = `rotate(${-rotation}deg)`;
   }
 
@@ -210,7 +253,7 @@
     requestAnimationFrame(animateFrame);
   }
 
-  // Quadratic-bezier arc flight — the same curve production Clicky uses:
+  // Quadratic-bezier arc flight — the same curve production Tars uses:
   // smoothstep ease (3t²-2t³), control point lifted by min(distance*0.2, 80),
   // triangle rotated to the curve tangent, and a sin-pulse scale (1 → 1.3 → 1)
   // that peaks at the arc apex. Resolves when the cursor has landed.
@@ -238,7 +281,7 @@
   }
 
   // Types the pointing label one character at a time (30–60ms per char) with a
-  // scale-bounce entrance, exactly like Clicky's navigation bubble.
+  // scale-bounce entrance, exactly like Tars's navigation bubble.
   function streamBubbleText(text, onDone) {
     const clean = String(text || "").replace(/\s+/g, " ").trim().slice(0, 260);
     bubble.textContent = "";
@@ -278,7 +321,7 @@
     bezierFlight(from, to).then(() => {
       if (token !== navToken) return;
       // Arrived at the element — point at it: stream the label, hold, fade,
-      // then fly back to the live cursor (the full Clicky pointing lifecycle).
+      // then fly back to the live cursor (the full Tars pointing lifecycle).
       streamBubbleText(label, () => {
         if (token !== navToken) return;
         setTimeout(() => {
@@ -310,6 +353,42 @@
   function isActionable(element) {
     if (element.getAttribute("aria-disabled") === "true" || element.matches(":disabled")) return false;
     return element.matches("button,a[href],input:not([type='password']):not([type='file']),textarea,select,[role='button'],[role='link'],[role='tab'],[role='menuitem'],[role='switch'],[role='checkbox']");
+  }
+
+  function selectorHint(element) {
+    if (!(element instanceof HTMLElement)) return "";
+    if (element.id) return `#${element.id.slice(0, 80)}`;
+    const aria = element.getAttribute("aria-label") || element.getAttribute("name") || element.getAttribute("placeholder");
+    if (aria) return `${element.tagName.toLowerCase()}[${aria.replace(/\s+/g, " ").trim().slice(0, 80)}]`;
+    return element.tagName.toLowerCase();
+  }
+
+  function labElementPayload(element) {
+    if (!(element instanceof HTMLElement) || element === host || host.contains(element)) return null;
+    const rect = element.getBoundingClientRect();
+    return {
+      url: location.href,
+      title: document.title,
+      tagName: element.tagName.toLowerCase(),
+      role: elementRole(element),
+      text: elementLabel(element),
+      label: element.getAttribute("aria-label") || element.getAttribute("title") || element.getAttribute("placeholder") || "",
+      selector: selectorHint(element),
+      actionable: isActionable(element),
+      rect: {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+      },
+    };
+  }
+
+  function emitLabInteraction(kind, element) {
+    if (!extensionState.labActive) return;
+    const payload = labElementPayload(element);
+    if (!payload) return;
+    void chrome.runtime.sendMessage({ type: "TARS_LAB_INTERACTION", kind, payload });
   }
 
   function collectDomTargets(contextId) {
@@ -359,6 +438,7 @@
     }
     currentTargets = targetMap;
     currentContextId = contextId;
+    lastCollectedElements = elements;
     return elements;
   }
 
@@ -455,6 +535,7 @@
     const media = visibleMedia();
     if (media && !media.paused) media.pause();
     clearDrawings();
+    startCtrlTrail(mouse);
     transcriptText = "";
     setBubble("");
   }
@@ -473,6 +554,7 @@
         },
         media: mediaContext(),
         focusRegion: nonDomRegionContext(),
+        ctrlGesture,
         elements,
       },
     };
@@ -546,7 +628,13 @@
   }
 
   function handlePoint(context, response) {
-    if (!validContext(context)) return;
+    if (!validContext(context)) {
+      console.warn("[Tars] ignored point for stale or inactive context", {
+        incoming: context?.contextId,
+        current: currentContextId,
+      });
+      return;
+    }
     const target = response?.targetId ? currentTargets.get(response.targetId) : null;
     if (target?.isConnected) {
       const point = pointForElement(target, response.label);
@@ -557,14 +645,18 @@
     if (typeof response?.x === "number" && typeof response?.y === "number" && context.screenshotWidth && context.screenshotHeight) {
       const point = responsePoint(context, response.x, response.y, response.coordinate_space);
       if (point) flyTo({ ...point, label: response.label });
+      else setStatus("Tars couldn't map that point", true);
+      return;
     }
+    console.warn("[Tars] point response had no target or coordinates", response);
+    setStatus("Tars couldn't lock onto that target", true);
   }
 
   function mediaAction(action, value) {
     const media = visibleMedia();
     if (!media) return;
     if (action === "pause_media") media.pause();
-    else if (action === "play_media") void media.play().catch(() => setStatus("Click the page once, then ask Clicky to resume", true));
+    else if (action === "play_media") void media.play().catch(() => setStatus("Click the page once, then ask Tars to resume", true));
     else if (action === "seek_media" && Number.isFinite(Number(value))) {
       media.currentTime = Math.max(0, Math.min(Number.isFinite(media.duration) ? media.duration : Number(value), Number(value)));
     }
@@ -585,33 +677,190 @@
   }
 
   function clearDrawings() {
-    clearTimeout(drawingsClearTimer);
-    drawingsClearTimer = 0;
+    drawingLifetime?.clear();
     drawings.replaceChildren();
+    ctrlTrailGroup = null;
+    ctrlTrailPoints = [];
   }
 
-  // Schedule all on-screen drawings to fade and clear after a few seconds,
-  // matching how production Clicky's annotations disappear after the turn.
-  function scheduleDrawingAutoClear() {
-    clearTimeout(drawingsClearTimer);
-    drawingsClearTimer = setTimeout(() => {
-      // Fade out then remove so it doesn't just vanish mid-glance.
-      const children = [...drawings.children];
-      children.forEach((child) => {
-        child.style.transition = "opacity .5s ease";
-        child.style.opacity = "0";
-      });
-      setTimeout(() => { drawings.replaceChildren(); }, 500);
-      drawingsClearTimer = 0;
-    }, DRAWINGS_AUTO_CLEAR_MS);
+  function clippedRect(rect) {
+    return {
+      x: Math.max(0, rect.left),
+      y: Math.max(0, rect.top),
+      width: Math.max(1, Math.min(innerWidth, rect.right) - Math.max(0, rect.left)),
+      height: Math.max(1, Math.min(innerHeight, rect.bottom) - Math.max(0, rect.top)),
+    };
+  }
+
+  function nearestElementSummary(point) {
+    let element = document.elementFromPoint(point.x, point.y);
+    if (element && host.contains(element)) element = null;
+    if (element instanceof HTMLElement && element !== host) {
+      const rect = element.getBoundingClientRect();
+      if (rect.width >= 2 && rect.height >= 2) {
+        return {
+          role: elementRole(element),
+          text: elementLabel(element),
+          actionable: isActionable(element),
+          rect: clippedRect(rect),
+        };
+      }
+    }
+    const nearest = lastCollectedElements
+      .map((item) => {
+        const rect = item.rect || {};
+        const cx = Number(rect.x || 0) + Number(rect.width || 0) / 2;
+        const cy = Number(rect.y || 0) + Number(rect.height || 0) / 2;
+        return { item, distance: Math.hypot(cx - point.x, cy - point.y) };
+      })
+      .sort((a, b) => a.distance - b.distance)[0];
+    return nearest?.distance < 90 ? nearest.item : null;
+  }
+
+  const CTRL_TRAIL_LIFETIME_MS = 320;
+  const CTRL_TRAIL_MAX_POINTS = 72;
+  const CTRL_GESTURE_MAX_POINTS = 220;
+
+  function ensureCtrlTrailGroup() {
+    if (ctrlTrailGroup) return ctrlTrailGroup;
+    ctrlTrailGroup = svgElement("g", { "data-tars-ctrl-trail": "true" });
+    drawings.appendChild(ctrlTrailGroup);
+    return ctrlTrailGroup;
+  }
+
+  function scheduleCtrlTrailRender() {
+    if (ctrlTrailFrame) return;
+    ctrlTrailFrame = requestAnimationFrame(() => {
+      ctrlTrailFrame = 0;
+      renderCtrlTrail();
+      if (pttHeld || ctrlTrailPoints.length) scheduleCtrlTrailRender();
+    });
+  }
+
+  function renderCtrlTrail() {
+    const now = performance.now();
+    ctrlTrailPoints = ctrlTrailPoints.filter((point) => now - point.t <= CTRL_TRAIL_LIFETIME_MS);
+    if (!ctrlTrailPoints.length) {
+      if (ctrlTrailGroup) ctrlTrailGroup.remove();
+      ctrlTrailGroup = null;
+      return;
+    }
+
+    const group = ensureCtrlTrailGroup();
+    group.replaceChildren();
+    for (let index = 1; index < ctrlTrailPoints.length; index += 1) {
+      const previous = ctrlTrailPoints[index - 1];
+      const point = ctrlTrailPoints[index];
+      const age = Math.max(0, now - previous.t);
+      const opacity = Math.max(0, Math.min(0.78, 1 - age / CTRL_TRAIL_LIFETIME_MS));
+      if (opacity <= 0.03) continue;
+      group.appendChild(svgElement("line", {
+        class: "ctrl-trail-segment",
+        x1: previous.x.toFixed(1),
+        y1: previous.y.toFixed(1),
+        x2: point.x.toFixed(1),
+        y2: point.y.toFixed(1),
+        opacity: opacity.toFixed(3),
+      }));
+    }
+  }
+
+  function startCtrlTrail(point) {
+    const stamped = { x: point.x, y: point.y, t: performance.now() };
+    ctrlTrailPoints = [stamped];
+    ctrlGesturePoints = [stamped];
+    ctrlGesture = null;
+    ensureCtrlTrailGroup();
+    renderCtrlTrail();
+    scheduleCtrlTrailRender();
+  }
+
+  function recordCtrlTrailPoint(point) {
+    if (!pttHeld) return;
+    const previous = ctrlTrailPoints[ctrlTrailPoints.length - 1];
+    if (previous && Math.hypot(previous.x - point.x, previous.y - point.y) < 4) return;
+    const stamped = { x: point.x, y: point.y, t: performance.now() };
+    ctrlTrailPoints.push(stamped);
+    ctrlGesturePoints.push(stamped);
+    if (ctrlTrailPoints.length > CTRL_TRAIL_MAX_POINTS) ctrlTrailPoints.shift();
+    if (ctrlGesturePoints.length > CTRL_GESTURE_MAX_POINTS) ctrlGesturePoints.shift();
+    renderCtrlTrail();
+    scheduleCtrlTrailRender();
+  }
+
+  function finishCtrlTrail() {
+    const points = ctrlGesturePoints.slice();
+    scheduleCtrlTrailRender();
+    if (!points.length) return null;
+    const xs = points.map((point) => point.x);
+    const ys = points.map((point) => point.y);
+    const left = Math.min(...xs);
+    const right = Math.max(...xs);
+    const top = Math.min(...ys);
+    const bottom = Math.max(...ys);
+    const width = right - left;
+    const height = bottom - top;
+    const pathLength = points.slice(1).reduce((total, point, index) => {
+      const previous = points[index];
+      return total + Math.hypot(point.x - previous.x, point.y - previous.y);
+    }, 0);
+    const start = points[0];
+    const end = points[points.length - 1];
+    const startEnd = Math.hypot(end.x - start.x, end.y - start.y);
+    let gesture = {
+      type: "point",
+      x: end.x,
+      y: end.y,
+      label: "pointed region",
+      nearestElement: nearestElementSummary(end),
+    };
+    if (pathLength >= 30 && width >= Math.max(60, height * 2.4)) {
+      const leftPoint = start.x <= end.x ? start : end;
+      const rightPoint = start.x <= end.x ? end : start;
+      gesture = {
+        type: "underline",
+        x: leftPoint.x,
+        y: leftPoint.y,
+        end_x: rightPoint.x,
+        end_y: rightPoint.y,
+        label: "underlined region",
+        nearestElement: nearestElementSummary({ x: (left + right) / 2, y: (top + bottom) / 2 }),
+      };
+    } else if (pathLength >= 80 && width >= 28 && height >= 28 && startEnd <= Math.max(36, Math.min(width, height) * .55)) {
+      gesture = {
+        type: "circle",
+        x: left,
+        y: top,
+        end_x: right,
+        end_y: bottom,
+        label: "circled region",
+        nearestElement: nearestElementSummary({ x: (left + right) / 2, y: (top + bottom) / 2 }),
+      };
+    } else if (width >= 28 || height >= 28) {
+      gesture = {
+        type: "region",
+        x: left,
+        y: top,
+        end_x: right,
+        end_y: bottom,
+        label: "selected region",
+        nearestElement: nearestElementSummary({ x: (left + right) / 2, y: (top + bottom) / 2 }),
+      };
+    }
+    ctrlGesture = gesture;
+    ctrlGesturePoints = [];
+    return gesture;
   }
 
   function screenshotPoint(context, x, y) {
-    if (typeof x !== "number" || typeof y !== "number" || !context.screenshotWidth || !context.screenshotHeight) return null;
-    return {
-      x: Math.max(0, Math.min(innerWidth, (x / context.screenshotWidth) * innerWidth)),
-      y: Math.max(0, Math.min(innerHeight, (y / context.screenshotHeight) * innerHeight)),
-    };
+    return TarsGroundingGeometry.screenshotToViewportPoint({
+      x,
+      y,
+      screenshotWidth: context.screenshotWidth,
+      screenshotHeight: context.screenshotHeight,
+      viewportWidth: innerWidth,
+      viewportHeight: innerHeight,
+    });
   }
 
   function responsePoint(context, x, y, coordinateSpace) {
@@ -636,15 +885,13 @@
       return;
     }
     const annotationId = String(response.annotation_id || crypto.randomUUID());
-    // A grounded result uses the same stable id as its provisional geometry.
-    // Remove the coarse group before appending the correction so users never
-    // see doubled circles/boxes or stale arrowheads.
+    // Stable ids make each grounded model tool call independently traceable.
     for (const child of [...drawings.children]) {
       if (child.getAttribute("data-annotation-id") === annotationId) child.remove();
     }
     const annotationGroup = svgElement("g", {
       "data-annotation-id": annotationId,
-      class: response.provisional ? "annotation provisional" : "annotation",
+      class: "annotation",
     });
     const colors = { blue: "#3380ff", teal: "#14b8a6", red: "#ef4444", amber: "#f59e0b", purple: "#8b5cf6" };
     const color = colors[response.color] || colors.blue;
@@ -669,7 +916,7 @@
       const anchor = rect
         ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
         : rawStart;
-      if (!anchor) { setStatus("Clicky couldn't place that text", true); return; }
+      if (!anchor) { setStatus("Tars couldn't place that text", true); return; }
       const textContent = String(response.label || "").slice(0, 200);
       if (!textContent) return;
       const text = svgElement("text", {
@@ -681,7 +928,7 @@
       text.textContent = textContent;
       annotationGroup.appendChild(text);
       drawings.appendChild(annotationGroup);
-      scheduleDrawingAutoClear();
+      drawingLifetime.markDrawn();
       return;
     }
 
@@ -748,55 +995,73 @@
       }
     }
     if (!element) {
-      setStatus("Clicky couldn't place that annotation", true);
+      setStatus("Tars couldn't place that annotation", true);
       return;
     }
     annotationGroup.appendChild(element);
     for (const extra of extraElements) annotationGroup.appendChild(extra);
     drawings.appendChild(annotationGroup);
-    scheduleDrawingAutoClear();
+    drawingLifetime.markDrawn();
   }
 
   window.addEventListener("mousemove", (event) => {
     mouse = { x: event.clientX, y: event.clientY };
+    recordCtrlTrailPoint(mouse);
     if (visible() && performance.now() - cursorReportAt > 120) {
       cursorReportAt = performance.now();
-      void chrome.runtime.sendMessage({ type: "CLICKY_CURSOR_POSITION", x: mouse.x, y: mouse.y });
+      void chrome.runtime.sendMessage({ type: "TARS_CURSOR_POSITION", x: mouse.x, y: mouse.y });
     }
+  }, true);
+
+  window.addEventListener("click", (event) => {
+    emitLabInteraction("click", event.target);
+  }, true);
+
+  window.addEventListener("input", (event) => {
+    if (performance.now() - lastLabInputAt < 700) return;
+    lastLabInputAt = performance.now();
+    emitLabInteraction("input", event.target);
+  }, true);
+
+  window.addEventListener("change", (event) => {
+    emitLabInteraction("change", event.target);
   }, true);
 
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Control" || event.metaKey || event.altKey || event.repeat || !visible() || pttHeld) return;
     pttHeld = true;
+    startCtrlTrail(mouse);
     setMode("listening");
-    setStatus("Clicky listening — release Ctrl");
-    void chrome.runtime.sendMessage({ type: "CLICKY_PTT_START" });
+    setStatus("Tars listening — release Ctrl");
+    void chrome.runtime.sendMessage({ type: "TARS_PTT_START" });
   }, true);
 
   window.addEventListener("keyup", (event) => {
     if (event.key !== "Control" || !pttHeld) return;
     pttHeld = false;
+    finishCtrlTrail();
     setMode("thinking");
-    setStatus("Clicky thinking");
-    void chrome.runtime.sendMessage({ type: "CLICKY_PTT_STOP" });
+    setStatus("Tars thinking");
+    void chrome.runtime.sendMessage({ type: "TARS_PTT_STOP" });
   }, true);
 
   window.addEventListener("blur", () => {
     if (!pttHeld) return;
     pttHeld = false;
-    void chrome.runtime.sendMessage({ type: "CLICKY_PTT_STOP" });
+    finishCtrlTrail();
+    void chrome.runtime.sendMessage({ type: "TARS_PTT_STOP" });
   });
 
   window.addEventListener("message", (event) => {
     if (event.source !== window || !CTRLTEACH_ORIGINS.has(event.origin)) return;
-    if (event.data?.type === "CTRLTEACH_CLICKY_PROBE") {
+    if (event.data?.type === "CTRLTEACH_TARS_PROBE") {
       window.postMessage({
-        type: "CTRLTEACH_CLICKY_EXTENSION_READY",
+        type: "CTRLTEACH_TARS_EXTENSION_READY",
         requestId: event.data.requestId,
         instanceId: CONTENT_INSTANCE_ID,
       }, event.origin);
-    } else if (event.data?.type === "CTRLTEACH_CLICKY_CONFIG") {
-      void chrome.runtime.sendMessage({ type: "CTRLTEACH_CLICKY_CONFIG", config: event.data.config }).then((response) => {
+    } else if (event.data?.type === "CTRLTEACH_TARS_CONFIG") {
+      void chrome.runtime.sendMessage({ type: "CTRLTEACH_TARS_CONFIG", config: event.data.config }).then((response) => {
         // Apply the returned state immediately. The service worker also
         // broadcasts it, but this direct path avoids a first-enable race where
         // the cursor otherwise waits for a page refresh.
@@ -804,33 +1069,56 @@
           extensionState = { ...extensionState, ...response.state };
           renderVisibility();
         }
-        window.postMessage({ type: "CTRLTEACH_CLICKY_CONFIG_ACK", requestId: event.data.requestId, response }, event.origin);
+        window.postMessage({ type: "CTRLTEACH_TARS_CONFIG_ACK", requestId: event.data.requestId, response }, event.origin);
+      });
+    } else if (event.data?.type === "CTRLTEACH_BROWSER_LAB_START") {
+      void chrome.runtime.sendMessage({
+        type: "CTRLTEACH_BROWSER_LAB_START",
+        attemptId: event.data.attemptId,
+        launchUrl: event.data.launchUrl,
+        lab: event.data.lab,
+      }).then((response) => {
+        window.postMessage({ type: "CTRLTEACH_BROWSER_LAB_ACK", requestId: event.data.requestId, response }, event.origin);
+      });
+    } else if (event.data?.type === "CTRLTEACH_BROWSER_LAB_STOP") {
+      void chrome.runtime.sendMessage({
+        type: "CTRLTEACH_BROWSER_LAB_STOP",
+        attemptId: event.data.attemptId,
+      }).then((response) => {
+        window.postMessage({ type: "CTRLTEACH_BROWSER_LAB_ACK", requestId: event.data.requestId, response }, event.origin);
+      });
+    } else if (event.data?.type === "CTRLTEACH_BROWSER_LAB_CLEANUP_READY") {
+      void chrome.runtime.sendMessage({
+        type: "CTRLTEACH_BROWSER_LAB_CLEANUP_READY",
+        attemptId: event.data.attemptId,
+      }).then((response) => {
+        window.postMessage({ type: "CTRLTEACH_BROWSER_LAB_ACK", requestId: event.data.requestId, response }, event.origin);
       });
     }
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message.type === "CLICKY_EXTENSION_PING") {
+    if (message.type === "TARS_EXTENSION_PING") {
       sendResponse({ ok: true });
       return false;
     }
-    if (message.type === "CLICKY_STATE") {
+    if (message.type === "TARS_STATE") {
       extensionState = { ...extensionState, ...message.state };
       if (message.state?.cursor) {
         mouse = { ...message.state.cursor };
         position = { x: mouse.x + BUDDY_OFFSET_X, y: mouse.y + BUDDY_OFFSET_Y };
       }
       renderVisibility();
-    } else if (message.type === "CLICKY_PREPARE_PTT") {
+    } else if (message.type === "TARS_PREPARE_PTT") {
       preparePtt();
-    } else if (message.type === "CLICKY_COLLECT_CONTEXT") {
+    } else if (message.type === "TARS_COLLECT_CONTEXT") {
       sendResponse(collectContext(message.contextId));
       return false;
-    } else if (message.type === "CLICKY_MODE") {
+    } else if (message.type === "TARS_MODE") {
       // A delayed start acknowledgement must not put the cursor back into the
       // listening waveform after Ctrl has already been released.
       if (message.mode !== "listening" || pttHeld || message.trigger === "toolbar") setMode(message.mode);
-    } else if (message.type === "CLICKY_STATUS") {
+    } else if (message.type === "TARS_STATUS") {
       // Ctrl owns the visual state while it is held. In particular, the
       // acknowledgement for interrupting old playback must not hide the live
       // listening waveform.
@@ -845,25 +1133,31 @@
       setMode(message.mode);
       if (message.mode === "speaking" && message.append) {
         transcriptText = `${transcriptText}${message.text || ""}`.slice(-420);
-        // Don't clobber an active pointer bubble — Clicky's pointing label owns
+        // Don't clobber an active pointer bubble — Tars's pointing label owns
         // the bubble during a point. It is restored in flyBackToCursor once the
         // cursor returns to the live mouse.
         if (!activePoint) setBubble(transcriptText);
       } else if (message.text) {
         setStatus(message.text, message.delayed);
-        if (message.mode === "idle" && !activePoint) setTimeout(() => setBubble(""), 1400);
+        if (message.mode === "idle" && !activePoint) {
+          if (bubbleClearTimer) clearTimeout(bubbleClearTimer);
+          bubbleClearTimer = setTimeout(() => {
+            bubbleClearTimer = 0;
+            if (mode === "idle" && !activePoint) setBubble("");
+          }, 1400);
+        }
       }
-    } else if (message.type === "CLICKY_POINT") {
+    } else if (message.type === "TARS_POINT") {
       handlePoint(message.context, message.response);
-    } else if (message.type === "CLICKY_DRAW") {
+    } else if (message.type === "TARS_DRAW") {
       handleDraw(message.context, message.tool, message.response);
-    } else if (message.type === "CLICKY_DRAW_BATCH") {
+    } else if (message.type === "TARS_DRAW_BATCH") {
       // All nodes are appended in this message handler, before the browser's
       // next paint, so a diagram appears as one coherent visual.
       for (const response of message.responses || []) {
         handleDraw(message.context, message.tool, response);
       }
-    } else if (message.type === "CLICKY_ACTION") {
+    } else if (message.type === "TARS_ACTION") {
       handleAction(message.context, message.response);
     }
     sendResponse({ ok: true });
@@ -874,11 +1168,11 @@
   requestAnimationFrame(animateFrame);
   if (CTRLTEACH_ORIGINS.has(window.location.origin)) {
     window.postMessage({
-      type: "CTRLTEACH_CLICKY_EXTENSION_ATTACHED",
+      type: "CTRLTEACH_TARS_EXTENSION_ATTACHED",
       instanceId: CONTENT_INSTANCE_ID,
     }, window.location.origin);
   }
-  chrome.runtime.sendMessage({ type: "CLICKY_PAGE_READY" }).then((response) => {
+  chrome.runtime.sendMessage({ type: "TARS_PAGE_READY" }).then((response) => {
     if (response?.state) {
       extensionState = { ...extensionState, ...response.state };
       const initial = response.state.cursor || position;

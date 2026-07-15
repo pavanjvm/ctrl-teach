@@ -67,6 +67,8 @@ export interface CanvasElement {
 export type ConnectionStatus = "disconnected" | "connecting" | "connected";
 
 export interface ConnectOptions {
+    /** Signed app session sent through the WebSocket subprotocol, never the URL. */
+    authToken?: string;
     onAudio?: (pcmBytes: ArrayBuffer) => void;
     onInterrupt?: () => void;
     onError?: (message: string) => void;

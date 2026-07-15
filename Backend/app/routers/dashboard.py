@@ -195,11 +195,22 @@ async def get_dashboard_all(user: dict = Depends(get_current_user)):
             p_rows = list(db.scalars(select(Progress).where(Progress.user_id == u)))
             q_rows = list(db.scalars(select(Quiz).where(Quiz.user_id == u)))
         total_minutes = sum((s.duration_minutes or 0) for s in s_rows)
+        week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+        weekly_minutes = 0
+        for session in s_rows:
+            created_at = session.created_at
+            if not created_at:
+                continue
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            if created_at >= week_ago:
+                weekly_minutes += session.duration_minutes or 0
         subjects = {s.subject for s in s_rows if s.subject} | {p.subject for p in p_rows if p.subject}
         scores = [q.percentage for q in q_rows if q.percentage is not None]
         return {
             "total_sessions": len(s_rows),
             "total_hours": round(total_minutes / 60, 1),
+            "weekly_minutes": weekly_minutes,
             "avg_score": round(sum(scores) / len(scores), 1) if scores else 0,
             "subjects_covered": len(subjects),
         }

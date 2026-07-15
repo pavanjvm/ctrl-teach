@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
+import BrowserLabPanel from "@/components/learn/BrowserLabPanel";
 import { API_URL } from "@/lib/constants";
 import { assetUrl, type GeneratedCourseJob } from "@/lib/generatedCourses";
 import { useLearner } from "@/lib/learner";
@@ -32,15 +33,29 @@ import type {
 
 import "../rich-course.css";
 
+type QuizProgress = {
+  answered: number;
+  correct: number;
+  total: number;
+};
+
 export default function RichLessonPage() {
   const params = useParams<{ courseId: string; lessonId: string }>();
   const router = useRouter();
   const { getToken } = useAuth();
-  const { addCourse, setActiveCourse, setActiveLesson, completeLesson, progress } = useLearner();
+  const {
+    addCourse,
+    setActiveCourse,
+    setActiveLesson,
+    completeLesson,
+    isLessonComplete,
+    recordAssessmentResult,
+  } = useLearner();
   const [course, setCourse] = useState<Course | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [quizCompletion, setQuizCompletion] = useState<Record<string, boolean>>({});
+  const [quizProgress, setQuizProgress] = useState<Record<string, QuizProgress>>({});
+  const [browserLabVerified, setBrowserLabVerified] = useState(false);
   const hydratedRef = useRef("");
 
   const load = useCallback(async () => {
@@ -69,15 +84,25 @@ export default function RichLessonPage() {
   }, [getToken, params.courseId, params.lessonId, router]);
 
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setQuizCompletion({}); }, [params.lessonId]);
+  useEffect(() => {
+    setQuizProgress({});
+    setBrowserLabVerified(false);
+  }, [params.lessonId]);
 
   const lessons = useMemo(() => course?.modules.flatMap((module) => module.lessons) ?? [], [course]);
   const lessonIndex = lessons.findIndex((item) => item.id === params.lessonId);
   const lesson = lessonIndex >= 0 ? lessons[lessonIndex] : null;
   const previous = lessonIndex > 0 ? lessons[lessonIndex - 1] : null;
   const next = lessonIndex >= 0 && lessonIndex < lessons.length - 1 ? lessons[lessonIndex + 1] : null;
+  const isBrowserLab = Boolean(lesson?.browserLab);
   const quizBlocks = lesson?.contentBlocks?.filter((block) => block.type === "quiz") ?? [];
-  const quizzesDone = Boolean(lesson && progress.completedLessons.includes(lesson.id)) || quizBlocks.every((block) => quizCompletion[block.id]);
+  const lessonAlreadyComplete = Boolean(lesson && course && isLessonComplete(course.id, lesson.id));
+  const quizzesDone = isBrowserLab
+    ? lessonAlreadyComplete || browserLabVerified
+    : lessonAlreadyComplete || quizBlocks.every((block) => (
+        block.questions.length > 0
+        && quizProgress[block.id]?.answered === block.questions.length
+      ));
 
   function goTo(lessonId: string) {
     setActiveLesson(lessonId);
@@ -85,7 +110,24 @@ export default function RichLessonPage() {
   }
 
   function finishLesson() {
-    if (!lesson || !quizzesDone) return;
+    if (!course || !lesson || !quizzesDone) return;
+    const quizResult = Object.values(quizProgress).reduce<QuizProgress>(
+      (total, result) => ({
+        answered: total.answered + result.answered,
+        correct: total.correct + result.correct,
+        total: total.total + result.total,
+      }),
+      { answered: 0, correct: 0, total: 0 },
+    );
+    if (!lessonAlreadyComplete && quizResult.total > 0) {
+      recordAssessmentResult({
+        courseId: course.id,
+        lessonId: lesson.id,
+        score: Math.round((quizResult.correct / quizResult.total) * 100),
+        correct: quizResult.correct,
+        total: quizResult.total,
+      });
+    }
     completeLesson(lesson.id);
     if (next) goTo(next.id);
     else router.push("/learn/completion");
@@ -95,7 +137,7 @@ export default function RichLessonPage() {
   if (error || !course || !lesson) return <div className="rich-load rich-load-error"><CircleAlert size={22} /> {error || "Lesson not found."}</div>;
 
   const completion = lessons.length
-    ? Math.round((lessons.filter((item) => progress.completedLessons.includes(item.id)).length / lessons.length) * 100)
+    ? Math.round((lessons.filter((item) => isLessonComplete(course.id, item.id)).length / lessons.length) * 100)
     : 0;
 
   return (
@@ -120,7 +162,7 @@ export default function RichLessonPage() {
                   className={item.id === lesson.id ? "active" : ""}
                   onClick={() => goTo(item.id)}
                 >
-                  <i>{progress.completedLessons.includes(item.id) ? <Check size={10} /> : null}</i>
+                  <i>{isLessonComplete(course.id, item.id) ? <Check size={10} /> : null}</i>
                   <b>{item.title}</b>
                   <small>{item.duration}</small>
                 </button>
@@ -139,7 +181,21 @@ export default function RichLessonPage() {
         </header>
 
         <div className="rich-blocks">
-          {lesson.contentBlocks?.map((block, index) => (
+          {lesson.browserLab ? (
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+              <BrowserLabPanel
+                courseId={params.courseId}
+                lessonId={lesson.id}
+                browserLab={lesson.browserLab}
+                completed={lessonAlreadyComplete || browserLabVerified}
+                getToken={getToken}
+                onVerified={() => {
+                  setBrowserLabVerified(true);
+                  completeLesson(lesson.id);
+                }}
+              />
+            </motion.div>
+          ) : lesson.contentBlocks?.map((block, index) => (
             <motion.div
               key={block.id}
               initial={{ opacity: 0, y: 12 }}
@@ -149,7 +205,7 @@ export default function RichLessonPage() {
               <CourseBlock
                 block={block}
                 citations={course.citations ?? []}
-                onQuizComplete={(complete) => setQuizCompletion((current) => ({ ...current, [block.id]: complete }))}
+                onQuizProgress={(progress) => setQuizProgress((current) => ({ ...current, [block.id]: progress }))}
               />
             </motion.div>
           ))}
@@ -173,7 +229,7 @@ export default function RichLessonPage() {
             <ChevronLeft size={15} /> Previous
           </button>
           <div>
-            {!quizzesDone && <small>Answer every quiz question to complete this lesson.</small>}
+            {!quizzesDone && <small>{isBrowserLab ? "Complete the lab and cleanup after backend verification." : "Answer every quiz question to complete this lesson."}</small>}
             <button type="button" className="rich-primary" disabled={!quizzesDone} onClick={finishLesson}>
               {next ? "Complete & continue" : "Complete course"} <ChevronRight size={15} />
             </button>
@@ -187,11 +243,11 @@ export default function RichLessonPage() {
 function CourseBlock({
   block,
   citations,
-  onQuizComplete,
+  onQuizProgress,
 }: {
   block: CourseContentBlock;
   citations: CourseCitation[];
-  onQuizComplete: (complete: boolean) => void;
+  onQuizProgress: (progress: QuizProgress) => void;
 }) {
   if (block.type === "content") {
     return (
@@ -215,7 +271,7 @@ function CourseBlock({
   }
   if (block.type === "info_tabs") return <InfoTabs block={block} citations={citations} />;
   if (block.type === "flip_cards") return <FlipCards block={block} />;
-  if (block.type === "quiz") return <QuizBlockView block={block} citations={citations} onComplete={onQuizComplete} />;
+  if (block.type === "quiz") return <QuizBlockView block={block} citations={citations} onProgress={onQuizProgress} />;
   if (block.type === "numbered_list") {
     return (
       <section className="rich-block">
@@ -287,11 +343,11 @@ function FlipCards({ block }: { block: FlipCardsContentBlock }) {
 function QuizBlockView({
   block,
   citations,
-  onComplete,
+  onProgress,
 }: {
   block: QuizContentBlock;
   citations: CourseCitation[];
-  onComplete: (complete: boolean) => void;
+  onProgress: (progress: QuizProgress) => void;
 }) {
   const [active, setActive] = useState(0);
   const [answers, setAnswers] = useState<Record<number, number>>({});
@@ -300,11 +356,26 @@ function QuizBlockView({
   function choose(choice: number) {
     const next = { ...answers, [active]: choice };
     setAnswers(next);
-    onComplete(Object.keys(next).length === block.questions.length);
+    onProgress({
+      answered: Object.keys(next).length,
+      correct: Object.entries(next).filter(([questionIndex, answer]) => (
+        block.questions[Number(questionIndex)]?.answerIndex === answer
+      )).length,
+      total: block.questions.length,
+    });
   }
 
   const selected = answers[active];
   const answered = selected !== undefined;
+  if (!question) {
+    return (
+      <section className="rich-block rich-quiz-block">
+        <div className="rich-quiz-head"><span>Knowledge check</span><h2>{block.heading}</h2></div>
+        <p>This knowledge check has no questions yet.</p>
+        <BlockSources ids={block.citationIds} citations={citations} />
+      </section>
+    );
+  }
   return (
     <section className="rich-block rich-quiz-block">
       <div className="rich-quiz-head"><span>Knowledge check</span><h2>{block.heading}</h2></div>

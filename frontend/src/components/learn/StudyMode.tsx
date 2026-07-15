@@ -108,8 +108,9 @@ export default function StudyMode({ course, lesson }: Props) {
       if (!token) return;
       // Sent topic as a query so backend can personalise; the initial nudge
       // below also opens the conversation with the lesson context.
-      let url = `${WS_URL}/ws/${user.uid}/${sessionId}?mode=whiteboard&token=${encodeURIComponent(token)}`;
+      const url = `${WS_URL}/ws/${user.uid}/${sessionId}?mode=whiteboard`;
       connect(url, {
+        authToken: token,
         onAudio: (audioData: ArrayBuffer) => playAudioChunk(audioData),
         onInterrupt: clearPlayback,
         onToolAudio: (base64Data: string) => playAudioChunk(base64ToArrayBuffer(base64Data)),
@@ -182,7 +183,7 @@ export default function StudyMode({ course, lesson }: Props) {
         <div style={{ position: "absolute", left: 16, bottom: 16, zIndex: 7, maxWidth: 360, maxHeight: 180, overflowY: "auto", background: "rgba(255,255,255,0.92)", backdropFilter: "blur(6px)", border: "1px solid var(--border)", borderRadius: 12, padding: 12 }}>
           {messages.filter((m) => m.text.trim()).slice(-6).map((m) => (
             <div key={m.id} style={{ marginBottom: 8, fontSize: 12.5, lineHeight: 1.45, color: m.role === "user" ? "var(--accent)" : "var(--fg)" }}>
-              <b style={{ fontSize: 10, letterSpacing: ".06em", textTransform: "uppercase", color: m.role === "user" ? "var(--accent)" : "#6366f1" }}>{m.role === "user" ? "You" : "Instructor"}</b>
+              <b style={{ fontSize: 10, letterSpacing: 0, textTransform: "uppercase", color: m.role === "user" ? "var(--accent)" : "#628d1b" }}>{m.role === "user" ? "You" : "Instructor"}</b>
               <div>{m.text}</div>
             </div>
           ))}

@@ -84,18 +84,18 @@ A monorepo that fuses two products:
    voice-interactive AI teacher that **talks to you and draws on an Excalidraw
    whiteboard** while explaining. This is the original base (package name is
    literally `magic-whiteboard-tutor-frontend`).
-2. **"Clicky"** — a browser-wide voice assistant **ported from a macOS Swift
+2. **"Tars"** — a browser-wide voice assistant **ported from a macOS Swift
    menu-bar app** that **sees your screen, points a flying cursor at things, draws
    annotations over any webpage, and can click / scroll / control media.**
 
-The unifying idea: **Clicky's animated triangle cursor is the same visual
+The unifying idea: **Tars's animated triangle cursor is the same visual
 companion used by the tutor on the whiteboard.** One pointing/drawing engine
 serves both "point at this button on any website" and "point at this equation on
 the whiteboard."
 
 The stack was **migrated off Google** (Firebase / Firestore / Gemini Live / ADK)
 to a **local + OpenAI stack**: FastAPI + OpenAI Realtime API (via the OpenAI
-Agents SDK) + SQLite + Basic auth.
+Agents SDK) + SQLite + signed bearer-session auth.
 
 > Note: the frontend landing page (`frontend/src/app/page.tsx`) is **already**
 > headlined **"Training-as-a-Service, AI-led"** — "Turn any learning objective
@@ -109,7 +109,7 @@ Agents SDK) + SQLite + Basic auth.
 ctrl-teach/
 ├── Backend/            # FastAPI + OpenAI Realtime API + SQLite
 ├── frontend/           # Next.js 15 (App Router, React 19), TypeScript
-├── browser-extension/  # Chrome Manifest V3 extension (browser-wide Clicky)
+├── browser-extension/  # Chrome Manifest V3 extension (browser-wide Tars)
 ├── AGENTS.md           # Dev notes (stack, commands, architecture)
 ├── cloudbuild.yaml     # Google Cloud Build config
 └── deploy.sh
@@ -137,17 +137,17 @@ to the OpenAI Realtime API.
 - **`upstream_task`** (browser → OpenAI): binary frames are raw PCM16 @ **16 kHz**,
   resampled to **24 kHz** (numpy linear interpolation) before `session.send_audio()`.
   JSON frames handle `text`, `interrupt`, `image`, `canvas`, `canvas_elements`, and
-  Clicky-specific messages.
+  Tars-specific messages.
 - **`downstream_task`** (OpenAI → browser): translates SDK events into
   **"ADK-shaped" JSON envelopes** (a legacy from the Google ADK origin) so the
   frontend protocol never changed during migration. Includes a **retry loop**
   (3 attempts) that recreates a fresh session on transient errors.
-- **Agent selection** via `?agent=tutor` (default) or `?agent=clicky`.
+- **Agent selection** via `?agent=tutor` (default) or `?agent=tars`.
 
-**Two Clicky-critical mechanisms:**
-- **Push-to-talk without server VAD:** for Clicky, `turn_detection = None`. The
-  browser holds Ctrl to talk; on release it sends `clicky_screen` (screenshot +
-  DOM inventory), then `clicky_commit_audio`, which is the *single* op that closes
+**Two Tars-critical mechanisms:**
+- **Push-to-talk without server VAD:** for Tars, `turn_detection = None`. The
+  browser holds Ctrl to talk; on release it sends `tars_screen` (screenshot +
+  DOM inventory), then `tars_commit_audio`, which is the *single* op that closes
   the input buffer and triggers exactly one `response.create` — so speech + screen
   land in the same turn.
 - **Async visual grounding:** `point_at` / `draw_on_screen` tool calls spawn
@@ -163,7 +163,7 @@ policy errors). Canvas tools are even "early-pushed" on `tool_start` for snappin
 ### Realtime session config
 - Model: `settings.realtime_model` (`gpt-realtime-2` as configured).
 - Input/output audio: pcm16; transcription model `gpt-4o-mini-transcribe`.
-- Tutor uses `semantic_vad` with `interrupt_response`; Clicky disables VAD.
+- Tutor uses `semantic_vad` with `interrupt_response`; Tars disables VAD.
 - 30s WS handshake timeout for flaky links.
 
 ### Agents (`app/agents/`)
@@ -177,9 +177,9 @@ Built on `RealtimeAgent` + `realtime_handoff`:
   `draw_on_canvas`, `draw_diagram`, `highlight_area`, `plot_function`,
   `clear_canvas`, `generate_and_show_image`, `get_progress`, `update_progress`,
   `save_session_notes`, `upload_canvas_snapshot`, `point_at_whiteboard`, plus
-  Clicky's `draw_on_screen`/`clear_screen_drawings`. Hands off to `planner_agent`
+  Tars's `draw_on_screen`/`clear_screen_drawings`. Hands off to `planner_agent`
   and `progress_agent`. Accepts a `custom_instruction` (per-tutor personalization).
-- **`clicky_agent.py`** — the browser assistant. Lowercase, casual "write for the
+- **`tars_agent.py`** — the browser assistant. Lowercase, casual "write for the
   ear" persona. Tools: `point_at` (DOM `target_id` OR vision `x,y`),
   `draw_on_screen` (circle/rectangle/highlight/underline/arrow/line/text;
   solid/dashed/dotted), `clear_screen_drawings`, `interact_with_page`
@@ -189,7 +189,7 @@ Built on `RealtimeAgent` + `realtime_handoff`:
   `media_agent`, and `prompt_builder.py` (`build_tutor_instruction` builds a
   dynamic per-tutor instruction from DB config).
 
-### Visual grounding: `app/services/clicky_visual_locator.py`
+### Visual grounding: `app/services/tars_visual_locator.py`
 The precision engine. The Realtime model decides *what* to point at; a dedicated
 **GPT "computer-use" pass** decides *where* in exact pixel space
 (`client.responses.create(tools=[{"type":"computer"}])`, model `gpt-5.5`, `medium`
@@ -210,7 +210,7 @@ search hits (anti-hallucination). Has robust fallbacks (`_fallback_path`,
 |---|---|
 | `auth_router` | `POST /api/auth/register` |
 | `users` | `GET/PUT /api/users/me`, `/me/full`, `POST /sync` |
-| `clicky` | `POST /api/clicky/extension-session`, `POST /api/clicky` (HTTP vision fallback), `POST /speak` (TTS) |
+| `tars` | `POST /api/tars/extension-session`, `POST /api/tars` (HTTP vision fallback), `POST /speak` (TTS) |
 | `discover` | `POST /api/discover` (ranked course listings), `POST /api/discover/path` (full learning path) |
 | `dashboard` | `/stats`, `/sessions`, `/streak`, `/progress`, `/topics`, `/study-plans`, `/all` |
 | `tutors` | full CRUD (`GET/POST/PUT/DELETE`) |
@@ -219,7 +219,7 @@ search hits (anti-hallucination). Has robust fallbacks (`_fallback_path`,
 - **`discover.py`** — course *curation*: runs **Firecrawl `/search` + OpenAI
   `web_search` in parallel**, dedupes by URL, then `gpt-4o-mini` normalizes hits
   into a structured course schema (URLs must come from real hits). Cached 30 min.
-- **`clicky.py`** — also a *non-Realtime HTTP fallback*: `gpt-4o-mini` vision +
+- **`tars.py`** — also a *non-Realtime HTTP fallback*: `gpt-4o-mini` vision +
   JSON-schema pointing, `tts-1` audio. Plus the **extension-session** endpoint
   (issues scoped tokens).
 
@@ -245,7 +245,7 @@ Users are seeded from the `APP_USERS` env JSON at startup.
   `get_current_user` is the FastAPI dependency; `verify_basic_credentials` is used
   directly by the WebSocket (deps don't apply to WS).
 - **Scoped extension tokens** (`app/auth/extension_tokens.py`): short-lived (12h)
-  HMAC-signed tokens (`ctc1.<payload>.<sig>`, scope `clicky:realtime`) so the
+  HMAC-signed tokens (`ctc1.<payload>.<sig>`, scope `tars:realtime`) so the
   browser extension never holds the user's password. Secret derived from
   `OPENAI_API_KEY` if not set (survives reloads).
 
@@ -273,13 +273,13 @@ PathSidebar · stage · CompanionPanel, with a Study / Lab / Assessment / Rolepl
 mode switcher) → `/learn/completion`.
 
 ### Global state (providers nest in `layout.tsx`)
-`AuthProvider` → `LearnerProvider` → `ClickyProvider`, then `{children}` +
-`<ClickyExtensionBridge/>` + `<GlobalClickyAssistant/>`.
+`AuthProvider` → `LearnerProvider` → `TarsProvider`, then `{children}` +
+`<TarsExtensionBridge/>` + `<GlobalTarsAssistant/>`.
 - **`lib/learner.tsx`** — onboarding prefs, active course/lesson, XP/streak/
   confidence/badges/completed lessons. Persisted to `localStorage` AND mirrored to
   backend `Profile.preferences.ctrlteach`. Courses = `SEED_COURSES` +
   `savedCourses` (localStorage — **this is where hosting must move server-side**).
-- **`lib/clicky.tsx`** — Clicky enabled toggle, extension-available state, status.
+- **`lib/tars.tsx`** — Tars enabled toggle, extension-available state, status.
 
 ### Domain types (`lib/types.ts`)
 `OnboardingPrefs`, `CourseOnboardingPrefs`, and the catalog contract:
@@ -294,18 +294,18 @@ Composes `WhiteboardCanvas` (Excalidraw, dynamically imported — no SSR),
 speaker, and canvas commands → Excalidraw. `needsWhiteboardVision()` heuristics
 decide when to send a board screenshot to the model. `LabCoach.tsx` +
 `labScenes.ts` implement the "pixel-precision coaching engine" (bezier-arc flight +
-live CSS-selector rect resolution) — a browser port of Clicky.
+live CSS-selector rect resolution) — a browser port of Tars.
 
 ### `hooks/useWebSocket.ts`
 Parses the ADK-shaped envelopes: input/output transcription (streaming deltas →
 chat panel), inline PCM audio, `functionResponse` → canvas commands, and the
-Clicky events (`clicky_point`, `clicky_draw`, `clicky_draw_batch`,
+Tars events (`tars_point`, `tars_draw`, `tars_draw_batch`,
 `realtime_ready`, `generating_image`, `saving_progress`). Manages
 interrupt/turn-complete lifecycle. Exposes `sendAudio`, `sendText`, `sendImage`,
-`sendCanvasSnapshot`, `sendClickyScreen`, `sendClickyCommitAudio`, etc.
+`sendCanvasSnapshot`, `sendTarsScreen`, `sendTarsCommitAudio`, etc.
 
-### `components/GlobalClickyAssistant.tsx` (~1,552 lines — the in-app Clicky)
-The **fallback Clicky that runs inside the web app when the extension isn't
+### `components/GlobalTarsAssistant.tsx` (~1,552 lines — the in-app Tars)
+The **fallback Tars that runs inside the web app when the extension isn't
 installed.** A full reimplementation:
 - Its own **`getDisplayMedia` screen capture** with a **calibration-marker
   system** — paints 4 colored corner markers, screenshots the tab-share stream,
@@ -317,7 +317,7 @@ installed.** A full reimplementation:
   (duration `clamp(dist/800, 0.6–1.4s)`, arc `min(dist*0.2, 80)`, sin-pulse scale)
   — an exact port of the macOS `OverlayWindow.swift`.
 
-`components/ClickyExtensionBridge.tsx` probes for the extension via
+`components/TarsExtensionBridge.tsx` probes for the extension via
 `window.postMessage`; if present, hands it a **scoped extension session** + config
 so the extension takes over and the in-app one stays dormant.
 
@@ -340,8 +340,8 @@ Chrome **Manifest V3**; permissions `storage/tabs/offscreen/scripting` +
   point/draw/click/scroll. Same bezier-flight cursor.
 - **`offscreen.js`** (~494 lines) — the persistent **audio + WebSocket** layer
   (survives tab changes): mic via `AudioWorklet` @ 16 kHz, 24 kHz PCM player,
-  client-side VAD, the WS to `/ws/...?agent=clicky` (auth via
-  `Sec-WebSocket-Protocol: ctrlteach-clicky-auth.<token>`), and builds the
+  client-side VAD, the WS to `/ws/...?agent=tars` (auth via
+  `Sec-WebSocket-Protocol: ctrlteach-tars-auth.<token>`), and builds the
   **gridded 0–1000 media crop** for video grounding. Auto-reconnects.
 - **`pcm-worklet.js`** — trivial `AudioWorkletProcessor` posting mic frames.
 - **`setup.html/js`** — one-time mic-permission grant page.
@@ -352,8 +352,8 @@ captured on turn-end (no continuous screen sharing).
 
 ---
 
-## The Clicky system — three coordinated modes
-The key architectural insight: **Clicky exists in three forms sharing one backend
+## The Tars system — three coordinated modes
+The key architectural insight: **Tars exists in three forms sharing one backend
 agent and one visual language.**
 
 | Mode | Screen source | Audio path | When |
@@ -362,7 +362,7 @@ agent and one visual language.**
 | **In-app fallback** | `getDisplayMedia` + calibration markers | React `useAudio`/`useWebSocket` | Inside the app, no extension |
 | **Whiteboard companion** | Excalidraw canvas snapshot | Tutor session on `/board` | During AI tutoring (`point_at_whiteboard`) |
 
-All three: hold Ctrl → speak → screenshot + DOM captured on release → `clicky_agent`
+All three: hold Ctrl → speak → screenshot + DOM captured on release → `tars_agent`
 decides `point_at`/`draw_on_screen` → **two-tier grounding** (DOM
 `getBoundingClientRect()` for exact targets; GPT computer-use vision for non-DOM
 pixels like iframe video) → the animated triangle cursor flies a bezier arc and
@@ -384,18 +384,18 @@ annotates.
 
 **Model IDs configured in code** (as written; several are ahead of common
 availability): `gpt-realtime-2` (Realtime), `gpt-5.5`/`gpt-5.4` (visual locator),
-`gpt-image-1`, `gpt-4o-mini` (discover / HTTP-clicky / course-gen),
+`gpt-image-1`, `gpt-4o-mini` (discover / HTTP-tars / course-gen),
 `gpt-4o-mini-transcribe`, `tts-1`.
 
 ## Deployment
 Dockerfiles for `Backend/` and `frontend/`; `cloudbuild.yaml` + `deploy.sh` for
 Google Cloud Run. Env: frontend needs `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_WS_URL`;
 backend needs `OPENAI_API_KEY` (+ optional `FIRECRAWL_API_KEY`, `APP_USERS`,
-`CLICKY_EXTENSION_TOKEN_SECRET`). For a deployed origin, add the exact origin to
+`TARS_EXTENSION_TOKEN_SECRET`). For a deployed origin, add the exact origin to
 `CTRLTEACH_ORIGINS` in both `service-worker.js` and `content.js`.
 
 ## Known gaps / observations
-- Significant **code duplication** between in-app Clicky and the extension (DOM
+- Significant **code duplication** between in-app Tars and the extension (DOM
   collection, bezier flight, VAD, cursor rendering reimplemented ~twice).
 - **Courses are client-only** (localStorage) — no server-side catalog.
 - **No monetization** primitives (pricing, payments, enrollment, gating).
@@ -428,7 +428,7 @@ issues a Cprime certificate** — using Cprime's own syllabus as ground truth.
 | **Curate** | Grounded in Cprime's real syllabus (+ optional real web resources already wired) |
 | **Host** | Courses persisted server-side in a browsable Cprime catalog |
 | **Monetize** | Price per course + self-serve checkout; "Reserve a seat" → **"Subscribe & start now"** |
-| **Deliver, self-paced** | AI voice tutor + whiteboard + Clicky coaching + progress/mastery + certificate |
+| **Deliver, self-paced** | AI voice tutor + whiteboard + Tars coaching + progress/mastery + certificate |
 
 ## Monetization model (the money slide)
 - **Self-paced AI tier** — cheap, instant, ~90% margin, infinite scale → captures
@@ -455,7 +455,7 @@ shell around it.
                          │  NEW: /api/courses (import·publish·catalog)    │
                          │  NEW: /api/courses/{id}/subscribe (Stripe)     │
                          │  NEW: /api/me/enrollments · /certificate       │
-                         │  EXISTS: /ws (tutor + Clicky), discover,       │
+                         │  EXISTS: /ws (tutor + Tars), discover,       │
                          │          learning_path, progress, dashboard    │
                          └───────────┬────────────────────────┬──────────┘
                          ┌───────────▼──────┐        ┌─────────▼─────────┐
@@ -470,12 +470,12 @@ shell around it.
 ### What exists vs. what you build
 | Layer | Exists (reuse) | Build for the hackathon |
 |---|---|---|
-| AI delivery | `tutor_agent`, `/board` whiteboard, Clicky, Study/Lab/Assessment/Roleplay modes, `prompt_builder` | Seed the tutor instruction from the enrolled lesson |
+| AI delivery | `tutor_agent`, `/board` whiteboard, Tars, Study/Lab/Assessment/Roleplay modes, `prompt_builder` | Seed the tutor instruction from the enrolled lesson |
 | Generation | `compose_learning_path` (goal → course) | **Course-from-outline importer** (Cprime IP) |
 | Catalog/hosting | `Course` type + localStorage `savedCourses` | **`Course`/`Enrollment` DB tables + catalog API** |
 | Monetization | — | **Price + subscribe + access-gate** (Stripe test or simulated) |
 | Progress/cert | `Progress`, `/dashboard`, `/learn/completion`, badges | **Mastery-gated Cprime certificate** |
-| Auth | Basic auth, `get_current_user` | `is_admin` flag for Course Studio |
+| Auth | Signed bearer sessions, `get_current_user` | `is_admin` flag for Course Studio |
 
 ## Integration — detailed build steps
 Do these in order; each phase is independently demoable.
@@ -537,7 +537,7 @@ Do these in order; each phase is independently demoable.
   session — `prompt_builder.build_tutor_instruction` +
   `build_tutor_agent(custom_instruction=...)` already support this, so the AI
   teaches *that* lesson.
-- Route lesson `type` → mode (Study = voice whiteboard, Lab = Clicky coaching,
+- Route lesson `type` → mode (Study = voice whiteboard, Lab = Tars coaching,
   Assessment = quiz gate, Roleplay = scenario) — already the design in `types.ts`.
 - *(Stretch)* add a `"splunk"` Lab surface (mock search UI) to `labScenes.ts` so
   the SPL exercise is visually killer.
@@ -576,7 +576,7 @@ catalog looks real; do the Splunk import **live** as the hero moment.
 **Act 4 — Deliver (the wow) — 90s**
 6. Enter Lesson 1. The **AI instructor greets you, teaches "Advanced Indexing
    Concepts," speaking while drawing a diagram on the whiteboard live.**
-7. Jump to the exercise **"Writing Advanced SPL Queries"** — **Clicky's cursor
+7. Jump to the exercise **"Writing Advanced SPL Queries"** — **Tars's cursor
    flies over and annotates the mock Splunk UI** while coaching. No other team will
    have this.
 8. Answer the module quiz → **mastery + progress update.**
@@ -591,7 +591,7 @@ catalog looks real; do the Splunk import **live** as the hero moment.
 
 ## Risk & mitigation
 - **Live import slow/flaky** → keep a **pre-generated Splunk course** as fallback.
-- **Voice risky on stage** → the whiteboard drawing + Clicky pointing still carry
+- **Voice risky on stage** → the whiteboard drawing + Tars pointing still carry
   the visual wow without audio.
 - **Needs internet** (course-gen + voice) → rehearse on the demo network; have
   screenshots/recording as ultimate backup.

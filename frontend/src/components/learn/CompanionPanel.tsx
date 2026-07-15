@@ -64,9 +64,10 @@ export default function CompanionPanel({ course, lesson }: Props) {
   const [proactive, setProactive] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [feedback, setFeedback] = useState<string>("");
+  const [feedbackSaved, setFeedbackSaved] = useState(false);
   const idRef = useRef(1);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { earnBadge } = useLearner();
+  const { recordLessonFeedback } = useLearner();
 
   // Load notes for this course.
   useEffect(() => {
@@ -101,8 +102,19 @@ export default function CompanionPanel({ course, lesson }: Props) {
     const reply = companionReply(text, course, lesson);
     setMsgs((m) => [...m, { id: idRef.current++, role: "user", text }]);
     setInput("");
-    if (text.toLowerCase().includes("badge")) earnBadge("first-session");
     setTimeout(() => setMsgs((m) => [...m, { id: idRef.current++, role: "agent", text: reply }]), 380);
+  };
+
+  const submitFeedback = () => {
+    const reflection = feedback.trim();
+    if (!reflection || !course || !lesson) return;
+    recordLessonFeedback({
+      courseId: course.id,
+      lessonId: lesson.id,
+      feedback: reflection,
+    });
+    setFeedback("");
+    setFeedbackSaved(true);
   };
 
   const hints = lesson ? buildHints(lesson) : [];
@@ -171,10 +183,25 @@ export default function CompanionPanel({ course, lesson }: Props) {
               className="cp-note-area"
               style={{ minHeight: 120 }}
               value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
+              onChange={(e) => {
+                setFeedback(e.target.value);
+                setFeedbackSaved(false);
+              }}
               placeholder="What worked? What was tough?"
             />
-            <button className="bp-mode-btn active" style={{ marginTop: 10 }} onClick={() => setFeedback("")}>Submit feedback</button>
+            <button
+              className="bp-mode-btn active"
+              style={{ marginTop: 10 }}
+              onClick={submitFeedback}
+              disabled={!feedback.trim() || !course || !lesson}
+            >
+              Save to skill profile
+            </button>
+            {feedbackSaved && (
+              <div className="cp-proactive" role="status" style={{ marginTop: 10 }}>
+                Reflection saved to your learning memory.
+              </div>
+            )}
           </>
         )}
       </div>

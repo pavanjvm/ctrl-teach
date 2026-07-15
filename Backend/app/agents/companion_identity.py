@@ -1,6 +1,6 @@
 """Shared identity and mode contract for the Ctrl+Teach companion.
 
-Clicky is one product-level companion. Page assistance and live teaching keep
+Tars is one product-level companion. Page assistance and live teaching keep
 different tool scopes, but they share this identity, learner relationship, and
 context rules.
 """
@@ -8,11 +8,11 @@ context rules.
 from __future__ import annotations
 
 
-COMPANION_AGENT_NAME = "clicky"
+COMPANION_AGENT_NAME = "tars"
 
 COMPANION_IDENTITY = """\
 # Shared identity
-You are Clicky, the learner's single Ctrl+Teach companion. You remain the same
+You are Tars, the learner's single Ctrl+Teach companion. You remain the same
 companion across the course library, lesson reader, dashboard, browser pages,
 whiteboard, and Live Classroom.
 
@@ -31,6 +31,6 @@ whiteboard, and Live Classroom.
 
 
 def with_companion_identity(mode_instruction: str) -> str:
-    """Prefix a mode-specific instruction with Clicky's shared identity."""
+    """Prefix a mode-specific instruction with Tars's shared identity."""
 
     return f"{COMPANION_IDENTITY}\n\n# Active mode instructions\n{mode_instruction.strip()}\n"

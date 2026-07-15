@@ -9,10 +9,10 @@
 
 There **are** platforms that generate full video courses from text, documents, or
 syllabi — but none of them do what **Ctrl+Teach / eCprime AI Academy** does
-(live AI voice tutor + real-time whiteboard drawing + pixel-precise Clicky
+(live AI voice tutor + real-time whiteboard drawing + pixel-precise Tars
 coaching). Every competitor below produces **passive video** that the learner
 *watches*. Ctrl+Teach produces **interactive lessons** where the learner *talks
-back*, the AI *draws diagrams live*, and Clicky *points at things on screen*.
+back*, the AI *draws diagrams live*, and Tars *points at things on screen*.
 
 ## Open Source Status — TL;DR
 
@@ -195,7 +195,7 @@ back*, the AI *draws diagrams live*, and Clicky *points at things on screen*.
 
 ## Summary Comparison
 
-| Platform | Generates full video courses? | Live voice tutor? | Whiteboard drawing? | Visual pointing (Clicky)? | Free tier? | Open source? |
+| Platform | Generates full video courses? | Live voice tutor? | Whiteboard drawing? | Visual pointing (Tars)? | Free tier? | Open source? |
 |---|---|---|---|---|---|---|
 | **X-Pilot** | ✅ Syllabus→video series | ❌ | ❌ | ❌ | ✅ (educational) | ❌ |
 | **Synthesia** | ✅ Script→avatar video | ❌ (beta Interactive) | ❌ | ❌ | ✅ (10 min/mo) | ❌ |
@@ -207,7 +207,7 @@ back*, the AI *draws diagrams live*, and Clicky *points at things on screen*.
 | **Disco** | ❌ Text program gen only | ❌ | ❌ | ❌ | ✅ (trial) | ❌ |
 | **360Learning** | ❌ Text course gen only | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Train-in-a-Box** | ❌ Text course gen only | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **———Ctrl+Teach———** | ✅ Outline→course (WIP) | ✅ **Voice+Realtime** | ✅ **Live Excalidraw** | ✅ **Clicky** | ✅ **You control it** | ✅ **Yes — MIT?** |
+| **———Ctrl+Teach———** | ✅ Outline→course (WIP) | ✅ **Voice+Realtime** | ✅ **Live Excalidraw** | ✅ **Tars** | ✅ **You control it** | ✅ **Yes — MIT?** |
 
 ---
 
@@ -262,14 +262,14 @@ tools that generate individual pieces (slides, videos, PDFs):
 ## Key Findings
 2. **None** combine live voice tutor + whiteboard + visual pointing — that's our moat.
 3. **Majority** have free tiers, so we need one too.
-4. The closest competitor in **features** is **Coursebox** (course gen + quiz/video + AI tutor) but their AI tutor is text-only, no whiteboard, no Clicky.
+4. The closest competitor in **features** is **Coursebox** (course gen + quiz/video + AI tutor) but their AI tutor is text-only, no whiteboard, no Tars.
 5. The closest in **video generation** is **X-Pilot** (syllabus→multi-module video series) — they're the only one that converts an entire syllabus to a structured course video.
 6. **X-Pilot** and **Synthesia** are introducing interactive features (voice conversations, interactive avatars) — the trend is toward our direction.
 
 ## What This Means For Ctrl+Teach
 
 - **Don't compete on avatar video** — that's a commodity. Synthesia/Coursebox already own that.
-- **Do compete on live interactivity** — no one has our voice + whiteboard + Clicky combo.
+- **Do compete on live interactivity** — no one has our voice + whiteboard + Tars combo.
 - **Video option** — if you want it, record the AI tutor session (voice + whiteboard drawing) and offer as replay.
 - **Free tier** — most competitors offer one. Ctrl+Teach already runs on your own API key, so you control cost.
 

@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/components/AuthProvider";
-import GlobalClickyAssistant from "@/components/GlobalClickyAssistant";
-import ClickyExtensionBridge from "@/components/ClickyExtensionBridge";
+import GlobalTarsAssistant from "@/components/GlobalTarsAssistant";
+import TarsExtensionBridge from "@/components/TarsExtensionBridge";
 import { LearnerProvider } from "@/lib/learner";
-import { ClickyProvider } from "@/lib/clicky";
+import { TarsProvider } from "@/lib/tars";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -20,25 +20,20 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap"
-          rel="stylesheet"
+        <script
+          dangerouslySetInnerHTML={{
+            __html: 'window.EXCALIDRAW_ASSET_PATH="/excalidraw-assets/";',
+          }}
         />
       </head>
       <body>
         <AuthProvider>
           <LearnerProvider>
-            <ClickyProvider>
+            <TarsProvider>
               {children}
-              <ClickyExtensionBridge />
-              <GlobalClickyAssistant />
-            </ClickyProvider>
+              <TarsExtensionBridge />
+              <GlobalTarsAssistant />
+            </TarsProvider>
           </LearnerProvider>
         </AuthProvider>
       </body>

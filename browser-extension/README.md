@@ -1,8 +1,8 @@
-# Ctrl+Teach Clicky Chrome extension
+# Ctrl+Teach Tars Chrome extension
 
 1. Start the Ctrl+Teach frontend and backend.
 2. Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select this `browser-extension` directory.
-3. Sign in to Ctrl+Teach and enable Clicky from the app toggle.
+3. Sign in to Ctrl+Teach and enable Tars from the app toggle.
 4. Approve the one-time extension microphone prompt.
 5. In any normal web page, hold **Control** to talk and release it to send the current tab context.
 

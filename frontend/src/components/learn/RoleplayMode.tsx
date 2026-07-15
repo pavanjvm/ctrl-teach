@@ -9,7 +9,7 @@
  * roleplay with a coaching critique that highlights strengths and gaps.
  */
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useLearner } from "@/lib/learner";
 import type { Lesson } from "@/lib/types";
 
@@ -35,7 +35,22 @@ function personaFor(lesson: Lesson | null): Persona {
       critique: lesson.roleplay.critique,
     };
   }
-  if (lesson?.id === "lsn-6") return {
+  const title = lesson?.title.toLowerCase() ?? "";
+  if (title.includes("engineer") || title.includes("design review")) return {
+    name: "Devon",
+    role: "Staff Engineer",
+    initials: "DE",
+    opener: "Walk me through how you'd scale this to 10M users. Start with the single biggest risk.",
+    critique: ["You identified the bottleneck before jumping to solutions.", "You justified the trade-offs out loud.", "Quantify the scaling targets next time."],
+  };
+  if (title.includes("daily") || title.includes("scrum")) return {
+    name: "Marcus",
+    role: "Scrum Master",
+    initials: "MA",
+    opener: "Let's run the daily. What did you do yesterday, what's blocking you, and what's next?",
+    critique: ["You kept the daily focused and time-boxed.", "You flagged a blocker early.", "End with a clear commitment for today."],
+  };
+  if (title.includes("product owner") || title.includes("stakeholder") || title.includes("user stor")) return {
     name: "Priya",
     role: "Senior Product Owner",
     initials: "PR",
@@ -45,20 +60,6 @@ function personaFor(lesson: Lesson | null): Persona {
       "You asked clarifying questions about the 'why' — that's senior-level.",
       "Try tying each story back to a measurable outcome, not just a feeling of value.",
     ],
-  };
-  if (lesson?.id === "lsn-6" && lesson.title.includes("Engineer")) return {
-    name: "Devon",
-    role: "Staff Engineer",
-    initials: "DE",
-    opener: "Walk me through how you'd scale this to 10M users. Start with the single biggest risk.",
-    critique: ["You identified the bottleneck before jumping to solutions.", "You justified the trade-offs out loud.", "Quantify the scaling targets next time."],
-  };
-  if (lesson?.id === "lsn-6") return {
-    name: "Marcus",
-    role: "Scrum Master",
-    initials: "MA",
-    opener: "Let's run the daily. What did you do yesterday, what's blocking you, and what's next?",
-    critique: ["You kept the daily focused and time-boxed.", "You flagged a blocker early.", "End with a clear commitment for today."],
   };
   return {
     name: "Sam",
@@ -84,32 +85,54 @@ function reply(them: string, persona: Persona, turn: number): string {
 interface Props { lesson: Lesson | null; onCoached: () => void; }
 
 export default function RoleplayMode({ lesson, onCoached }: Props) {
-  const { earnBadge } = useLearner();
+  const { earnBadge, recordPracticeResult } = useLearner();
   const persona = personaFor(lesson);
   const [lines, setLines] = useState<Line[]>([{ id: 0, role: "them", text: persona.opener }]);
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState(0);
   const [showCritique, setShowCritique] = useState(false);
+  const [replyPending, setReplyPending] = useState(false);
   const idRef = useRef(1);
+  const pendingRef = useRef(false);
+  const replyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (replyTimerRef.current !== null) window.clearTimeout(replyTimerRef.current);
+  }, []);
 
   const send = () => {
+    if (pendingRef.current || showCritique) return;
     const text = input.trim();
     if (!text) return;
+    pendingRef.current = true;
+    setReplyPending(true);
     const meLine: Line = { id: idRef.current++, role: "me", text };
     setLines((l) => [...l, meLine]);
     setInput("");
     const n = turns + 1;
     setTurns(n);
     if (n >= 4) {
-      setTimeout(() => {
+      replyTimerRef.current = window.setTimeout(() => {
         setLines((l) => [...l, { id: idRef.current++, role: "them", text: "Great session. Let me give you some feedback." }]);
         setShowCritique(true);
+        pendingRef.current = false;
+        setReplyPending(false);
         earnBadge("roleplayer");
+        if (lesson) {
+          recordPracticeResult({
+            lessonId: lesson.id,
+            kind: "roleplay",
+            summary: `Completed a four-turn simulation with ${persona.name}, ${persona.role}, and received coaching feedback.`,
+            evidence: persona.critique,
+          });
+        }
         onCoached();
       }, 450);
     } else {
-      setTimeout(() => {
+      replyTimerRef.current = window.setTimeout(() => {
         setLines((l) => [...l, { id: idRef.current++, role: "them", text: reply(text, persona, n) }]);
+        pendingRef.current = false;
+        setReplyPending(false);
       }, 400);
     }
   };
@@ -148,9 +171,11 @@ export default function RoleplayMode({ lesson, onCoached }: Props) {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") send(); }}
           placeholder={showCritique ? "Conversation complete" : `Respond to ${persona.name}…`}
-          disabled={showCritique}
+          disabled={showCritique || replyPending}
         />
-        <button onClick={send} disabled={showCritique}>Send</button>
+        <button onClick={send} disabled={showCritique || replyPending}>
+          {replyPending ? "Waiting…" : "Send"}
+        </button>
       </div>
     </div>
   );

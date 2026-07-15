@@ -3,14 +3,14 @@
 /**
  * LabCoach — Ctrl+Teach's pixel-precise visual coaching overlay.
  *
- * This is the hero feature, inspired by Clicky's "[POINT:x,y:label]" + bezier-arc
+ * This is the hero feature, inspired by Tars's "[POINT:x,y:label]" + bezier-arc
  * flight, reimagined for the browser:
  *
  *  - Targets are CSS selectors, resolved to live element rects on every animation
  *    frame (so annotations stay pixel-accurate through scroll / reflow — the
- *    equivalent of Clicky's coordinate→monitor mapping, but DOM-relative).
+ *    equivalent of Tars's coordinate→monitor mapping, but DOM-relative).
  *  - A glowing "coach cursor" flies between targets along a quadratic-bezier arc
- *    (ported from Clicky's `animateBezierFlightArc` — smoothstep easing, tangent
+ *    (ported from Tars's `animateBezierFlightArc` — smoothstep easing, tangent
  *    rotation, midpoint scale pulse).
  *  - Annotations: arrow, circle, pulsing hotspot, label, hint card, focus/dim
  *    scrim with a target cutout, and a success celebration.
@@ -23,8 +23,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LabScene, LabStep, Annotation } from "@/lib/types";
 
-const COACH_COLOR = "#6366f1"; // indigo-500 — vivid against the warm palette
-const COACH_GLOW = "rgba(99,102,241,0.55)";
+const COACH_COLOR = "#79a925";
+const COACH_GLOW = "rgba(121,169,37,0.42)";
 
 interface Rect { x: number; y: number; w: number; h: number; }
 
@@ -41,7 +41,7 @@ function centerOf(r: Rect) {
   return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
 }
 
-// ── Bezier flight (ported from Clicky's animateBezierFlightArc) ──────────────
+// ── Bezier flight (ported from Tars's animateBezierFlightArc) ──────────────
 
 function bezierPoint(t: number, p0: number, p1: number, p2: number) {
   const m = 1 - t;
@@ -128,9 +128,9 @@ const CoachCursor: React.FC<{ pos: { x: number; y: number }; rot: number; scale:
 
 const toneColor: Record<string, string> = {
   neutral: COACH_COLOR,
-  success: "#16a34a",
-  warning: "#e8590c",
-  info: "#0ea5e9",
+  success: "#558617",
+  warning: "#9a6a16",
+  info: "#4d6f35",
 };
 
 const AnnotationView: React.FC<{ ann: Annotation; rect: Rect | null; coachPos: { x: number; y: number } }> = ({
@@ -317,7 +317,7 @@ const Celebrate: React.FC<{ at: { x: number; y: number } }> = ({ at }) => {
       id: i,
       a: (Math.PI * 2 * i) / 18 + Math.random(),
       d: 40 + Math.random() * 60,
-      c: ["#6366f1", "#16a34a", "#f59e0b", "#ec4899", "#0ea5e9"][i % 5],
+      c: ["#b7ec52", "#10120f", "#79a925", "#d8dbd1", "#656960"][i % 5],
     })),
     []
   );
@@ -327,7 +327,7 @@ const Celebrate: React.FC<{ at: { x: number; y: number } }> = ({ at }) => {
         initial={{ scale: 0, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ type: "spring", stiffness: 300, damping: 12 }}
-        style={{ width: 56, height: 56, borderRadius: "50%", background: "#16a34a", display: "grid", placeItems: "center", boxShadow: "0 0 24px rgba(22,163,74,0.5)" }}
+        style={{ width: 56, height: 56, borderRadius: "50%", background: "#558617", display: "grid", placeItems: "center", boxShadow: "0 0 24px rgba(85,134,23,0.35)" }}
       >
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
       </motion.div>
@@ -379,10 +379,10 @@ const CoachBubble: React.FC<{ text: string; at: { x: number; y: number } }> = ({
           lineHeight: 1.4,
           boxShadow: "0 12px 30px rgba(0,0,0,0.25)",
           pointerEvents: "none",
-          fontFamily: "Inter, system-ui, sans-serif",
+          fontFamily: '"Avenir Next", Inter, system-ui, sans-serif',
         }}
       >
-        <span style={{ color: "#818cf8", fontSize: 10, letterSpacing: 0.08, textTransform: "uppercase", display: "block", marginBottom: 2 }}>AI Coach</span>
+        <span style={{ color: "#b7ec52", fontSize: 10, letterSpacing: 0, textTransform: "uppercase", display: "block", marginBottom: 2 }}>AI Coach</span>
         {shown}
         <span style={{ opacity: 0.4, animation: "blink 1s steps(2) infinite" }}>|</span>
       </motion.div>
@@ -395,12 +395,12 @@ const CoachBubble: React.FC<{ text: string; at: { x: number; y: number } }> = ({
 const Stepper: React.FC<{ scene: LabScene; index: number; total: number; onPrev: () => void; onNext: () => void; done: boolean }> = ({
   scene, index, total, onPrev, onNext, done,
 }) => (
-  <div style={{ position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", zIndex: 10004, pointerEvents: "auto" as const, display: "flex", alignItems: "center", gap: 12, background: "rgba(17,24,39,0.92)", backdropFilter: "blur(8px)", borderRadius: 999, padding: "8px 14px", boxShadow: "0 12px 30px rgba(0,0,0,0.25)", fontFamily: "Inter, system-ui, sans-serif" }}>
+  <div style={{ position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", zIndex: 10004, pointerEvents: "auto" as const, display: "flex", alignItems: "center", gap: 12, background: "rgba(16,18,15,0.94)", border: "1px solid #31352e", borderRadius: 7, padding: "8px 10px", boxShadow: "0 12px 30px rgba(0,0,0,0.2)", fontFamily: '"Avenir Next", Inter, system-ui, sans-serif' }}>
     <button onClick={onPrev} disabled={index === 0} style={{ color: "#fff", background: "transparent", border: "0px", padding: "4px 8px", borderRadius: 8, cursor: index === 0 ? "not-allowed" : "pointer", opacity: index === 0 ? 0.3 : 1, fontWeight: 600 }}>‹</button>
     <span style={{ color: "#fff", fontSize: 12, fontWeight: 600, minWidth: 64, textAlign: "center" }}>
       {done ? "Session complete" : `Step ${index + 1} / ${total}`}
     </span>
-    <button onClick={onNext} disabled={done} style={{ color: done ? "#a7f3d0" : "#fff", background: done ? "rgba(22,163,74,0.25)" : "rgba(99,102,241,0.3)", border: "0px", padding: "4px 12px", borderRadius: 8, cursor: "pointer", fontWeight: 600 }}>{done ? "Finish" : "Next ›"}</button>
+    <button onClick={onNext} disabled={done} style={{ color: "#26320f", background: done ? "#d8dbd1" : "#b7ec52", border: "0px", padding: "5px 12px", borderRadius: 5, cursor: done ? "default" : "pointer", fontWeight: 700 }}>{done ? "Finish" : "Next ›"}</button>
   </div>
 );
 
@@ -432,7 +432,7 @@ export default function LabCoach({ scene, onComplete }: LabCoachProps) {
 
   // Live-rect tracking: re-resolve every active selector on each rAF so the
   // annotations track the target through scroll/reflow (the DOM analogue of
-  // Clicky's monitor-coordinate mapping, kept pixel-accurate at runtime).
+  // Tars's monitor-coordinate mapping, kept pixel-accurate at runtime).
   useEffect(() => {
     let raf = 0;
     const tick = () => {

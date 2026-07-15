@@ -1,7 +1,7 @@
 /* =====================================================
    completion.css — Ctrl+Teach Completion experience
-   Luxe Whitespace. Parchment certificate, dashed gold border,
-   gold hairlines instead of content shadows.
+   Signal system. Paper certificate, acid-green verification line,
+   and hard editorial dividers instead of content shadows.
    ===================================================== */
 
 .cmp {
@@ -17,8 +17,8 @@
 
 .cmp-cert-inner {
   position: relative;
-  background: #FBF8F1;
-  border: 2px dashed #D4A574;
+  background: #FFFFFF;
+  border: 2px solid #B7EC52;
   border-radius: 6px;
   padding: clamp(36px, 5vw, 64px) clamp(32px, 5vw, 64px);
   display: flex;
@@ -32,15 +32,15 @@
   font-weight: 500;
   letter-spacing: 0.32em;
   text-transform: uppercase;
-  color: #666666;
+  color: #656960;
 }
 
 .cmp-cert-name {
   margin-top: 28px;
   font-size: clamp(30px, 4.4vw, 44px);
   font-weight: 300;
-  letter-spacing: -0.02em;
-  color: #2A2A2A;
+  letter-spacing: 0;
+  color: #10120F;
   line-height: 1.1;
 }
 
@@ -48,7 +48,7 @@
   display: block;
   width: 48px;
   height: 1px;
-  background: #D4A574;
+  background: #79A925;
   margin: 26px 0;
 }
 
@@ -57,7 +57,7 @@
 .cmp-cert-date {
   font-size: 15px;
   font-weight: 300;
-  color: #666666;
+  color: #656960;
   line-height: 1.6;
   margin: 0;
 }
@@ -65,8 +65,8 @@
 .cmp-cert-course {
   font-size: clamp(20px, 2.6vw, 24px);
   font-weight: 500;
-  letter-spacing: -0.01em;
-  color: #2A2A2A;
+  letter-spacing: 0;
+  color: #10120F;
   margin: 10px 0 6px;
   max-width: 32ch;
 }
@@ -78,7 +78,7 @@
 .cmp-cert-proof {
   max-width: 54ch;
   margin: 12px 0 0;
-  color: #666666;
+  color: #656960;
   font-size: 12px;
   font-weight: 300;
   line-height: 1.55;
@@ -105,13 +105,13 @@
   font-weight: 500;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: #666666;
+  color: #656960;
 }
 
 .cmp-cert-foot-value {
   font-size: 16px;
   font-weight: 500;
-  color: #2A2A2A;
+  color: #10120F;
   letter-spacing: 0.02em;
 }
 
@@ -129,10 +129,10 @@
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  background: #2A2A2A;
-  color: #FAFAF8;
-  border: 1px solid #2A2A2A;
-  border-radius: 999px;
+  background: #B7EC52;
+  color: #26320F;
+  border: 1px solid #B7EC52;
+  border-radius: 6px;
   padding: 14px 24px;
   font-family: inherit;
   font-size: 13px;
@@ -143,9 +143,9 @@
 }
 
 .cmp-download:hover {
-  background: #D4A574;
-  border-color: #D4A574;
-  color: #2A2A2A;
+  background: #10120F;
+  border-color: #10120F;
+  color: #FFFFFF;
 }
 
 /* ── Skills row ──────────────────────────────────────── */
@@ -164,16 +164,16 @@
   font-weight: 500;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #2A2A2A;
-  border: 1px solid #E0DCD6;
+  color: #10120F;
+  border: 1px solid #D8DBD1;
   padding: 9px 16px;
-  border-radius: 999px;
+  border-radius: 5px;
   transition: border-color 0.2s, color 0.2s;
 }
 
 .cmp-skill-chip:hover {
-  color: #D4A574;
-  border-color: #D4A574;
+  color: #628D1B;
+  border-color: #79A925;
 }
 
 /* ── Progress stat grid ───────────────────────────────── */
@@ -186,7 +186,7 @@
 
 .cmp-stat {
   padding: 0 28px;
-  border-left: 1px solid #E0DCD6;
+  border-left: 1px solid #D8DBD1;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -200,22 +200,22 @@
   font-weight: 500;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: #666666;
+  color: #656960;
 }
 
 .cmp-stat-value {
   font-size: clamp(34px, 4vw, 48px);
   font-weight: 200;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
   line-height: 1;
-  color: #2A2A2A;
+  color: #10120F;
   display: flex;
   align-items: baseline;
   gap: 2px;
 }
 
 .cmp-unit {
-  color: #D4A574;
+  color: #79A925;
   font-size: 0.5em;
   vertical-align: 0.55em;
   margin-left: 4px;
@@ -225,7 +225,7 @@
 .cmp-stat-foot {
   font-size: 12px;
   font-weight: 300;
-  color: #666666;
+  color: #656960;
 }
 
 /* ── Badges ──────────────────────────────────────────── */
@@ -237,7 +237,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 0;
-  border-top: 1px solid #E0DCD6;
+  border-top: 1px solid #D8DBD1;
 }
 
 .cmp-badge {
@@ -245,20 +245,20 @@
   gap: 16px;
   align-items: flex-start;
   padding: 28px 24px;
-  border-right: 1px solid #E0DCD6;
-  border-bottom: 1px solid #E0DCD6;
+  border-right: 1px solid #D8DBD1;
+  border-bottom: 1px solid #D8DBD1;
   transition: background 0.25s ease;
 }
 
-.cmp-badge:hover { background: #FBF8F1; }
+.cmp-badge:hover { background: #EBF8D1; }
 
 .cmp-badge-icon {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  border: 1px solid #D4A574;
-  color: #D4A574;
-  background: #FBF8F1;
+  border: 1px solid #79A925;
+  color: #628D1B;
+  background: #EBF8D1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -272,8 +272,8 @@
 .cmp-badge.is-locked:hover { background: transparent; }
 
 .cmp-badge-icon-locked {
-  border-color: #E0DCD6;
-  color: #666666;
+  border-color: #D8DBD1;
+  color: #656960;
   background: transparent;
 }
 
@@ -287,15 +287,15 @@
 .cmp-badge-title {
   font-size: 16px;
   font-weight: 500;
-  color: #2A2A2A;
-  letter-spacing: -0.005em;
+  color: #10120F;
+  letter-spacing: 0;
   margin: 0;
 }
 
 .cmp-badge-desc {
   font-size: 13px;
   font-weight: 300;
-  color: #666666;
+  color: #656960;
   line-height: 1.5;
   margin: 0;
 }
@@ -305,12 +305,12 @@
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #D4A574;
+  color: #628D1B;
   margin-top: 4px;
 }
 
 .cmp-badge-when-soon {
-  color: #666666;
+  color: #656960;
 }
 
 /* ── Confetti ────────────────────────────────────────── */
@@ -338,7 +338,7 @@
 @media (max-width: 1024px) {
   .cmp-stat-grid { grid-template-columns: repeat(2, 1fr); gap: 32px 0; }
   .cmp-stat { border-left: none; padding: 0; }
-  .cmp-stat:nth-child(odd) { padding-right: 28px; border-right: 1px solid #E0DCD6; }
+  .cmp-stat:nth-child(odd) { padding-right: 28px; border-right: 1px solid #D8DBD1; }
   .cmp-stat:nth-child(even) { padding-left: 28px; }
 }
 
@@ -346,7 +346,7 @@
   .cmp-stat-grid { grid-template-columns: 1fr; }
   .cmp-stat {
     border-left: none;
-    border-top: 1px solid #E0DCD6;
+    border-top: 1px solid #D8DBD1;
     padding: 24px 0 !important;
   }
   .cmp-stat:first-child { border-top: none; }

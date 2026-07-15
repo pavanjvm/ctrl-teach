@@ -1,0 +1,1692 @@
+/* Signal product system: the landing-page identity carried through the app. */
+.dash-app {
+  --bg: #f3f4ef;
+  --bg-main: #f3f4ef;
+  --bg-card: #ffffff;
+  --bg-topbar: #f3f4ef;
+  --surface: #ffffff;
+  --surface-muted: #f8f9f6;
+  --border: #d8dbd1;
+  --border-color: #d8dbd1;
+  --baseline: #b8bdb2;
+  --fg: #10120f;
+  --text-main: #10120f;
+  --muted: #565b53;
+  --text-muted: #565b53;
+  --primary: #10120f;
+  --primary-light: #ebf8d1;
+  --accent: #b7ec52;
+  --accent-dark: #26320f;
+  --success: #558617;
+  --success-bg: #edf7d9;
+  --font: var(--font-body);
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-weight: 400;
+  line-height: 1.55;
+  overflow: hidden;
+}
+
+.dash-app h1,
+.dash-app h2,
+.dash-app h3,
+.dash-app h4,
+.dash-app h5,
+.dash-app h6,
+.dash-app input,
+.dash-app textarea,
+.dash-app button,
+.dash-app a {
+  letter-spacing: 0;
+}
+
+.dash-app h1,
+.dash-app h2,
+.dash-app h3,
+.dash-app h4,
+.dash-app h5,
+.dash-app h6 {
+  color: var(--fg);
+}
+
+.dash-app .dash-topbar {
+  position: relative;
+  z-index: 100;
+  height: 64px;
+  padding: 0 clamp(18px, 2.4vw, 36px);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.dash-app .topbar-logo-zone {
+  width: 142px;
+}
+
+.dash-app .dash-brand {
+  align-items: center;
+  gap: 2px;
+}
+
+.dash-app .dash-brand-name,
+.dash-app .dash-brand-plus {
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: none;
+}
+
+.dash-app .dash-brand-plus {
+  color: #699b17;
+}
+
+.dash-app .topbar-nav {
+  flex: 1;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dash-app .topbar-nav-item {
+  position: relative;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.dash-app .topbar-nav-item::after {
+  display: none;
+}
+
+.dash-app .topbar-nav-item:hover {
+  border-color: var(--border);
+  background: #fff;
+  color: var(--fg);
+}
+
+.dash-app .topbar-nav-item.active {
+  border-color: var(--fg);
+  background: var(--fg);
+  color: #fff;
+}
+
+.dash-app .topbar-nav-item.active::before {
+  position: absolute;
+  top: 50%;
+  left: 5px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  content: "";
+  transform: translateY(-50%);
+}
+
+.dash-app .topbar-divider {
+  height: 28px;
+  margin: 0 12px;
+  background: var(--border);
+}
+
+.dash-app .topbar-controls {
+  gap: 8px;
+}
+
+.dash-app .topbar-tars-switch {
+  min-height: 36px;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.dash-app .topbar-tars-switch-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.dash-app .topbar-tars-switch-track {
+  width: 30px;
+  height: 18px;
+  border-color: var(--baseline);
+  border-radius: 999px;
+  background: #e7e9e3;
+}
+
+.dash-app .topbar-tars-switch.is-on .topbar-tars-switch-track {
+  border-color: #7ba82b;
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.dash-app .topbar-tars-switch-thumb {
+  width: 12px;
+  height: 12px;
+  background: var(--fg);
+  box-shadow: none;
+}
+
+.dash-app .topbar-icon-btn,
+.dash-app .topbar-mobile-menu {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+}
+
+.dash-app .topbar-icon-btn:hover,
+.dash-app .topbar-icon-btn.active,
+.dash-app .topbar-mobile-menu:hover,
+.dash-app .topbar-mobile-menu.active {
+  border-color: var(--fg);
+  background: var(--fg);
+  color: #fff;
+}
+
+.dash-app .topbar-mobile-menu {
+  display: none;
+}
+
+.dash-app .notification-dot {
+  top: -5px;
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border: 2px solid var(--bg);
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-dark);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.dash-app .topbar-user-card {
+  min-height: 36px;
+  padding: 0 4px 0 0 !important;
+  border-radius: 6px !important;
+}
+
+.dash-app .topbar-avatar {
+  overflow: hidden;
+  border: 1px solid var(--fg);
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.dash-app .user-name {
+  max-width: 100px;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-app .notif-dropdown {
+  top: calc(100% + 10px);
+  overflow: hidden;
+  border: 1px solid var(--fg);
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: 0 16px 40px rgba(16, 18, 15, 0.12);
+}
+
+.dash-app .notif-header,
+.dash-app .notif-footer {
+  background: var(--surface-muted);
+}
+
+.dash-app .notif-title {
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.dash-app .notif-item {
+  border-radius: 0 !important;
+}
+
+.dash-app .notif-item:hover,
+.dash-app .notif-item.unread {
+  background: var(--accent-light);
+}
+
+.dash-app .notif-item-icon {
+  border-radius: 5px;
+  background: var(--fg);
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.dash-app .notif-unread-dot {
+  background: #639315;
+}
+
+.dash-app .dash-main {
+  flex: 1;
+  min-height: 0;
+  padding: 32px clamp(22px, 3.2vw, 52px) 52px;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.dash-app .dash-main.no-padding {
+  padding: 0;
+}
+
+.dash-app .course-mode-topbar {
+  height: 60px;
+  border-color: var(--border);
+  background: var(--bg);
+  backdrop-filter: none;
+}
+
+.dash-app .course-mode-back,
+.dash-app .course-mode-brand,
+.dash-app .course-mode-nav a {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.dash-app .course-mode-nav {
+  padding: 3px;
+  border-color: var(--border);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.dash-app .course-mode-nav a {
+  min-height: 32px;
+  border-radius: 5px;
+}
+
+.dash-app .course-mode-nav a.active {
+  background: var(--fg);
+  color: #fff;
+}
+
+.dash-app .course-mode-brand span {
+  color: #699b17;
+}
+
+@media (max-width: 680px) {
+  .dash-app .course-mode-topbar {
+    grid-template-columns: 34px minmax(0, 1fr) 34px;
+    padding: 0 10px;
+  }
+
+  .dash-app .course-mode-brand {
+    overflow: hidden;
+    font-size: 0;
+  }
+
+  .dash-app .course-mode-brand::before {
+    color: #699b17;
+    content: "+";
+    font-size: 18px;
+  }
+
+  .dash-app .course-mode-nav a {
+    padding: 0 9px;
+    font-size: 11px;
+  }
+}
+
+/* Shared editorial page structure */
+.dash-app .page {
+  max-width: 1260px;
+  padding: 0;
+}
+
+.dash-app .sec,
+.dash-app .sec-tight {
+  padding: 42px 0;
+}
+
+.dash-app .sec-close {
+  padding-bottom: 64px;
+}
+
+.dash-app .sec-eyebrow,
+.dash-app .sec-num,
+.dash-app .stat-label,
+.dash-app .rule-kicker,
+.dash-app .prof-stat-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.dash-app .sec-eyebrow {
+  margin-bottom: 20px;
+}
+
+.dash-app .sec-title {
+  max-width: 22ch;
+  font-size: clamp(34px, 4vw, 54px);
+  font-weight: 700;
+  line-height: 1.08;
+}
+
+.dash-app .sec-title .stop,
+.dash-app .unit,
+.dash-app .gen-heading h1 span,
+.dash-app .library-head h1 span {
+  color: #699b17;
+}
+
+.dash-app .lede {
+  max-width: 58ch;
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+
+.dash-app .gold-rule {
+  width: 46px;
+  height: 3px;
+  margin: 24px 0;
+  background: var(--accent);
+}
+
+.dash-app .ctas {
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.dash-app .cta,
+.dash-app .btn-resume,
+.dash-app .btn-book-session,
+.dash-app .gen-primary,
+.dash-app .gen-back,
+.dash-app .library-head > button,
+.dash-app .library-empty button,
+.dash-app .cf-primary-button,
+.dash-app .cf-secondary-button {
+  min-height: 40px;
+  padding: 0 15px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 650;
+  text-transform: none;
+}
+
+.dash-app .cta-primary,
+.dash-app .btn-resume,
+.dash-app .gen-primary,
+.dash-app .library-head > button,
+.dash-app .library-empty button,
+.dash-app .cf-primary-button {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-dark);
+}
+
+.dash-app .cta-primary:hover,
+.dash-app .btn-resume:hover,
+.dash-app .gen-primary:hover:not(:disabled),
+.dash-app .library-head > button:hover,
+.dash-app .library-empty button:hover,
+.dash-app .cf-primary-button:hover:not(:disabled) {
+  border-color: var(--fg);
+  background: var(--fg);
+  color: #fff;
+}
+
+.dash-app .cta-secondary,
+.dash-app .gen-back,
+.dash-app .cf-secondary-button {
+  border-color: var(--border);
+  background: #fff;
+  color: var(--fg);
+}
+
+.dash-app .stat-grid {
+  margin-top: 28px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.dash-app .stat {
+  min-width: 0;
+  padding: 22px;
+  border-color: var(--border);
+}
+
+.dash-app .stat:first-child {
+  padding-left: 22px;
+}
+
+.dash-app .stat-value {
+  font-size: clamp(34px, 3.8vw, 50px);
+  font-weight: 700;
+}
+
+.dash-app .stat-value::first-line {
+  text-decoration-color: var(--accent);
+}
+
+.dash-app .rule-list {
+  margin-top: 26px;
+}
+
+.dash-app .rule-row {
+  padding: 20px 0;
+}
+
+.dash-app .rule-row:hover {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* Dashboard-specific work surfaces */
+.dash-app .dash-header-area {
+  margin-bottom: 28px;
+}
+
+.dash-app .dash-page {
+  width: min(1260px, 100%);
+}
+
+.dash-app .dash-title {
+  font-size: clamp(32px, 3.5vw, 44px);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.dash-app .dash-subtitle {
+  font-size: 13px;
+}
+
+.dash-app .sparkle-icon {
+  color: #699b17;
+  animation: none;
+}
+
+.dash-app .dash-page .dash-mastery-grid[style] {
+  gap: 12px !important;
+  border: 0;
+  background: transparent;
+}
+
+.dash-app .dash-page .mastery-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dash-app .dash-page .dash-sidebar-card > div[style*="background"] {
+  border: 1px solid var(--border);
+  border-radius: 6px !important;
+  background: var(--surface-muted) !important;
+}
+
+.dash-app .page.fade-in {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: 30px;
+}
+
+.dash-app .page.fade-in > .sec {
+  min-width: 0;
+  padding: 34px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.dash-app .page.fade-in > #greeting,
+.dash-app .page.fade-in > #stats {
+  grid-column: 1 / -1;
+}
+
+.dash-app .page.fade-in > #greeting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 14px 32px;
+  padding-top: 28px;
+}
+
+.dash-app .page.fade-in > #greeting .sec-eyebrow,
+.dash-app .page.fade-in > #greeting .sec-title,
+.dash-app .page.fade-in > #greeting .lede {
+  grid-column: 1;
+}
+
+.dash-app .page.fade-in > #greeting .sec-eyebrow {
+  margin-bottom: 0;
+}
+
+.dash-app .page.fade-in > #greeting .ctas {
+  grid-column: 2;
+  grid-row: 2 / 4;
+  align-self: center;
+  margin-top: 0;
+}
+
+.dash-app .page.fade-in > #greeting .sec-title {
+  max-width: none;
+}
+
+.dash-app .page.fade-in > #greeting .lede {
+  max-width: 62ch;
+  margin-top: 0;
+}
+
+.dash-app .page.fade-in > #recent {
+  grid-column: span 8;
+}
+
+.dash-app .page.fade-in > #suggested {
+  grid-column: span 4;
+  padding-right: 8px;
+}
+
+.dash-app .page.fade-in > #mastery,
+.dash-app .page.fade-in > #close {
+  grid-column: span 8;
+}
+
+.dash-app .page.fade-in > .sec:not(#greeting) .sec-title {
+  max-width: 22ch;
+  font-size: clamp(24px, 2.3vw, 34px);
+  line-height: 1.08;
+}
+
+.dash-app .page.fade-in > .sec:not(#greeting) .lede {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.dash-app .page.fade-in > #stats {
+  padding-top: 26px;
+}
+
+.dash-app .page.fade-in > #stats .gold-rule {
+  display: none;
+}
+
+.dash-app .page.fade-in > #stats .stat-grid {
+  margin-top: 14px;
+}
+
+.dash-app .page.fade-in > #recent {
+  padding-right: 20px;
+  border-right: 1px solid var(--border);
+}
+
+.dash-app .page.fade-in .empty {
+  display: flex;
+  min-height: 94px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding-top: 22px;
+}
+
+.dash-app .page.fade-in .empty .ctas,
+.dash-app .page.fade-in .empty .cta {
+  flex: 0 0 auto;
+}
+
+.dash-app .page.fade-in > #close {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px 24px;
+}
+
+.dash-app .page.fade-in > #close .sec-num,
+.dash-app .page.fade-in > #close .sec-title,
+.dash-app .page.fade-in > #close .gold-rule,
+.dash-app .page.fade-in > #close .lede {
+  grid-column: 1;
+}
+
+.dash-app .page.fade-in > #close .gold-rule {
+  margin: 8px 0 0;
+}
+
+.dash-app .page.fade-in > #close .ctas {
+  grid-column: 2;
+  grid-row: 2 / 5;
+  margin-top: 0;
+}
+
+.dash-app .dash-greeting {
+  font-size: clamp(34px, 4vw, 52px);
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.dash-app .dash-subtitle {
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.dash-app .dash-split-layout {
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
+}
+
+.dash-app .dash-continue-card,
+.dash-app .dash-sidebar-card,
+.dash-app .dash-achievements-banner {
+  border-color: var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dash-app .dash-continue-card {
+  margin-bottom: 30px;
+}
+
+.dash-app .continue-image {
+  width: 250px;
+  background: var(--surface-muted);
+}
+
+.dash-app .continue-content {
+  padding: 26px;
+}
+
+.dash-app .continue-title {
+  font-size: 25px;
+  font-weight: 700;
+}
+
+.dash-app .continue-paused,
+.dash-app .tag-subject {
+  border-radius: 5px;
+  color: #4f7716;
+}
+
+.dash-app .btn-info {
+  border-radius: 6px;
+  background: #fff;
+}
+
+.dash-app .dash-mastery-grid {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dash-app .mastery-card {
+  padding: 22px;
+}
+
+.dash-app .mastery-icon,
+.dash-app .achievements-icon-main .award-badge,
+.dash-app .circle-badge,
+.dash-app .tip-icon-container,
+.dash-app .test-bell {
+  border-radius: 6px;
+}
+
+.dash-app .mastery-progress-track {
+  height: 6px;
+  border-radius: 0;
+}
+
+.dash-app .mastery-progress-fill,
+.dash-app .mastery-progress-fill.math,
+.dash-app .mastery-progress-fill.science,
+.dash-app .mastery-progress-fill.history {
+  background: var(--accent);
+}
+
+.dash-app .dash-side-column {
+  gap: 16px;
+}
+
+.dash-app .dash-sidebar-card {
+  padding: 20px;
+}
+
+.dash-app .daily-tip-card {
+  border-left: 4px solid var(--accent);
+}
+
+/* Course generator and library */
+.dash-app .gen-page,
+.dash-app .library-page,
+.dash-app .cf-page {
+  width: min(1180px, calc(100% - 40px));
+  padding-top: 48px;
+}
+
+.dash-app .gen-heading h1,
+.dash-app .gen-generation-page h1,
+.dash-app .library-head h1,
+.dash-app .cf-hero h1,
+.dash-app .cf-generation h1 {
+  margin: 10px 0 14px;
+  font-size: clamp(36px, 4.2vw, 56px);
+  font-weight: 650;
+  line-height: 1.1;
+}
+
+.dash-app .gen-heading > p,
+.dash-app .library-head p,
+.dash-app .cf-hero p {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+
+.dash-app .gen-card,
+.dash-app .gen-live-course,
+.dash-app .cf-source-card {
+  margin-top: 34px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dash-app .gen-source-tabs,
+.dash-app .cf-source-tabs {
+  background: var(--surface-muted);
+}
+
+.dash-app .gen-source-tabs button,
+.dash-app .cf-source-tabs button {
+  min-height: 48px;
+  padding: 0 18px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: none;
+}
+
+.dash-app .gen-source-tabs button.active,
+.dash-app .cf-source-tabs button.active {
+  background: #fff;
+  color: var(--fg);
+  box-shadow: inset 0 -3px var(--accent);
+}
+
+.dash-app .gen-source-body textarea,
+.dash-app .gen-question textarea,
+.dash-app .cf-url-input,
+.dash-app .cf-field input,
+.dash-app .cf-field textarea {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.dash-app .gen-source-body textarea,
+.dash-app .gen-question textarea {
+  padding: 14px;
+  font-size: 17px;
+  font-weight: 500;
+}
+
+.dash-app .gen-upload,
+.dash-app .cf-dropzone {
+  border-radius: 7px;
+  background: var(--surface-muted);
+}
+
+.dash-app .gen-upload:hover,
+.dash-app .gen-upload.has-file,
+.dash-app .cf-dropzone.dragging,
+.dash-app .cf-dropzone.has-file {
+  border-color: #6f9d20;
+  background: var(--accent-light);
+}
+
+.dash-app .gen-options button {
+  border-radius: 6px;
+  background: #fff;
+}
+
+.dash-app .gen-options button:hover,
+.dash-app .gen-options button.selected {
+  border-color: #729f26;
+  background: var(--accent-light);
+}
+
+.dash-app .gen-options button.selected > span {
+  border-color: var(--fg);
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--fg);
+}
+
+.dash-app .library-head {
+  padding-bottom: 26px;
+}
+
+.dash-app .library-grid {
+  gap: 18px;
+  margin-top: 26px;
+}
+
+.dash-app .library-card {
+  overflow: hidden;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dash-app .library-card:hover {
+  border-color: #6d951f;
+  box-shadow: 0 10px 28px rgba(16, 18, 15, 0.07);
+  transform: translateY(-2px);
+}
+
+.dash-app .library-cover {
+  height: auto;
+  min-height: 190px;
+  aspect-ratio: 16 / 9;
+  background: #dfe5d7;
+}
+
+.dash-app .library-cover::after {
+  background: linear-gradient(to bottom, transparent 45%, rgba(16, 18, 15, 0.48));
+}
+
+.dash-app .library-status {
+  border: 0;
+  border-radius: 5px;
+  background: var(--fg);
+  color: #fff;
+  backdrop-filter: none;
+}
+
+.dash-app .library-status.ready {
+  background: var(--accent);
+  color: var(--accent-dark);
+}
+
+.dash-app .library-meta {
+  color: #587f18;
+}
+
+.dash-app .library-body h2 {
+  font-size: 20px;
+  font-weight: 750;
+}
+
+/* Shared dashboard surfaces */
+.dash-app .dash-page[style] {
+  max-width: 1260px !important;
+  padding: 0 !important;
+}
+
+.dash-app .tutor-modal-backdrop {
+  background: rgba(16, 18, 15, 0.38) !important;
+  backdrop-filter: blur(3px) !important;
+}
+
+.dash-app .tutor-modal {
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  box-shadow: 0 22px 52px rgba(16, 18, 15, 0.16) !important;
+}
+
+.dash-app .tutor-modal-close {
+  border: 1px solid var(--border) !important;
+  border-radius: 5px !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+
+.dash-app .tutor-modal-close:hover {
+  border-color: var(--fg) !important;
+  background: var(--fg) !important;
+  color: #fff !important;
+  transform: none;
+}
+
+.dash-app .tutor-modal-header {
+  border-radius: 0 !important;
+  background: #fff !important;
+}
+
+.dash-app .tutor-modal input,
+.dash-app .tutor-modal textarea,
+.dash-app .tutor-modal select {
+  border-radius: 5px !important;
+  box-shadow: none !important;
+}
+
+.dash-app .tutor-modal button {
+  box-shadow: none !important;
+}
+
+@media (max-width: 760px) {
+  .dash-app .tutor-modal-frame {
+    padding: 10px !important;
+  }
+
+  .dash-app .tutor-modal {
+    max-height: calc(100dvh - 20px) !important;
+  }
+
+  .dash-app .tutor-modal-header {
+    padding: 18px !important;
+  }
+
+  .dash-app .tutor-form-row {
+    flex-direction: column !important;
+  }
+
+  .dash-app .tutor-form-row > * {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .dash-app .tutor-teaching-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .dash-app .tutor-modal input,
+  .dash-app .tutor-modal textarea,
+  .dash-app .tutor-modal select {
+    font-size: 16px !important;
+  }
+
+  .dash-app .tutor-modal-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+}
+
+.dash-app .dash-sidebar-card[style] {
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  background: #fff !important;
+  box-shadow: none !important;
+}
+
+/* Profile and learner memory */
+.dash-app .prof-header-card,
+.dash-app .prof-card,
+.dash-app .skill-profile-hero,
+.dash-app .skill-profile-card,
+.dash-app .skill-profile-memory-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.dash-app .prof-header-card {
+  margin-bottom: 20px;
+}
+
+.dash-app .prof-header-content {
+  padding: 24px;
+}
+
+.dash-app .prof-avatar-img {
+  border-color: var(--accent);
+  box-shadow: none;
+}
+
+.dash-app .prof-avatar-edit {
+  background: var(--fg);
+}
+
+.dash-app .prof-name {
+  font-size: 22px;
+  font-weight: 780;
+}
+
+.dash-app .prof-badge,
+.dash-app .prof-badge.grade,
+.dash-app .prof-session-score,
+.dash-app .skill-profile-pill {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-muted);
+  color: var(--fg);
+}
+
+.dash-app .prof-badge.grade,
+.dash-app .skill-profile-pill.is-strong {
+  border-color: #8fb641;
+  background: var(--accent-light);
+}
+
+.dash-app .prof-edit-btn,
+.dash-app .prof-save-btn,
+.dash-app .prof-cancel-btn,
+.dash-app .prof-tab {
+  border-radius: 6px;
+}
+
+.dash-app .prof-save-btn {
+  background: var(--accent);
+  color: var(--accent-dark);
+}
+
+.dash-app .prof-tabs {
+  gap: 0;
+  overflow-x: auto;
+  margin-bottom: 20px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-muted);
+}
+
+.dash-app .prof-tab {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.dash-app .prof-tab.active {
+  background: var(--fg);
+  color: #fff;
+  box-shadow: none;
+}
+
+.dash-app .prof-section-title svg {
+  color: #68951b;
+}
+
+.dash-app .prof-subject-bar-track,
+.dash-app .prof-goal-track,
+.dash-app .skill-profile-meter-track {
+  border-radius: 0;
+  background: #e7e9e3;
+}
+
+.dash-app .prof-subject-bar-fill,
+.dash-app .prof-goal-fill,
+.dash-app .skill-profile-meter-fill {
+  border-radius: 0;
+  background: var(--accent) !important;
+}
+
+.dash-app .prof-session-row {
+  border-radius: 6px;
+}
+
+.dash-app .prof-session-row:hover {
+  background: var(--accent-light);
+}
+
+/* Learning workspace */
+.dash-app .learn-app {
+  top: 64px;
+  height: calc(100vh - 64px);
+}
+
+.dash-app .learn-mobile-actions,
+.dash-app .learn-mobile-drawer-close {
+  display: none;
+}
+
+.dash-app .learn-shell,
+.dash-app .learn-workspace {
+  --accent: #79a925;
+  --surface: #f3f4ef;
+  background: #fff;
+}
+
+.dash-app .learn-shell {
+  grid-template-columns: 220px minmax(0, 1fr) 300px;
+}
+
+.dash-app .learn-path,
+.dash-app .lp,
+.dash-app .learn-companion,
+.dash-app .cp {
+  background: var(--surface-muted);
+}
+
+.dash-app .lp-course-title,
+.dash-app .ls-title {
+  font-weight: 650;
+}
+
+.dash-app .lp-lesson.active,
+.dash-app .lp-module.active,
+.dash-app .cp-proactive,
+.dash-app .generated-lab-task,
+.dash-app .generated-lab-review.needs-work {
+  border-color: #7ca82c;
+  background: var(--accent-light);
+}
+
+.dash-app .bp-bar,
+.dash-app .bp-bar > span {
+  border-radius: 0;
+}
+
+.dash-app .bp-bar > span {
+  background: var(--accent);
+}
+
+.dash-app .bp-mode-btn,
+.dash-app .ls-type-pill,
+.dash-app .res-pill {
+  border-radius: 5px;
+}
+
+.dash-app .bp-mode-btn.active {
+  border-color: var(--fg);
+  background: var(--fg);
+  color: #fff;
+}
+
+.dash-app .ls-topbar {
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.dash-app .ls-eyebrow,
+.dash-app .cp-msg.user .who,
+.dash-app .cp-proactive .tag,
+.dash-app .lab-coach-text,
+.dash-app .generated-lab-task svg,
+.dash-app .generated-lab-review svg {
+  color: #628d1b;
+}
+
+.dash-app .cp-msg.agent .bubble,
+.dash-app .cp-proactive,
+.dash-app .cp-hint,
+.dash-app .lab-surface,
+.dash-app .role-persona,
+.dash-app .role-bubble,
+.dash-app .generated-lab-brief,
+.dash-app .generated-lab-workspace,
+.dash-app .generated-lab-context {
+  border-radius: 7px;
+}
+
+.dash-app .lab-coach-dot {
+  background: var(--accent);
+  box-shadow: none;
+  animation: none;
+}
+
+.dash-app .generated-lab-task {
+  border-left: 3px solid #7ca82c;
+}
+
+.dash-app .cp-hint .h {
+  color: #628d1b;
+}
+
+/* Whiteboard */
+.dash-app .board-page,
+.dash-app .wb-page {
+  background: var(--bg);
+}
+
+.dash-app .board-toolbar,
+.dash-app .wb-toolbar,
+.dash-app .board-status,
+.dash-app .board-session-panel {
+  border-color: var(--border);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 28px rgba(16, 18, 15, 0.08);
+}
+
+.dash-app .board-tool-btn,
+.dash-app .board-action-btn,
+.dash-app .wb-tool-btn,
+.dash-app .wb-action-btn {
+  border-radius: 5px;
+}
+
+.dash-app .board-tool-btn.active,
+.dash-app .wb-tool-btn.active,
+.dash-app .board-action-btn.primary,
+.dash-app .wb-action-btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-dark);
+}
+
+/* Generated course and completion views */
+.dash-app .rich-course,
+.dash-app .rich-shell,
+.dash-app .cmp,
+.dash-app .cf-page {
+  --bg: #f3f4ef;
+  --surface: #ffffff;
+  --border: #d8dbd1;
+  --baseline: #b8bdb2;
+  --fg: #10120f;
+  --muted: #565b53;
+  --accent: #78a826;
+}
+
+.dash-app .rich-hero,
+.dash-app .rich-block,
+.dash-app .rich-quiz-block,
+.dash-app .rich-tutor-message p,
+.dash-app .cmp-cert,
+.dash-app .cmp-badge,
+.dash-app .cf-certificate-card {
+  border-radius: 7px;
+}
+
+.dash-app .rich-primary-button,
+.dash-app .rich-lesson-actions button,
+.dash-app .rich-tutor-intro button,
+.dash-app .cmp-download {
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-dark);
+}
+
+.dash-app .rich-quiz-numbers button.active,
+.dash-app .rich-quiz-numbers button.answered {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-dark);
+}
+
+.dash-app .cf-lesson-lab .cf-lesson-icon,
+.dash-app .cf-generation-step.active,
+.dash-app .cf-title-input:focus,
+.dash-app .cf-description-input:focus {
+  color: #638f1b;
+}
+
+.dash-app .cf-title-input:focus,
+.dash-app .cf-description-input:focus {
+  background: var(--accent-light);
+}
+
+@media (max-width: 1180px) {
+  .dash-app .topbar-nav,
+  .dash-app .topbar-divider {
+    display: none;
+  }
+
+  .dash-app .topbar-logo-zone {
+    width: auto;
+  }
+
+  .dash-app .topbar-mobile-menu {
+    display: grid;
+    margin-left: auto;
+    margin-right: 8px;
+  }
+
+  .dash-app .topbar-mobile-nav {
+    position: absolute;
+    z-index: 110;
+    top: 63px;
+    right: 0;
+    left: 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 12px clamp(18px, 3vw, 36px) 18px;
+    border-bottom: 1px solid var(--fg);
+    background: var(--bg);
+    box-shadow: 0 18px 34px rgba(16, 18, 15, 0.1);
+  }
+
+  .dash-app .topbar-mobile-nav-item {
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    min-height: 46px;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .dash-app .topbar-mobile-nav-item:nth-child(odd) {
+    border-right: 1px solid var(--border);
+  }
+
+  .dash-app .topbar-mobile-nav-item:nth-child(even) {
+    padding-left: 16px;
+  }
+
+  .dash-app .topbar-mobile-nav-item.active {
+    background: var(--accent-light);
+  }
+
+  .dash-app .topbar-mobile-nav-index {
+    color: #6a941e;
+    font-size: 9px;
+    font-weight: 800;
+  }
+
+  .dash-app .dash-split-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .dash-app .page.fade-in > #recent,
+  .dash-app .page.fade-in > #suggested,
+  .dash-app .page.fade-in > #mastery,
+  .dash-app .page.fade-in > #close {
+    grid-column: 1 / -1;
+  }
+
+  .dash-app .learn-app {
+    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 64px;
+    grid-template-areas:
+      "side center"
+      "bottom bottom";
+  }
+
+  .dash-app .learn-comp {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .dash-app .dash-topbar {
+    height: 60px;
+    padding: 0 14px;
+  }
+
+  .dash-app .dash-brand-name,
+  .dash-app .dash-brand-plus {
+    font-size: 16px;
+  }
+
+  .dash-app .topbar-mobile-menu {
+    margin-right: 4px;
+  }
+
+  .dash-app .topbar-tars-switch {
+    width: 36px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .dash-app .topbar-tars-switch-label,
+  .dash-app .topbar-user-info,
+  .dash-app .topbar-controls > .topbar-icon-btn {
+    display: none;
+  }
+
+  .dash-app .topbar-mobile-nav {
+    top: 59px;
+    grid-template-columns: 1fr;
+    padding: 8px 14px 14px;
+  }
+
+  .dash-app .topbar-mobile-nav-item:nth-child(odd) {
+    border-right: 0;
+  }
+
+  .dash-app .topbar-mobile-nav-item:nth-child(even) {
+    padding-left: 0;
+  }
+
+  .dash-app .dash-main {
+    padding: 22px 14px 40px;
+  }
+
+  .dash-app .sec,
+  .dash-app .sec-tight {
+    padding: 28px 0;
+  }
+
+  .dash-app .sec-title,
+  .dash-app .dash-greeting {
+    font-size: 34px;
+  }
+
+  .dash-app .page.fade-in {
+    display: block;
+  }
+
+  .dash-app .page.fade-in > #greeting,
+  .dash-app .page.fade-in > #close {
+    display: block;
+  }
+
+  .dash-app .page.fade-in > #greeting .ctas,
+  .dash-app .page.fade-in > #close .ctas {
+    margin-top: 22px;
+  }
+
+  .dash-app .page.fade-in > #recent {
+    padding-right: 0;
+    padding-left: 0;
+    border-right: 0;
+  }
+
+  .dash-app .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dash-app .stat {
+    padding: 18px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .dash-app .stat:first-child {
+    padding-left: 14px;
+  }
+
+  .dash-app .dash-continue-card {
+    flex-direction: column;
+  }
+
+  .dash-app .continue-image {
+    width: 100%;
+    height: 170px;
+  }
+
+  .dash-app .gen-page,
+  .dash-app .library-page,
+  .dash-app .cf-page {
+    width: calc(100% - 28px);
+    padding-top: 28px;
+  }
+
+  .dash-app .gen-heading h1,
+  .dash-app .gen-generation-page h1,
+  .dash-app .library-head h1,
+  .dash-app .cf-hero h1,
+  .dash-app .cf-generation h1 {
+    font-size: 36px;
+  }
+
+  .dash-app .prof-header-content {
+    align-items: flex-start;
+    padding: 18px;
+  }
+
+  .dash-app .prof-tabs {
+    width: 100%;
+  }
+
+  .dash-app .prof-tab {
+    min-width: max-content;
+    padding: 9px 12px;
+  }
+
+  .dash-app .learn-app {
+    top: 60px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 64px;
+    grid-template-areas:
+      "center"
+      "bottom";
+    height: calc(100vh - 60px);
+  }
+
+  .dash-app .learn-side,
+  .dash-app .learn-comp {
+    display: none;
+  }
+
+  .dash-app .learn-app.mobile-path .learn-side,
+  .dash-app .learn-app.mobile-companion .learn-comp {
+    position: absolute;
+    z-index: 10020;
+    inset: 0 0 64px;
+    display: flex;
+    max-height: none;
+    padding-top: 48px;
+    border: 0;
+    background: var(--bg);
+  }
+
+  .dash-app .learn-app.mobile-path .learn-center,
+  .dash-app .learn-app.mobile-companion .learn-center {
+    visibility: hidden;
+  }
+
+  .dash-app .learn-app.mobile-path .learn-side {
+    overflow-y: auto;
+    flex-direction: column;
+  }
+
+  .dash-app .learn-app.mobile-companion .learn-comp {
+    overflow: hidden;
+    flex-direction: column;
+  }
+
+  .dash-app .learn-mobile-drawer-close {
+    position: absolute;
+    z-index: 10022;
+    top: 10px;
+    right: 14px;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: #fff;
+    color: var(--fg);
+  }
+
+  .dash-app .learn-app.mobile-path .learn-mobile-drawer-close,
+  .dash-app .learn-app.mobile-companion .learn-mobile-drawer-close {
+    display: grid;
+  }
+
+  .dash-app .ls-topbar {
+    gap: 8px;
+    min-height: 56px;
+    padding: 10px 12px;
+  }
+
+  .dash-app .ls-eyebrow,
+  .dash-app .ls-type-pill {
+    display: none;
+  }
+
+  .dash-app .ls-title {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dash-app .learn-mobile-actions {
+    display: flex;
+    flex: none;
+    gap: 5px;
+    margin-left: auto;
+  }
+
+  .dash-app .learn-mobile-actions button {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: #fff;
+    color: var(--fg);
+  }
+
+  .dash-app .learn-mobile-actions button.active {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--accent-dark);
+  }
+
+  .dash-app .ls-stage {
+    inset: 56px 0 0;
+  }
+
+  .dash-app .lab-wrap,
+  .dash-app .role-wrap {
+    padding: 14px 14px 78px;
+  }
+
+  .dash-app .lab-surface {
+    padding: 14px;
+  }
+
+  .dash-app .story-builder-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 18px !important;
+  }
+
+  .dash-app .story-builder-preview {
+    position: static !important;
+    min-height: 280px !important;
+    padding: 18px !important;
+  }
+
+  .dash-app .learn-bottom {
+    padding: 8px;
+  }
+
+  .dash-app .bp {
+    gap: 0;
+  }
+
+  .dash-app .bp-stat,
+  .dash-app .bp-sep,
+  .dash-app .bp-spacer {
+    display: none;
+  }
+
+  .dash-app .bp-mode-switch {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .dash-app .bp-mode-btn {
+    min-width: 0;
+    padding: 8px 4px;
+    overflow: hidden;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

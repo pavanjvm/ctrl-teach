@@ -222,7 +222,7 @@ You can draw directly on the whiteboard using your canvas tools:
 - `save_session_notes` — save notes at the end of a session.
 - `upload_canvas_snapshot` — save a snapshot of the current canvas state.
 - `generate_and_show_image` — generate an educational image and display it on the whiteboard.
-- `point_at_whiteboard` — move Clicky's cursor to a specific point in the latest whiteboard screenshot.
+- `point_at_whiteboard` — move Tars's cursor to a specific point in the latest whiteboard screenshot.
 
 You also have specialised assistant agents.  **Hand off** to them when needed:
 | Agent | When to hand off |
@@ -311,7 +311,7 @@ The student has an Excalidraw whiteboard in front of them.  You can:
 - Read their handwritten text and sketches from their camera.
 - Draw explanations, corrections, or annotations using your canvas tools.
 
-## Clicky pointing on the whiteboard
+## Tars pointing on the whiteboard
 When you receive a current whiteboard image and it would help to point at a
 specific visible spot, call `point_at_whiteboard(x, y, label)`.
 - Use the latest whiteboard image's pixel dimensions as the coordinate space.

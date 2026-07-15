@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
 from app.auth.dependencies import get_current_user
@@ -21,28 +21,68 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/schedule", tags=["schedule"])
 
 
+def _validate_iso_datetime(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("start_time must be an ISO 8601 datetime") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("start_time must include a timezone")
+    return value
+
+
 class ScheduleSessionCreate(BaseModel):
-    title: str
-    subject: str = ""
-    tutor: str = ""
-    avatar: str = ""
-    description: str = ""
-    start_time: str  # ISO 8601 datetime string
-    duration_hours: float = 1.0
-    session_type: str = "manual"
-    subject_class: str = ""
+    title: str = Field(min_length=1, max_length=200)
+    subject: str = Field(default="", max_length=100)
+    tutor: str = Field(default="", max_length=200)
+    avatar: str = Field(default="", max_length=500)
+    description: str = Field(default="", max_length=2000)
+    start_time: str = Field(min_length=10, max_length=64)
+    duration_hours: float = Field(default=1.0, gt=0, le=12)
+    session_type: Literal["manual", "ai-suggested"] = "manual"
+    subject_class: Literal["math", "science", "history", "languages"] = "math"
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        clean = value.strip()
+        if not clean:
+            raise ValueError("title must not be blank")
+        return clean
+
+    @field_validator("start_time")
+    @classmethod
+    def validate_start_time(cls, value: str) -> str:
+        return _validate_iso_datetime(value)
 
 
 class ScheduleSessionUpdate(BaseModel):
-    title: Optional[str] = None
-    subject: Optional[str] = None
-    tutor: Optional[str] = None
-    avatar: Optional[str] = None
-    description: Optional[str] = None
-    start_time: Optional[str] = None
-    duration_hours: Optional[float] = None
-    session_type: Optional[str] = None
-    subject_class: Optional[str] = None
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    subject: Optional[str] = Field(default=None, max_length=100)
+    tutor: Optional[str] = Field(default=None, max_length=200)
+    avatar: Optional[str] = Field(default=None, max_length=500)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    start_time: Optional[str] = Field(default=None, min_length=10, max_length=64)
+    duration_hours: Optional[float] = Field(default=None, gt=0, le=12)
+    session_type: Optional[Literal["manual", "ai-suggested"]] = None
+    subject_class: Optional[Literal["math", "science", "history", "languages"]] = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_optional_title(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        clean = value.strip()
+        if not clean:
+            raise ValueError("title must not be blank")
+        return clean
+
+    @field_validator("start_time")
+    @classmethod
+    def validate_optional_start_time(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        return _validate_iso_datetime(value)
 
 
 def _uid(user: dict) -> int:

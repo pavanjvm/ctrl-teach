@@ -50,17 +50,21 @@ from agents.realtime.openai_realtime import OpenAIRealtimeWebSocketModel
 from app.agents.tutor_agent import TUTOR_INSTRUCTION, build_tutor_agent
 from app.agents.companion_identity import COMPANION_AGENT_NAME
 from app.agents.prompt_builder import build_tutor_instruction
-from app.agents.clicky_agent import build_clicky_agent
-from app.auth.dependencies import verify_basic_credentials
-from app.auth.extension_tokens import verify_clicky_extension_token
+from app.agents.tars_agent import build_tars_agent
+from app.agents.roleplay_agent import build_roleplay_agent, normalize_roleplay_voice
+from app.auth.extension_tokens import verify_tars_extension_token
+from app.auth.session_tokens import verify_app_session_token
 from app.config import settings
+from app.middleware.body_limit import RequestBodyLimitMiddleware
 from sqlalchemy import select
 
 from app.db import SessionLocal, SessionRow, Tutor, User
 from app.routers import auth_router, users, dashboard, schedule, tutors
 from app.routers import discover as discover_router
-from app.routers import clicky as clicky_router
+from app.routers import tars as tars_router
 from app.routers import generated_courses as generated_courses_router
+from app.routers import browser_labs as browser_labs_router
+from app.routers import roleplay as roleplay_router
 from app.utils.errors import (
     ErrorCategory,
     ErrorPayload,
@@ -84,6 +88,8 @@ default_root_agent: Optional[RealtimeAgent] = None
 
 _INPUT_RATE = 16_000
 _OUTPUT_RATE = 24_000
+_MAX_WS_AUDIO_FRAME_BYTES = 512 * 1024
+_MAX_WS_TEXT_FRAME_CHARS = 10 * 1024 * 1024
 
 
 def _turn_requires_learner_response(transcript: str, explicit_wait: bool = False) -> bool:
@@ -102,6 +108,48 @@ def _turn_requires_learner_response(transcript: str, explicit_wait: bool = False
             "can you tell me",
         )
     )
+
+
+def _realtime_error_details(error: Any) -> Dict[str, str]:
+    """Extract useful text from SDK/OpenAI Realtime error objects."""
+    details: Dict[str, str] = {}
+    for key in ("type", "code", "message", "param", "event_id"):
+        value = getattr(error, key, None)
+        if value is not None:
+            details[key] = str(value)
+    if not details:
+        try:
+            dumped = error.model_dump()
+        except Exception:
+            dumped = None
+        if isinstance(dumped, dict):
+            for key in ("type", "code", "message", "param", "event_id"):
+                value = dumped.get(key)
+                if value is not None:
+                    details[key] = str(value)
+    if not details:
+        details["message"] = str(error or "realtime error")
+    return details
+
+
+def _is_tars_recoverable_realtime_error(error: Any) -> bool:
+    """Return true for turn-control races that should not kill Tars's socket."""
+    detail_text = json.dumps(_realtime_error_details(error), ensure_ascii=False).lower()
+    recoverable_needles = (
+        "response.cancel",
+        "no active response",
+        "active response",
+        "already has a response",
+        "response.create",
+        "input_audio_buffer",
+        "audio buffer",
+    )
+    return any(needle in detail_text for needle in recoverable_needles)
+
+
+def _is_tars_audio_buffer_error(error: Any) -> bool:
+    detail_text = json.dumps(_realtime_error_details(error), ensure_ascii=False).lower()
+    return "input_audio_buffer" in detail_text or "audio buffer" in detail_text
 
 
 def _resample_pcm16(data: bytes, src_rate: int, dst_rate: int) -> bytes:
@@ -187,13 +235,23 @@ app.include_router(dashboard.router)
 app.include_router(schedule.router)
 app.include_router(tutors.router)
 app.include_router(discover_router.router)
-app.include_router(clicky_router.router)
+app.include_router(tars_router.router)
 app.include_router(generated_courses_router.router)
+app.include_router(browser_labs_router.router)
+app.include_router(roleplay_router.router)
 
-# Serve locally-saved canvas snapshots / generated images at /uploads/*
+# Only generated course media is public. Private learner snapshots remain on
+# disk for agent workflows and are never exposed through StaticFiles.
 import os as _os
-_os.makedirs(settings.uploads_dir, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=settings.uploads_dir), name="uploads")
+_generated_uploads = _os.path.join(settings.uploads_dir, "generated")
+_os.makedirs(_generated_uploads, exist_ok=True)
+app.mount(
+    "/uploads/generated",
+    StaticFiles(directory=_generated_uploads),
+    name="generated-uploads",
+)
+
+app.add_middleware(RequestBodyLimitMiddleware, max_bytes=25 * 1024 * 1024)
 
 app.add_middleware(
     CORSMiddleware,
@@ -215,15 +273,30 @@ async def health():
 # ── Realtime session config ───────────────────────────────────────────────────
 
 
-def _build_runner(agent: RealtimeAgent, voice: str) -> RealtimeRunner:
-    """Build a RealtimeRunner configured for low-latency bidi voice."""
-    # Clicky is explicitly push-to-talk and commits on Ctrl release. Disabling
-    # server VAD prevents it from creating/committing a turn while the browser
-    # is still capturing the screen context that belongs to that same turn.
-    turn_detection = None if agent.name == "clicky_agent" else {
+def _turn_detection_for_mode(*, push_to_talk: bool) -> Optional[dict[str, Any]]:
+    """Return explicit PTT or semantic-VAD turn detection for a session mode."""
+
+    if push_to_talk:
+        return None
+    return {
         "type": "semantic_vad",
         "interrupt_response": True,
     }
+
+
+def _build_runner(
+    agent: RealtimeAgent,
+    voice: str,
+    *,
+    push_to_talk: bool = False,
+) -> RealtimeRunner:
+    """Build a RealtimeRunner configured for low-latency bidi voice."""
+    # Tars is explicitly push-to-talk and commits on Ctrl release. Disabling
+    # server VAD prevents it from creating/committing a turn while the browser
+    # is still capturing the screen context that belongs to that same turn.
+    # Do not infer this from agent.name: page assistance and teaching share the
+    # same TARS identity but intentionally use different turn-taking modes.
+    turn_detection = _turn_detection_for_mode(push_to_talk=push_to_talk)
     model_settings = {
         "model_name": settings.realtime_model,
         "audio": {
@@ -286,54 +359,101 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
     - {"type":"generating_image","status":"..."} / {"type":"saving_progress",...}
     - {"type":"error",...}
     """
-    # ── Basic / scoped extension auth (manual) ────────────────────────────
-    # The frontend sends an HTTP ``Authorization: Basic <base64>`` header,
-    # which the browser forwards as a WS subprotocol / query param.  We accept
-    # it via either the ``token`` query param (raw "Basic <b64>") or the
-    # ``auth`` sec-websocket-protocol header — kept simple here.
+    # Browser WebSockets cannot set Authorization headers. App and extension
+    # sessions therefore travel in a negotiated subprotocol instead of the URL,
+    # where reverse proxies and access logs would otherwise retain them.
     legacy_agent = websocket.query_params.get("agent") or ""
     requested_mode = websocket.query_params.get("mode") or ""
-    agent_kind = "clicky" if requested_mode == "page" or legacy_agent == "clicky" else "tutor"
-    token = websocket.query_params.get("token")
-    protocol_header = websocket.headers.get("sec-websocket-protocol") or ""
-    extension_protocol_prefix = "ctrlteach-clicky-auth."
-    selected_protocol: Optional[str] = None
-    extension_protocol_token: Optional[str] = None
-    if protocol_header.startswith(extension_protocol_prefix) and "," not in protocol_header:
-        selected_protocol = protocol_header
-        extension_protocol_token = protocol_header[len(extension_protocol_prefix):]
-    authz = (
-        f"Bearer {extension_protocol_token}"
-        if extension_protocol_token
-        else websocket.headers.get("authorization") or websocket.query_params.get("auth") or token
-    )
-    if authz and (authz.lower().startswith("bearer ") or authz.startswith("ctc1.")):
-        user_info = verify_clicky_extension_token(authz) if agent_kind == "clicky" else None
+    if requested_mode == "roleplay":
+        agent_kind = "roleplay"
+    elif requested_mode == "page" or legacy_agent == "tars":
+        agent_kind = "tars"
     else:
-        user_info = verify_basic_credentials(authz)
+        agent_kind = "tutor"
+    protocol_header = websocket.headers.get("sec-websocket-protocol") or ""
+    requested_protocols = [item.strip() for item in protocol_header.split(",") if item.strip()]
+    app_protocol_prefix = "ctrlteach-auth."
+    extension_protocol_prefix = "ctrlteach-tars-auth."
+    selected_protocol: Optional[str] = None
+    app_protocol_token: Optional[str] = None
+    extension_protocol_token: Optional[str] = None
+    app_protocol = next(
+        (item for item in requested_protocols if item.startswith(app_protocol_prefix)),
+        None,
+    )
+    extension_protocol = next(
+        (item for item in requested_protocols if item.startswith(extension_protocol_prefix)),
+        None,
+    )
+    if app_protocol:
+        selected_protocol = app_protocol
+        app_protocol_token = app_protocol[len(app_protocol_prefix):]
+    elif extension_protocol:
+        selected_protocol = extension_protocol
+        extension_protocol_token = extension_protocol[len(extension_protocol_prefix):]
+
+    fallback_authz = websocket.headers.get("authorization")
+    if app_protocol_token:
+        user_info = verify_app_session_token(app_protocol_token)
+    elif extension_protocol_token:
+        user_info = (
+            verify_tars_extension_token(extension_protocol_token)
+            if agent_kind == "tars"
+            else None
+        )
+    else:
+        user_info = verify_app_session_token(fallback_authz)
+        if user_info is None and agent_kind == "tars":
+            user_info = verify_tars_extension_token(fallback_authz)
     await websocket.accept(subprotocol=selected_protocol)
     if user_info is None or str(user_info["uid"]) != str(user_id):
         logger.warning("WS connection rejected: bad credentials for user %s", user_id)
         await websocket.close(code=1008, reason="Invalid authentication")
         return
+    if not (1 <= len(session_id) <= 128) or any(
+        character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+        for character in session_id
+    ):
+        await websocket.close(code=1008, reason="Invalid session identifier")
+        return
 
     logger.info("WS connected: user=%s session=%s", user_id, session_id)
 
     # Legacy `agent` selects a capability mode, not a separate product
-    # identity. Both paths now build the same Clicky companion with page-scoped
+    # identity. Both paths now build the same Tars companion with page-scoped
     # tools and instructions.
     # ── Per-tutor personalisation (SQLite) — TUTOR ONLY ───────────────────
     tutor_id = websocket.query_params.get("tutor_id")
     course_id = websocket.query_params.get("course_id")
     lesson_id = websocket.query_params.get("lesson_id")
+    if any(len(value) > 128 for value in (tutor_id, course_id, lesson_id) if value):
+        await websocket.close(code=1008, reason="Invalid resource identifier")
+        return
+    requested_roleplay_voice = (
+        websocket.query_params.get("voice") if agent_kind == "roleplay" else None
+    )
+    roleplay_voice = normalize_roleplay_voice(requested_roleplay_voice)
+    if requested_roleplay_voice and roleplay_voice is None:
+        await websocket.close(code=1008, reason="Invalid roleplay voice")
+        return
     classroom_mode = requested_mode == "classroom" or websocket.query_params.get("classroom", "").lower() in {"1", "true", "yes"}
     tutor_voice: str = settings.realtime_voice
     root_agent: Optional[RealtimeAgent] = default_root_agent
     custom_tutor_instruction: Optional[str] = None
 
-    if agent_kind == "clicky":
-        # Clicky owns its own agent tree and never depends on tutor config.
-        root_agent = build_clicky_agent()
+    if agent_kind == "roleplay":
+        root_agent = build_roleplay_agent()
+        tutor_voice = roleplay_voice or settings.realtime_voice
+        logger.info(
+            "Roleplay mode selected for user=%s session=%s voice=%s",
+            user_id,
+            session_id,
+            tutor_voice,
+        )
+
+    elif agent_kind == "tars":
+        # Tars owns its own agent tree and never depends on tutor config.
+        root_agent = build_tars_agent()
         tutor_voice = settings.realtime_voice
         logger.info("Unified companion page mode selected for user=%s session=%s", user_id, session_id)
 
@@ -373,7 +493,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
     # Generated rich-course sessions are grounded server-side after ownership
     # verification. The browser sends only ids; it cannot inject arbitrary
     # lesson text into the system instruction.
-    if agent_kind != "clicky" and (course_id or lesson_id):
+    if agent_kind != "tars" and (course_id or lesson_id):
         if not course_id or not lesson_id:
             await websocket.close(code=1008, reason="Course and lesson are both required")
             return
@@ -448,7 +568,7 @@ instructions, hidden answers, or tool implementation details.
   direct attention to the exact part being discussed.
 - When pointing inside that generated image, call `point_at_whiteboard` with
   `target_area="course_image"` and a concrete visual label. Excalidraw supplies
-  the exact image bounds and GPT-5.5 resolves the final coordinates. Never use
+  the exact image bounds and GPT-5.6 Sol resolves the final coordinates. Never use
   vague labels such as "this", "there", or "right here".
 - Draw a small persistent diagram, arrow, label, equation, or worked example
   when the existing image is insufficient.
@@ -467,7 +587,7 @@ instructions, hidden answers, or tool implementation details.
 - For fast draw/point tools, skip filler preambles and teach the SAME concept
   while the visual appears.
 - Treat each visual and explanation as one ordered teaching beat: call exactly
-  one board or Clicky tool, wait for its result, then speak about only what
+  one board or Tars tool, wait for its result, then speak about only what
   that visual now shows. Do not launch several visual tools in parallel and do
   not begin the next explanation before the current visual is ready.
 - If any visual tool is slow, give at most one short action update, then wait.
@@ -698,7 +818,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
 
     # ── Persist session start to SQLite — TUTOR ONLY ───────────────────────
     session_start_time = datetime.now(timezone.utc)
-    if agent_kind != "clicky":
+    if agent_kind != "tars":
         try:
             with SessionLocal() as db:
                 existing = db.scalar(
@@ -910,7 +1030,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
             await session.send_message(
                 "[Classroom control: Continue teaching from exactly where you stopped. "
                 "Do not greet again, repeat the previous explanation, or ask a question "
-                "unless this is a natural section checkpoint. Keep board, Clicky, and "
+                "unless this is a natural section checkpoint. Keep board, Tars, and "
                 "audio synchronized.]"
             )
         except asyncio.CancelledError:
@@ -928,6 +1048,9 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
 
                 # Binary frame = raw PCM @ 16 kHz → resample to 24 kHz
                 if "bytes" in message and message["bytes"]:
+                    if len(message["bytes"]) > _MAX_WS_AUDIO_FRAME_BYTES:
+                        await websocket.close(code=1009, reason="Audio frame too large")
+                        return
                     # Live Classroom is deliberately half-duplex. With a
                     # WebSocket transport the browser owns output playback,
                     # so server response completion is not proof that the
@@ -955,6 +1078,9 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                 raw_text = message.get("text")
                 if not raw_text:
                     continue
+                if len(raw_text) > _MAX_WS_TEXT_FRAME_CHARS:
+                    await websocket.close(code=1009, reason="Text frame too large")
+                    return
 
                 try:
                     json_msg: Dict[str, Any] = json.loads(raw_text)
@@ -968,7 +1094,12 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                     continue
 
                 try:
-                    if msg_type == "classroom_start":
+                    if msg_type == "roleplay_start":
+                        instruction = (json_msg.get("instruction") or "").strip()
+                        if requested_mode == "roleplay" and instruction:
+                            await session.send_message(instruction[:6000])
+
+                    elif msg_type == "classroom_start":
                         instruction = (json_msg.get("instruction") or "").strip()
                         if classroom_mode and instruction:
                             _cancel_auto_continue()
@@ -1138,7 +1269,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                 f"User request: {intent_text}\n\n"
                                 f"Treat {dims} as the rough coordinate space if you call point_at_whiteboard. "
                                 "Use target_area='course_image' for anything inside the generated lesson image, "
-                                "and give a concrete target label so GPT-5.5 can ground the final pixel. "
+                                "and give a concrete target label so GPT-5.6 Sol can ground the final pixel. "
                                 "Use top-left origin, x increasing right, y increasing down. "
                                 "If pointing at a specific visible spot would help, call point_at_whiteboard BEFORE or while answering. "
                                 "Do not say coordinates aloud."
@@ -1160,8 +1291,8 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                             ],
                         })
 
-                    elif msg_type == "clicky_screen":
-                        # Clicky-only side-channel: pushes a current tab
+                    elif msg_type == "tars_screen":
+                        # Tars-only side-channel: pushes a current tab
                         # screenshot + DOM inventory so the model can decide
                         # whether to call point_at(target_id=...) for an
                         # exact DOM target, or point_at(x=,y=...) for vision
@@ -1179,9 +1310,10 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                         state["companion_page_context"] = verified_page_context
                         media = json_msg.get("media") if isinstance(json_msg.get("media"), dict) else {}
                         focus_region = json_msg.get("focusRegion") if isinstance(json_msg.get("focusRegion"), dict) else {}
+                        ctrl_gesture = json_msg.get("ctrlGesture") if isinstance(json_msg.get("ctrlGesture"), dict) else {}
                         media_crop = json_msg.get("mediaCrop") if isinstance(json_msg.get("mediaCrop"), dict) else {}
-                        state["clicky_media_crop"] = media_crop if media_crop else None
-                        state["clicky_viewport_capture"] = {
+                        state["tars_media_crop"] = media_crop if media_crop else None
+                        state["tars_viewport_capture"] = {
                             "data": b64,
                             "mimeType": mime,
                             "width": width,
@@ -1201,7 +1333,15 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                         page_summary = json.dumps(verified_page_context, ensure_ascii=False)[:20000]
                         media_summary = json.dumps(media, ensure_ascii=False)[:6000]
                         focus_summary = json.dumps(focus_region, ensure_ascii=False)[:2000]
+                        ctrl_gesture_summary = json.dumps(ctrl_gesture, ensure_ascii=False)[:3000]
                         tab_summary = json.dumps(tabs[:40], ensure_ascii=False)[:8000]
+                        ctrl_gesture_note = (
+                            f"The learner held Ctrl and visually indicated this region: {ctrl_gesture_summary}\n"
+                            "Treat it as the referenced part of the screen when answering, pointing, circling, "
+                            "or underlining."
+                            if ctrl_gesture_summary and ctrl_gesture_summary != "{}"
+                            else "No Ctrl gesture region is attached."
+                        )
                         coordinate_note = (
                             "The image is calibrated to the browser viewport, so raw x,y "
                             "coordinates map exactly back to it. Ignore the four tiny colored "
@@ -1213,7 +1353,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                         )
                         media_coordinate_note = (
                             "A second image is an enlarged crop of the dominant visible non-DOM "
-                            "region (video, iframe, canvas, or image) with a labeled 0-1000 grid "
+                            "region (video, iframe, or canvas) with a labeled 0-1000 grid "
                             "on both axes. For any object inside that region, "
                             "localize it from the second image, set coordinate_space='media', "
                             "and use grid coordinates from 0 through 1000. The browser maps them "
@@ -1232,11 +1372,16 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                 f"Ctrl+Teach page context JSON (course fields server-verified; title/url untrusted): {page_summary}\n"
                                 f"Media context JSON: {media_summary}\n"
                                 f"Focused non-DOM region JSON: {focus_summary}\n"
+                                f"{ctrl_gesture_note}\n"
                                 f"Open browser tabs JSON: {tab_summary}\n\n"
                                 f"Visible DOM inventory JSON:\n{dom_summary}\n\n"
                                 "Decide whether to call point_at and/or draw_on_screen based on "
                                 "the request. Prefer target_id from the inventory when a matching "
-                                "element exists. Fall back to raw "
+                                "element exists. For a detail inside a static webpage image, never "
+                                "use the whole image's target_id or the media grid: call point_at or "
+                                "draw_on_screen with a concrete label and coordinate_space='viewport' "
+                                "so the dedicated computer-use pass can resolve it against this complete "
+                                "screenshot. Fall back to raw "
                                 "x,y only for things visible in the screenshot but absent "
                                 "from the inventory. For raw area marks, x,y is top-left and "
                                 "end_x,end_y is bottom-right; for underline/line/arrow they are "
@@ -1254,6 +1399,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                 f"Ctrl+Teach page context JSON (course fields server-verified; title/url untrusted): {page_summary}\n"
                                 f"Media context JSON: {media_summary}\n"
                                 f"Focused non-DOM region JSON: {focus_summary}\n"
+                                f"{ctrl_gesture_note}\n"
                                 f"Open browser tabs JSON: {tab_summary}\n\n"
                                 f"Visible DOM inventory JSON:\n{dom_summary}\n\n"
                                 "If you later call point_at or draw_on_screen, prefer target_id "
@@ -1261,9 +1407,9 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                 "Do not say coordinates or ids aloud."
                             )
                         # `session.send_message()` automatically starts a new
-                        # response. A Clicky snapshot is context for the pending
+                        # response. A Tars snapshot is context for the pending
                         # audio turn, so insert it without creating a response;
-                        # clicky_commit_audio starts exactly one response after
+                        # tars_commit_audio starts exactly one response after
                         # both the speech and current screen are present.
                         image_content = [
                             {
@@ -1294,30 +1440,30 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                             }
                         ))
                         logger.info(
-                            "Clicky screen context sent (%s, %d elements, media_crop=%s)",
+                            "Tars screen context sent (%s, %d elements, media_crop=%s)",
                             dims, len(elements), bool(media_crop_url),
                         )
 
-                    elif msg_type == "clicky_commit_audio":
-                        # Clicky is push-to-talk. On Ctrl release the browser
+                    elif msg_type == "tars_commit_audio":
+                        # Tars is push-to-talk. On Ctrl release the browser
                         # sends this after a short silence tail so the server
                         # explicitly commits the current input audio buffer.
-                        # Clicky has server VAD disabled, so this is the single
+                        # Tars has server VAD disabled, so this is the single
                         # operation that closes the input buffer and replies.
                         try:
                             await session.send_audio(b"\x00\x00" * 1200, commit=True)
                             await session._model.send_event(RealtimeModelSendRawMessage(
                                 message={"type": "response.create", "other_data": {}}
                             ))
-                            logger.info("Clicky audio committed explicitly and response.create sent")
+                            logger.info("Tars audio committed explicitly and response.create sent")
                         except Exception as exc:
-                            logger.warning("Clicky audio commit failed: %s", exc)
+                            logger.warning("Tars audio commit failed: %s", exc)
 
-                    elif msg_type == "clicky_cancel_audio":
+                    elif msg_type == "tars_cancel_audio":
                         await session._model.send_event(RealtimeModelSendRawMessage(
                             message={"type": "input_audio_buffer.clear", "other_data": {}}
                         ))
-                        logger.info("Clicky input audio buffer cleared")
+                        logger.info("Tars input audio buffer cleared")
 
                     elif msg_type == "canvas_elements":
                         elements = json_msg.get("elements", [])
@@ -1357,7 +1503,11 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
     MAX_REALTIME_RETRIES = 3
 
     async def downstream_task():
-        runner = _build_runner(root_agent, tutor_voice)
+        runner = _build_runner(
+            root_agent,
+            tutor_voice,
+            push_to_talk=agent_kind == "tars",
+        )
         mcfg = _model_config()
 
         for attempt in range(MAX_REALTIME_RETRIES + 1):
@@ -1374,19 +1524,19 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                 ).to_ws_json())
                 return
 
-            pending_clicky_drawings: list[
+            pending_tars_drawings: list[
                 tuple[asyncio.Task[None], dict[str, Any]]
             ] = []
             # Strong references for fire-and-forget point tasks so the GC cannot
             # cancel them mid-localization. Each task removes itself on completion.
-            pending_clicky_points: set[asyncio.Task[None]] = set()
+            pending_tars_points: set[asyncio.Task[None]] = set()
 
-            def _cancel_pending_clicky_drawings() -> None:
-                while pending_clicky_drawings:
-                    task, _ = pending_clicky_drawings.pop()
+            def _cancel_pending_tars_drawings() -> None:
+                while pending_tars_drawings:
+                    task, _ = pending_tars_drawings.pop()
                     task.cancel()
 
-            async def _deliver_clicky_drawing(
+            async def _deliver_tars_drawing(
                 original_payload: dict[str, Any],
                 grounding_state: dict[str, Any],
                 annotation_id: str,
@@ -1394,37 +1544,46 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
             ) -> None:
                 """Ground one annotation and ship it the moment the result exists.
 
-                Mirrors the Swift Clicky: the drawing action starts as soon as
+                Mirrors the Swift Tars: the drawing action starts as soon as
                 the visual locator resolves, instead of being held until turn
                 end. A multi-shape diagram therefore paints progressively as
                 each shape's coordinates are grounded, which feels far snappier
                 than waiting for the whole turn to finish.
                 """
-                from app.services.clicky_visual_locator import refine_clicky_payload
+                from app.services.tars_visual_locator import refine_tars_payload
                 try:
-                    refined = await refine_clicky_payload(
+                    refined = await refine_tars_payload(
                         original_payload,
                         grounding_state,
                         tool_name="draw_on_screen",
                     )
                 except Exception as exc:
-                    logger.warning("Clicky drawing localization failed: %s", exc)
-                    refined = original_payload
+                    logger.warning("Tars drawing localization failed: %s", exc)
+                    return
+                has_dom_geometry = any(
+                    refined.get(key)
+                    for key in ("target_id", "from_target_id", "to_target_id")
+                )
+                if refined.get("grounding") != "computer_use" and not has_dom_geometry:
+                    logger.warning(
+                        "Tars drawing suppressed target=%r reason=%s",
+                        original_payload.get("label"),
+                        refined.get("grounding_failure") or "ungrounded",
+                    )
+                    return
                 refined = {
                     **refined,
                     "annotation_id": annotation_id,
-                    "provisional": False,
-                    "replace": True,
                 }
                 await _send_json(websocket, {
-                    "type": "clicky_draw",
+                    "type": "tars_draw",
                     "tool": "draw_on_screen",
                     "visualSyncId": visual_sync_id,
                     "response": refined,
                 })
-                logger.info("Clicky drawing delivered payload=%s", refined)
+                logger.info("Tars drawing delivered payload=%s", refined)
 
-            async def _deliver_clicky_point(
+            async def _deliver_tars_point(
                 original_payload: dict[str, Any], grounding_state: dict[str, Any]
             ) -> None:
                 """Ground a vision point without blocking the realtime audio stream.
@@ -1433,20 +1592,34 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                 this refinement is browser-facing only. Running it as a detached
                 task means ElevenLabs/Realtime voice keeps streaming while the
                 GPT computer-use locator resolves — the cursor flies as soon as
-                the visual result exists, exactly like production Clicky.
+                the visual result exists, exactly like production Tars.
                 """
-                from app.services.clicky_visual_locator import refine_clicky_payload
+                from app.services.tars_visual_locator import refine_tars_payload
                 try:
-                    refined = await refine_clicky_payload(
+                    refined = await refine_tars_payload(
                         original_payload,
                         grounding_state,
                         tool_name="point_at",
                     )
                 except Exception as exc:
-                    logger.warning("Clicky point localization failed: %s", exc)
-                    refined = original_payload
+                    logger.warning("Tars point localization failed: %s", exc)
+                    rough_x = original_payload.get("x")
+                    rough_y = original_payload.get("y")
+                    has_rough_point = (
+                        isinstance(rough_x, (int, float))
+                        and not isinstance(rough_x, bool)
+                        and isinstance(rough_y, (int, float))
+                        and not isinstance(rough_y, bool)
+                    )
+                    refined = {
+                        **original_payload,
+                        "x": float(rough_x) if has_rough_point else None,
+                        "y": float(rough_y) if has_rough_point else None,
+                        "grounding": "realtime_fallback" if has_rough_point else "failed",
+                        "grounding_failure": "exception",
+                    }
                 await _send_json(websocket, {
-                    "type": "clicky_point",
+                    "type": "tars_point",
                     "tool": "point_at",
                     "response": {
                         "targetId": refined.get("target_id"),
@@ -1455,10 +1628,12 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                         "coordinate_space": refined.get("coordinate_space") or "viewport",
                         "label": refined.get("label") or "right here",
                         "action": refined.get("action") or "none",
+                        "grounding": refined.get("grounding"),
+                        "groundingFailure": refined.get("grounding_failure"),
                     },
                 })
                 logger.info(
-                    "Clicky point delivered target_id=%s x=%s y=%s action=%s",
+                    "Tars point delivered target_id=%s x=%s y=%s action=%s",
                     refined.get("target_id"),
                     refined.get("x"),
                     refined.get("y"),
@@ -1471,16 +1646,16 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                 visual_sync_id: Optional[str] = None,
             ) -> None:
                 """Resolve a classroom pointer with exact Excalidraw crop bounds."""
-                from app.services.clicky_visual_locator import refine_classroom_point
+                from app.services.tars_visual_locator import refine_classroom_point
                 try:
                     refined = await refine_classroom_point(
                         original_payload,
                         grounding_state,
-                        model=settings.clicky_visual_locator_model,
+                        model=settings.tars_visual_locator_model,
                     )
                 except Exception as exc:
                     logger.warning("Classroom point localization failed: %s", exc)
-                    nested = original_payload.get("clickyPoint")
+                    nested = original_payload.get("tarsPoint")
                     refined = nested if isinstance(nested, dict) else original_payload
                 await _send_json(websocket, {
                     "type": "classroom_point",
@@ -1496,12 +1671,12 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                     refined.get("grounding"),
                 )
 
-            async def _flush_pending_clicky_drawings() -> None:
-                if not pending_clicky_drawings:
+            async def _flush_pending_tars_drawings() -> None:
+                if not pending_tars_drawings:
                     return
-                batch = pending_clicky_drawings[:]
-                pending_clicky_drawings.clear()
-                # Each drawing task self-delivers its clicky_draw event the
+                batch = pending_tars_drawings[:]
+                pending_tars_drawings.clear()
+                # Each drawing task self-delivers its tars_draw event the
                 # moment its localization completes. At turn end we only await
                 # any stragglers still in flight so nothing is dropped when the
                 # session tears down — we do not re-batch or re-send.
@@ -1545,7 +1720,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                 state["assistant_turn_in_progress"] = True
                                 state["last_output_transcript"] = ""
                         elif etype == "agent_end":
-                            await _flush_pending_clicky_drawings()
+                            await _flush_pending_tars_drawings()
                             await _send_json(websocket, {
                                 "turnComplete": True,
                                 "turnId": int(state.get("assistant_turn_id") or 0),
@@ -1578,7 +1753,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                             output = getattr(event, "output", None)
                             visual_sync_id = _take_visual_sync(tool_name)
 
-                            # ── Clicky screen annotations ─────────────────
+                            # ── Tars screen annotations ─────────────────
                             if tool_name in {"draw_on_screen", "clear_screen_drawings"}:
                                 payload = output if isinstance(output, dict) else {}
                                 if tool_name == "draw_on_screen":
@@ -1590,34 +1765,20 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                         key: dict(value) if isinstance(value, dict) else value
                                         for key, value in state.items()
                                         if key in {
-                                            "clicky_media_crop",
-                                            "clicky_viewport_capture",
+                                            "tars_media_crop",
+                                            "tars_viewport_capture",
                                             "classroom_canvas_capture",
                                             "last_input_transcript",
                                         }
                                     }
                                     original_payload = dict(payload)
                                     annotation_id = uuid.uuid4().hex
-                                    # Paint the Realtime model's coarse geometry
-                                    # immediately. Computer Use later replaces this
-                                    # exact annotation in place with grounded pixels.
-                                    await _send_json(websocket, {
-                                        "type": "clicky_draw",
-                                        "tool": "draw_on_screen",
-                                        "visualSyncId": visual_sync_id,
-                                        "response": {
-                                            **original_payload,
-                                            "annotation_id": annotation_id,
-                                            "provisional": True,
-                                            "replace": False,
-                                        },
-                                    })
-                                    # Detached task: deliver this annotation the instant
-                                    # its computer-use localization resolves, instead of
-                                    # blocking the event stream or waiting for agent_end.
-                                    pending_clicky_drawings.append((
+                                    # Never paint Realtime's rough coordinates. Deliver
+                                    # exactly one stable annotation after the full-frame
+                                    # computer-use locator resolves its final geometry.
+                                    pending_tars_drawings.append((
                                         asyncio.create_task(
-                                            _deliver_clicky_drawing(
+                                            _deliver_tars_drawing(
                                                 original_payload,
                                                 grounding_state,
                                                 annotation_id,
@@ -1627,17 +1788,17 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                         original_payload,
                                     ))
                                     continue
-                                _cancel_pending_clicky_drawings()
+                                _cancel_pending_tars_drawings()
                                 await _send_json(websocket, {
-                                    "type": "clicky_draw",
+                                    "type": "tars_draw",
                                     "tool": tool_name,
                                     "visualSyncId": visual_sync_id,
                                     "response": payload,
                                 })
-                                logger.info("Clicky drawing tool=%s payload=%s", tool_name, payload)
+                                logger.info("Tars drawing tool=%s payload=%s", tool_name, payload)
                                 continue
 
-                            # ── Clicky point_at → emit a lightweight envelope ─
+                            # ── Tars point_at → emit a lightweight envelope ─
                             if tool_name == "point_at_whiteboard":
                                 payload = output if isinstance(output, dict) else {}
                                 capture = state.get("classroom_canvas_capture")
@@ -1653,8 +1814,8 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                         visual_sync_id,
                                     )
                                 )
-                                pending_clicky_points.add(point_task)
-                                point_task.add_done_callback(pending_clicky_points.discard)
+                                pending_tars_points.add(point_task)
+                                point_task.add_done_callback(pending_tars_points.discard)
                                 continue
 
                             if tool_name == "point_at":
@@ -1663,24 +1824,24 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                     key: dict(value) if isinstance(value, dict) else value
                                     for key, value in state.items()
                                     if key in {
-                                        "clicky_media_crop",
-                                        "clicky_viewport_capture",
+                                        "tars_media_crop",
+                                        "tars_viewport_capture",
                                         "last_input_transcript",
                                     }
                                 }
                                 # Non-blocking: ground + deliver on a detached task so
                                 # realtime voice keeps streaming while the locator runs.
                                 point_task = asyncio.create_task(
-                                    _deliver_clicky_point(dict(payload), grounding_state)
+                                    _deliver_tars_point(dict(payload), grounding_state)
                                 )
-                                pending_clicky_points.add(point_task)
-                                point_task.add_done_callback(pending_clicky_points.discard)
+                                pending_tars_points.add(point_task)
+                                point_task.add_done_callback(pending_tars_points.discard)
                                 continue
 
                             if tool_name == "interact_with_page":
                                 payload = output if isinstance(output, dict) else {}
                                 await _send_json(websocket, {
-                                    "type": "clicky_action",
+                                    "type": "tars_action",
                                     "tool": "interact_with_page",
                                     "response": {
                                         "action": payload.get("action") or "none",
@@ -1689,7 +1850,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                                         "label": payload.get("label") or "",
                                     },
                                 })
-                                logger.info("Clicky browser action payload=%s", payload)
+                                logger.info("Tars browser action payload=%s", payload)
                                 continue
 
                             if tool_name in _early_pushed:
@@ -1720,6 +1881,21 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                         # ── Error ──────────────────────────────────────────
                         elif etype == "error":
                             err = getattr(event, "error", None)
+                            details = _realtime_error_details(err)
+                            logger.warning(
+                                "Realtime model error event: user=%s session=%s agent=%s details=%s",
+                                user_id,
+                                session_id,
+                                agent_kind,
+                                details,
+                            )
+                            if agent_kind == "tars" and _is_tars_recoverable_realtime_error(err):
+                                if _is_tars_audio_buffer_error(err):
+                                    await _send_json(websocket, {
+                                        "type": "tars_recoverable_error",
+                                        "message": "Tars missed that — hold Ctrl and try again.",
+                                    })
+                                continue
                             esc = err if isinstance(err, BaseException) else Exception(str(err or "realtime error"))
                             payload, retryable = classify_api_error(esc)
                             await _send_json(websocket, payload.to_ws_json())
@@ -1779,15 +1955,36 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                             elif isinstance(data, dict):
                                 await _handle_raw_event(data, websocket, state, _output_partial_open)
 
-                # Session closed cleanly — done.
+                # The browser WebSocket is still the product session. If the
+                # upstream OpenAI Realtime socket ends cleanly, keep Tars
+                # alive by opening a fresh Realtime session instead of closing
+                # the browser connection and showing "AI connection failed".
+                logger.warning(
+                    "Realtime downstream ended cleanly: user=%s session=%s agent=%s attempt=%s",
+                    user_id,
+                    session_id,
+                    agent_kind,
+                    attempt + 1,
+                )
+                if attempt < MAX_REALTIME_RETRIES and not upstream.done():
+                    state["session"] = None
+                    await _send_json(websocket, {
+                        "type": "info",
+                        "code": "REALTIME_SESSION_RESTARTING",
+                        "message": "Refreshing the AI connection…",
+                        "attempt": attempt + 1,
+                        "maxAttempts": MAX_REALTIME_RETRIES,
+                    })
+                    await asyncio.sleep(0.75 * (attempt + 1))
+                    continue
                 return
 
             except WebSocketDisconnect:
-                _cancel_pending_clicky_drawings()
+                _cancel_pending_tars_drawings()
                 logger.info("WS disconnected (downstream): user=%s", user_id)
                 return
             except Exception as exc:
-                _cancel_pending_clicky_drawings()
+                _cancel_pending_tars_drawings()
                 payload, retryable = classify_api_error(exc)
                 if retryable and attempt < MAX_REALTIME_RETRIES:
                     delay = 1.0 * (attempt + 1)
@@ -1820,7 +2017,7 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                 return
 
     # ── Persist session end to SQLite — TUTOR ONLY ────────────────────────
-    _persist_session_end = agent_kind != "clicky"
+    _persist_session_end = agent_kind != "tars"
 
     # ── Run upstream + downstream, clean up on exit ────────────────────────
     upstream = asyncio.create_task(upstream_task())

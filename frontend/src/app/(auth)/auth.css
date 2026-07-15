@@ -6,27 +6,44 @@
    ===================================================== */
 
 .auth-shell {
-  min-height: 100vh;
+  position: relative;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--bg);
   color: var(--fg);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  font-weight: 300;
+  font-family: "Avenir Next", "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-weight: 400;
   padding: clamp(24px, 4vw, 48px) clamp(20px, 3vw, 48px);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.6;
 }
 
+.auth-brand {
+  position: absolute;
+  top: 28px;
+  left: clamp(20px, 3vw, 48px);
+  display: inline-flex;
+  gap: 2px;
+  color: var(--fg);
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.auth-brand span { color: #699b17; }
+
 .auth-card {
   width: 100%;
   max-width: 460px;
-  background: transparent;
-  padding: clamp(40px, 5vw, 64px) clamp(28px, 4vw, 56px);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  max-width: 440px;
+  overflow: hidden;
+  background: #fff;
+  padding: clamp(30px, 4vw, 42px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
   position: relative;
 }
 
@@ -35,15 +52,17 @@
   position: absolute;
   top: -1px;
   left: 0;
-  width: 36px;
-  height: 1px;
+  right: 0;
+  width: auto;
+  height: 4px;
   background: var(--accent);
 }
 
 .auth-eyebrow {
   font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.24em;
+  color: #587f18;
+  font-weight: 800;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--muted);
   margin-bottom: 24px;
@@ -51,23 +70,23 @@
 }
 
 .auth-title {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  font-weight: 200;
-  font-size: clamp(36px, 5vw, 52px);
+  font-family: inherit;
+  font-weight: 800;
+  font-size: clamp(36px, 5vw, 46px);
   line-height: 1.05;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
   color: var(--fg);
   margin: 0 0 18px 0;
   max-width: 16ch;
 }
 
-.auth-title .stop { color: var(--accent); }
+.auth-title .stop { color: #699b17; }
 
 .auth-sub {
   font-size: 15px;
-  font-weight: 300;
+  font-weight: 400;
   color: var(--muted);
-  margin: 0 0 40px 0;
+  margin: 0 0 30px 0;
   line-height: 1.6;
   max-width: 38ch;
 }
@@ -98,7 +117,7 @@
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 .auth-field { display: flex; flex-direction: column; gap: 8px; }
@@ -106,7 +125,7 @@
 .auth-label {
   font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.18em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--muted);
 }
@@ -117,13 +136,12 @@
   width: 100%;
   height: 48px;
   padding: 0 44px 0 16px;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
   font-size: 15px;
-  font-weight: 300;
+  font-weight: 500;
   color: var(--fg);
-  background: transparent;
+  background: #fff;
   outline: none;
   font-family: inherit;
   transition: border-color 0.3s ease;
@@ -135,7 +153,8 @@
 }
 
 .auth-input:focus {
-  border-bottom-color: var(--fg);
+  border-color: #699b17;
+  box-shadow: 0 0 0 3px rgba(105, 155, 23, 0.1);
 }
 
 .auth-input-icon {
@@ -214,14 +233,14 @@
   width: 100%;
   height: 52px;
   font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
+  font-weight: 800;
+  letter-spacing: 0;
   padding: 0 22px;
   text-decoration: none;
-  border-radius: 999px;
-  border: 1px solid #1A1A1A;
-  background: #1A1A1A;
-  color: #FFFFFF;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-dark);
   cursor: pointer;
   font-family: inherit;
   margin-top: 12px;
@@ -229,9 +248,9 @@
 }
 
 .auth-submit:hover {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #1A1A1A;
+  background: var(--fg);
+  border-color: var(--fg);
+  color: #fff;
 }
 
 .auth-submit:disabled {
@@ -245,7 +264,7 @@
   border-top: 1px solid var(--border);
   font-size: 11px;
   font-weight: 400;
-  letter-spacing: 0.18em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--baseline);
   text-align: center;
@@ -268,9 +287,9 @@
   color: var(--muted);
   font-size: 13px;
   font-weight: 300;
-  letter-spacing: 0.18em;
+  letter-spacing: 0;
   text-transform: uppercase;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: "Avenir Next", "Inter", ui-sans-serif, system-ui, sans-serif;
 }
 
 .auth-strength {
@@ -300,7 +319,7 @@
 .auth-strength-label {
   font-size: 10px;
   font-weight: 500;
-  letter-spacing: 0.16em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--muted);
   white-space: nowrap;
@@ -308,9 +327,7 @@
 
 @media (max-width: 480px) {
   .auth-card {
-    padding: 32px 0;
-    border-top: none;
-    border-bottom: none;
+    padding: 28px 20px;
   }
-  .auth-card::before { display: none; }
+  .auth-brand { top: 20px; }
 }

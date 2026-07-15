@@ -24,11 +24,11 @@ const typeLabel: Record<string, string> = {
 };
 
 export default function PathSidebar({ course, activeLessonId, onSelectLesson }: Props) {
-  const { progress } = useLearner();
+  const { isLessonComplete } = useLearner();
   const totalLessons = course.modules.reduce((n, m) => n + m.lessons.length, 0);
   const doneCount = course.modules
     .flatMap((m) => m.lessons)
-    .filter((l) => progress.completedLessons.includes(l.id)).length;
+    .filter((l) => isLessonComplete(course.id, l.id)).length;
   const pct = totalLessons ? Math.round((doneCount / totalLessons) * 100) : 0;
 
   return (
@@ -47,7 +47,7 @@ export default function PathSidebar({ course, activeLessonId, onSelectLesson }: 
         <div className="lp-module" key={m.id}>
           <div className="lp-module-title">{m.title}</div>
           {m.lessons.map((l: Lesson) => {
-            const done = progress.completedLessons.includes(l.id);
+            const done = isLessonComplete(course.id, l.id);
             const active = l.id === activeLessonId;
             return (
               <div

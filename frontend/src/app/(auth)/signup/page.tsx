@@ -26,7 +26,7 @@ function getPasswordStrength(pw: string): { label: string; pct: number } {
 
 export default function SignUpPage() {
   const { user, loading, signUp } = useAuth();
-  const { isOnboarded } = useLearner();
+  const { isOnboarded, learnerReady } = useLearner();
   const router = useRouter();
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
@@ -37,8 +37,10 @@ export default function SignUpPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!loading && user) router.push(isOnboarded ? "/discover" : "/onboarding");
-  }, [user, loading, router, isOnboarded]);
+    if (!loading && user && learnerReady) {
+      router.push(isOnboarded ? "/dashboard" : "/onboarding");
+    }
+  }, [user, loading, router, isOnboarded, learnerReady]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,12 +68,15 @@ export default function SignUpPage() {
 
   const strength = getPasswordStrength(password);
 
-  if (loading) {
+  if (loading || (user && !learnerReady)) {
     return <div className="auth-loading">Loading</div>;
   }
 
   return (
     <div className="auth-shell">
+      <Link href="/" className="auth-brand" aria-label="Ctrl+Teach home">
+        Ctrl<span>+</span>Teach
+      </Link>
       <motion.div
         className="auth-card"
         initial={{ opacity: 0, y: 16 }}

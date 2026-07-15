@@ -11,7 +11,6 @@ import {
     Clock,
     Flame,
     BookOpen,
-    Camera,
     Edit3,
     Save,
     X,
@@ -28,13 +27,25 @@ import {
     Eye,
     LogOut,
     Mic,
+    Activity,
+    BookOpenCheck,
+    BrainCircuit,
+    CheckCircle2,
+    ClipboardCheck,
+    MessageSquareText,
+    Sparkles,
+    Trash2,
+    TrendingUp,
+    TriangleAlert,
+    Wrench,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/components/AuthProvider";
-import { useClicky } from "@/lib/clicky";
+import { useLearner } from "@/lib/learner";
+import { useTars } from "@/lib/tars";
 import { API_URL } from "@/lib/constants";
+import type { LearnerSkillProfile, LearningMemory, OnboardingPrefs, SkillEvidence } from "@/lib/types";
 import axios from "axios";
 import "../dashboard.css";
 import "./profile.css";
@@ -89,7 +100,7 @@ interface GoalData {
 /* ─── Subject colour palette ─────────────────────────── */
 
 const SUBJECT_COLORS = [
-    "#4f46e5", "#10b981", "#f97316", "#a855f7", "#ef4444", "#0ea5e9",
+    "#79a925", "#4f7b66", "#8a7750", "#68727b", "#8a6514", "#39704c",
 ];
 
 function subjectColor(index: number): string {
@@ -111,6 +122,12 @@ export default function ProfilePage() {
 function ProfileContent() {
     const searchParams = useSearchParams();
     const { user, getToken, logout } = useAuth();
+    const {
+        prefs: learnerPrefs,
+        learningMemories,
+        skillProfile,
+        clearLearningMemories,
+    } = useLearner();
 
     /* ── Data state ────────────────────────────────── */
     const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -133,8 +150,7 @@ function ProfileContent() {
     const [darkMode, setDarkMode] = useState(false);
     const [notifications, setNotifications] = useState(true);
     const [soundEffects, setSoundEffects] = useState(true);
-    const [sessionReminders, setSessionReminders] = useState(true);
-    const { enabled: clickyEnabled, setEnabled: setClickyEnabled, openTraining: openClickyTraining } = useClicky();
+    const { enabled: tarsEnabled, setEnabled: setTarsEnabled, openTraining: openTarsTraining } = useTars();
 
     // Read ?tab= query param on mount
     useEffect(() => {
@@ -172,7 +188,6 @@ function ProfileContent() {
             if (prefs.dark_mode !== undefined) setDarkMode(prefs.dark_mode);
             if (prefs.notifications !== undefined) setNotifications(prefs.notifications);
             if (prefs.sound_effects !== undefined) setSoundEffects(prefs.sound_effects);
-            if (prefs.session_reminders !== undefined) setSessionReminders(prefs.session_reminders);
         } catch (err) {
             console.error("Failed to fetch profile:", err);
         } finally {
@@ -248,7 +263,7 @@ function ProfileContent() {
     }
 
     return (
-        <div className="dash-page" style={{ padding: "40px 48px" }}>
+        <div className="dash-page prof-page" style={{ padding: "40px 48px" }}>
             {/* ── Profile Header ──────────────────────────────── */}
             <div className="prof-header-card">
                 <div className="prof-header-content">
@@ -275,11 +290,6 @@ function ProfileContent() {
                             <div className="prof-avatar-img" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", fontSize: 28, fontWeight: 700, color: "var(--text-sec)" }}>
                                 {displayName.charAt(0).toUpperCase()}
                             </div>
-                        )}
-                        {isEditing && (
-                            <button className="prof-avatar-edit" title="Change photo">
-                                <Camera size={14} />
-                            </button>
                         )}
                     </div>
 
@@ -406,17 +416,33 @@ function ProfileContent() {
             </div>
 
             {/* ── Tab Navigation ──────────────────────────────── */}
-            <div className="prof-tabs">
+            <div className="prof-tabs" role="tablist" aria-label="Profile sections">
                 {(["overview", "achievements", "settings"] as const).map((tab) => (
                     <button
                         key={tab}
+                        id={`profile-tab-${tab}`}
+                        role="tab"
+                        aria-selected={activeTab === tab}
+                        aria-controls={`profile-panel-${tab}`}
+                        tabIndex={activeTab === tab ? 0 : -1}
                         className={`prof-tab ${activeTab === tab ? "active" : ""}`}
                         onClick={() => setActiveTab(tab)}
+                        onKeyDown={(event) => {
+                            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                            event.preventDefault();
+                            const tabs = ["overview", "achievements", "settings"] as const;
+                            const direction = event.key === "ArrowRight" ? 1 : -1;
+                            const nextTab = tabs[(tabs.indexOf(tab) + direction + tabs.length) % tabs.length];
+                            setActiveTab(nextTab);
+                            requestAnimationFrame(() => document.getElementById(`profile-tab-${nextTab}`)?.focus());
+                        }}
                     >
                         {tab === "overview" && <BarChart3 size={16} />}
                         {tab === "achievements" && <Trophy size={16} />}
                         {tab === "settings" && <Shield size={16} />}
-                        <span style={{ textTransform: "capitalize" }}>{tab}</span>
+                        <span style={{ textTransform: "capitalize" }}>
+                            {tab === "overview" ? "Skill profile" : tab}
+                        </span>
                     </button>
                 ))}
             </div>
@@ -426,12 +452,22 @@ function ProfileContent() {
                 {activeTab === "overview" && (
                     <motion.div
                         key="overview"
+                        id="profile-panel-overview"
+                        role="tabpanel"
+                        aria-labelledby="profile-tab-overview"
                         initial={{ opacity: 0, y: 12 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -12 }}
-                        className="dash-split-layout"
-                        style={{ gridTemplateColumns: "1fr 380px" }}
+                        className="prof-overview-stack"
                     >
+                        <SkillProfileOverview
+                            prefs={learnerPrefs}
+                            profile={skillProfile}
+                            memories={learningMemories}
+                            onClear={clearLearningMemories}
+                        />
+
+                        <div className="dash-split-layout prof-activity-overview" style={{ gridTemplateColumns: "1fr 380px" }}>
                         {/* Main column */}
                         <div className="dash-main-column" style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
                             {/* Subject Mastery */}
@@ -503,8 +539,8 @@ function ProfileContent() {
                                                 <span
                                                     className="prof-session-score"
                                                     style={{
-                                                        background: sess.status === "active" ? "#d1fae5" : "#e0e7ff",
-                                                        color: sess.status === "active" ? "#10b981" : "#4f46e5",
+                                                        background: sess.status === "active" ? "#edf7d9" : "#f3f4ef",
+                                                        color: sess.status === "active" ? "#558617" : "#656960",
                                                     }}
                                                 >
                                                     {sess.status === "active" ? "Active" : "Done"}
@@ -624,12 +660,16 @@ function ProfileContent() {
                                 </div>
                             </div>
                         </div>
+                        </div>
                     </motion.div>
                 )}
 
                 {activeTab === "achievements" && (
                     <motion.div
                         key="achievements"
+                        id="profile-panel-achievements"
+                        role="tabpanel"
+                        aria-labelledby="profile-tab-achievements"
                         initial={{ opacity: 0, y: 12 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -12 }}
@@ -645,6 +685,9 @@ function ProfileContent() {
                 {activeTab === "settings" && (
                     <motion.div
                         key="settings"
+                        id="profile-panel-settings"
+                        role="tabpanel"
+                        aria-labelledby="profile-tab-settings"
                         initial={{ opacity: 0, y: 12 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -12 }}
@@ -667,7 +710,7 @@ function ProfileContent() {
                                         checked={darkMode}
                                         onChange={(v) => {
                                             setDarkMode(v);
-                                            savePreferences({ dark_mode: v, notifications, sound_effects: soundEffects, session_reminders: sessionReminders });
+                                            savePreferences({ dark_mode: v, notifications, sound_effects: soundEffects });
                                         }}
                                     />
                                 </div>
@@ -683,7 +726,7 @@ function ProfileContent() {
                                         checked={notifications}
                                         onChange={(v) => {
                                             setNotifications(v);
-                                            savePreferences({ dark_mode: darkMode, notifications: v, sound_effects: soundEffects, session_reminders: sessionReminders });
+                                            savePreferences({ dark_mode: darkMode, notifications: v, sound_effects: soundEffects });
                                         }}
                                     />
                                 </div>
@@ -699,23 +742,7 @@ function ProfileContent() {
                                         checked={soundEffects}
                                         onChange={(v) => {
                                             setSoundEffects(v);
-                                            savePreferences({ dark_mode: darkMode, notifications, sound_effects: v, session_reminders: sessionReminders });
-                                        }}
-                                    />
-                                </div>
-                                <div className="prof-setting-row">
-                                    <div className="prof-setting-info">
-                                        <Calendar size={18} />
-                                        <div>
-                                            <h4>Session Reminders</h4>
-                                            <p>Remind me 15 minutes before sessions</p>
-                                        </div>
-                                    </div>
-                                    <ToggleSwitch
-                                        checked={sessionReminders}
-                                        onChange={(v) => {
-                                            setSessionReminders(v);
-                                            savePreferences({ dark_mode: darkMode, notifications, sound_effects: soundEffects, session_reminders: v });
+                                            savePreferences({ dark_mode: darkMode, notifications, sound_effects: v });
                                         }}
                                     />
                                 </div>
@@ -724,26 +751,26 @@ function ProfileContent() {
 
                         <div className="dash-sidebar-card" style={{ padding: "28px" }}>
                             <h2 className="prof-section-title">
-                                <Mic size={20} /> Clicky AI Assistant
+                                <Mic size={20} /> Tars AI Assistant
                             </h2>
                             <div className="prof-settings-list">
                                 <div className="prof-setting-row">
                                     <div className="prof-setting-info">
                                         <Mic size={18} />
                                         <div>
-                                            <h4>Enable Clicky</h4>
+                                            <h4>Enable Tars</h4>
                                             <p>Turn the voice + screen assistant on or off (toggle also in the top-left)</p>
                                         </div>
                                     </div>
                                     <ToggleSwitch
-                                        checked={clickyEnabled}
-                                        onChange={setClickyEnabled}
+                                        checked={tarsEnabled}
+                                        onChange={setTarsEnabled}
                                     />
                                 </div>
                                 <button
                                     type="button"
                                     className="prof-setting-link"
-                                    onClick={openClickyTraining}
+                                    onClick={openTarsTraining}
                                 >
                                     <span>
                                         <Mic size={16} /> Train wake phrase
@@ -758,17 +785,17 @@ function ProfileContent() {
                                 <Eye size={20} /> Privacy & Account
                             </h2>
                             <div className="prof-settings-list">
-                                <button className="prof-setting-link">
+                                <button className="prof-setting-link" type="button" disabled title="Not available in this MVP">
                                     <span>Change Password</span>
-                                    <ChevronRight size={16} />
+                                    <small>Soon</small>
                                 </button>
-                                <button className="prof-setting-link">
+                                <Link className="prof-setting-link" href="/privacy">
                                     <span>Manage Data & Privacy</span>
                                     <ChevronRight size={16} />
-                                </button>
-                                <button className="prof-setting-link">
+                                </Link>
+                                <button className="prof-setting-link" type="button" disabled title="Not available in this MVP">
                                     <span>Connected Accounts</span>
-                                    <ChevronRight size={16} />
+                                    <small>Soon</small>
                                 </button>
                                 <button className="prof-setting-link danger" onClick={logout}>
                                     <span>
@@ -783,6 +810,277 @@ function ProfileContent() {
             </AnimatePresence>
         </div>
     );
+}
+
+function SkillProfileOverview({
+    prefs,
+    profile,
+    memories,
+    onClear,
+}: {
+    prefs: OnboardingPrefs | null;
+    profile: LearnerSkillProfile;
+    memories: LearningMemory[];
+    onClear: () => void;
+}) {
+    const [showAllMemories, setShowAllMemories] = useState(false);
+    const [confirmingClear, setConfirmingClear] = useState(false);
+    const visibleMemories = showAllMemories ? memories : memories.slice(0, 6);
+
+    return (
+        <div className="skill-profile">
+            <section className="skill-profile-intro">
+                <div className="skill-profile-intro-copy">
+                    <div className="skill-profile-live">
+                        <span className="skill-profile-live-dot" />
+                        Learning memory on
+                    </div>
+                    <h2>A skill profile built from what you actually do.</h2>
+                    <p>
+                        Ctrl+Teach remembers completed learning activities, measured results,
+                        confidence checks, and practice feedback. Every conclusion below links
+                        back to visible evidence.
+                    </p>
+                    <div className="skill-profile-sources" aria-label="Evidence collected">
+                        <span><BookOpenCheck size={15} /> Lesson progress</span>
+                        <span><ClipboardCheck size={15} /> Quiz results</span>
+                        <span><Wrench size={15} /> Lab practice</span>
+                        <span><MessageSquareText size={15} /> Roleplay feedback</span>
+                    </div>
+                </div>
+                <div className="skill-profile-metrics" aria-label="Skill profile totals">
+                    <div><strong>{profile.memoryCount}</strong><span>Memories</span></div>
+                    <div><strong>{profile.skills.length}</strong><span>Skills observed</span></div>
+                    <div><strong>{profile.practicalCount}</strong><span>Practical reps</span></div>
+                    <div><strong>{profile.assessmentCount}</strong><span>Assessments</span></div>
+                </div>
+            </section>
+
+            <section className="skill-profile-context">
+                <div className="skill-profile-section-head">
+                    <div>
+                        <span className="skill-profile-eyebrow">Learner context</span>
+                        <h2>What you care about</h2>
+                    </div>
+                    <User size={20} />
+                </div>
+                <div className="skill-profile-context-grid">
+                    <div>
+                        <span>Current role</span>
+                        <strong>{prefs?.role || "Not shared yet"}</strong>
+                    </div>
+                    <div>
+                        <span>Learning toward</span>
+                        <strong>{prefs?.preparingFor || "No goal shared yet"}</strong>
+                    </div>
+                    <div>
+                        <span>Interests</span>
+                        {profile.interests.length ? (
+                            <div className="skill-interest-list">
+                                {profile.interests.map((interest) => <i key={interest}>{interest}</i>)}
+                            </div>
+                        ) : (
+                            <strong>Not shared yet</strong>
+                        )}
+                    </div>
+                </div>
+            </section>
+
+            <div className="skill-profile-signal-grid">
+                <SkillSignalSection
+                    tone="strength"
+                    icon={<CheckCircle2 size={18} />}
+                    title="Observed strengths"
+                    skills={profile.strengths}
+                    empty="No verified strengths yet. A strong assessment or repeated practical evidence will appear here."
+                />
+                <SkillSignalSection
+                    tone="focus"
+                    icon={<TriangleAlert size={18} />}
+                    title="Focus next"
+                    skills={profile.focusAreas}
+                    empty="No struggle signal is currently supported by the evidence."
+                />
+            </div>
+
+            <section className="skill-evidence-section">
+                <div className="skill-profile-section-head">
+                    <div>
+                        <span className="skill-profile-eyebrow">Evidence map</span>
+                        <h2>Skills Tars has observed</h2>
+                    </div>
+                    <div className="skill-profile-updated">
+                        <Activity size={15} />
+                        {profile.lastUpdatedAt ? `Updated ${formatMemoryTime(profile.lastUpdatedAt)}` : "Waiting for evidence"}
+                    </div>
+                </div>
+
+                {profile.skills.length ? (
+                    <div className="skill-evidence-list">
+                        {profile.skills.map((skill) => <SkillEvidenceRow key={skill.name} skill={skill} />)}
+                    </div>
+                ) : (
+                    <div className="skill-profile-empty">
+                        <BrainCircuit size={24} />
+                        <div>
+                            <strong>Your evidence map starts with your next completed activity.</strong>
+                            <p>Interests are known, but Ctrl+Teach waits for learning evidence before calling something a strength or struggle.</p>
+                        </div>
+                    </div>
+                )}
+            </section>
+
+            <section className="learning-memory-section">
+                <div className="skill-profile-section-head learning-memory-head">
+                    <div>
+                        <span className="skill-profile-eyebrow">Transparent by design</span>
+                        <h2>Your learning memory</h2>
+                        <p>You can inspect every observation used to shape this profile.</p>
+                    </div>
+                    <div className="learning-memory-actions">
+                        {confirmingClear ? (
+                            <>
+                                <button
+                                    type="button"
+                                    className="learning-memory-clear confirm"
+                                    onClick={() => {
+                                        onClear();
+                                        setConfirmingClear(false);
+                                    }}
+                                >
+                                    Clear all
+                                </button>
+                                <button type="button" className="learning-memory-cancel" onClick={() => setConfirmingClear(false)}>
+                                    Cancel
+                                </button>
+                            </>
+                        ) : (
+                            <button
+                                type="button"
+                                className="learning-memory-clear"
+                                onClick={() => setConfirmingClear(true)}
+                                disabled={!memories.length}
+                                title="Clear learning memory"
+                            >
+                                <Trash2 size={14} /> Clear memory
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {visibleMemories.length ? (
+                    <div className="learning-memory-list">
+                        {visibleMemories.map((memory) => (
+                            <article key={memory.id} className={`learning-memory-item ${memory.signal}`}>
+                                <div className="learning-memory-icon"><MemoryKindIcon kind={memory.kind} /></div>
+                                <div className="learning-memory-copy">
+                                    <div className="learning-memory-title-row">
+                                        <strong>{memory.title}</strong>
+                                        <time dateTime={new Date(memory.createdAt).toISOString()}>{formatMemoryTime(memory.createdAt)}</time>
+                                    </div>
+                                    <p>{memory.summary}</p>
+                                    <div className="learning-memory-meta">
+                                        {memory.courseTitle && <span>{memory.courseTitle}</span>}
+                                        {memory.skills.map((skill) => <i key={skill}>{skill}</i>)}
+                                        {memory.evidence?.map((item) => <span key={item}>{item}</span>)}
+                                    </div>
+                                </div>
+                            </article>
+                        ))}
+                        {memories.length > 6 && (
+                            <button type="button" className="learning-memory-more" onClick={() => setShowAllMemories((current) => !current)}>
+                                {showAllMemories ? "Show recent only" : `Show all ${memories.length} memories`}
+                            </button>
+                        )}
+                    </div>
+                ) : (
+                    <div className="skill-profile-empty memory-empty">
+                        <Sparkles size={24} />
+                        <div>
+                            <strong>No activity memories yet.</strong>
+                            <p>Complete a lesson, assessment, lab, or roleplay and its evidence will appear here.</p>
+                        </div>
+                    </div>
+                )}
+            </section>
+        </div>
+    );
+}
+
+function SkillSignalSection({
+    tone,
+    icon,
+    title,
+    skills,
+    empty,
+}: {
+    tone: "strength" | "focus";
+    icon: React.ReactNode;
+    title: string;
+    skills: SkillEvidence[];
+    empty: string;
+}) {
+    return (
+        <section className={`skill-signal-section ${tone}`}>
+            <div className="skill-signal-title">{icon}<h3>{title}</h3></div>
+            {skills.length ? (
+                <div className="skill-signal-list">
+                    {skills.slice(0, 4).map((skill) => (
+                        <div key={skill.name}>
+                            <strong>{skill.name}</strong>
+                            <span>{skill.reason}</span>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p className="skill-signal-empty">{empty}</p>
+            )}
+        </section>
+    );
+}
+
+function SkillEvidenceRow({ skill }: { skill: SkillEvidence }) {
+    const label = skill.status === "strength" ? "Strength" : skill.status === "focus" ? "Focus next" : "Building";
+    const StatusIcon = skill.status === "strength" ? CheckCircle2 : skill.status === "focus" ? TriangleAlert : TrendingUp;
+    return (
+        <article className={`skill-evidence-row ${skill.status}`}>
+            <div className="skill-evidence-copy">
+                <div className="skill-evidence-name">
+                    <h3>{skill.name}</h3>
+                    <span><StatusIcon size={13} /> {label}</span>
+                </div>
+                <p>{skill.reason}</p>
+                <small>
+                    {skill.evidenceCount} observation{skill.evidenceCount === 1 ? "" : "s"}
+                    {typeof skill.averageScore === "number" ? ` · ${skill.averageScore}% assessment average` : ""}
+                </small>
+            </div>
+            <div className="skill-evidence-confidence">
+                <div><span>Profile confidence</span><strong>{skill.profileConfidence}%</strong></div>
+                <div className="skill-evidence-track"><i style={{ width: `${skill.profileConfidence}%` }} /></div>
+            </div>
+        </article>
+    );
+}
+
+function MemoryKindIcon({ kind }: { kind: LearningMemory["kind"] }) {
+    if (kind === "assessment") return <ClipboardCheck size={17} />;
+    if (kind === "lab") return <Wrench size={17} />;
+    if (kind === "roleplay") return <MessageSquareText size={17} />;
+    if (kind === "interest") return <Sparkles size={17} />;
+    return <BookOpenCheck size={17} />;
+}
+
+function formatMemoryTime(timestamp: number): string {
+    const elapsed = Math.max(0, Date.now() - timestamp);
+    const minutes = Math.floor(elapsed / 60_000);
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 /* ─── Toggle Switch Sub-component ────────────────────── */

@@ -1,66 +1,52 @@
-/* ============================================================
-   Luxe Whitespace — Ctrl+Teach global tokens
-   Mirrors the look/feel of /ctrl+teach/landing.html:
-   warm off-white field, soft black ink, single warm gold accent,
-   Inter 200-600, no shadows on content, no dark sections.
-   ============================================================ */
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap');
-
 :root {
-  /* Field */
-  --bg:        #FAFAF8;   /* warm off-white page field */
-  --surface:   #EEECEA;   /* light track / surface */
-  --border:    #E0DCD6;   /* pale rule / border */
-  --baseline:  #D8D5D0;   /* grey baseline */
-
-  /* Ink */
-  --fg:        #2A2A2A;   /* soft black ink */
-  --muted:     #666666;   /* muted text */
-
-  /* Single warm-gold accent — hairlines / dots / units only */
-  --accent:    #D4A574;
-
-  /* Editorial aliases (preserved for back-compat with existing components) */
-  --primary:        var(--fg);
-  --primary-dark:   var(--fg);
-  --primary-light:  var(--surface);
-  --accent-light:   #F4E9D9;  /* gold-tinted surface, used sparingly */
-  --success:        #6B8E5A;  /* muted sage, keeps the calm palette */
-  --success-bg:     #EFF1EB;
-  --danger:         #B85C5C;
-  --warning:        var(--accent);
-
-  /* Geometry */
-  --radius:    2px;        /* sharp editorial corners, not pill-bubbly */
-  --radius-lg: 4px;
-
-  /* Type */
-  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --font-body:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --font:         var(--font-body);
+  --bg: #f3f4ef;
+  --surface: #ffffff;
+  --surface-muted: #f8f9f6;
+  --border: #d8dbd1;
+  --baseline: #b8bdb2;
+  --fg: #10120f;
+  --muted: #565b53;
+  --accent: #b7ec52;
+  --accent-dark: #26320f;
+  --accent-light: #ebf8d1;
+  --primary: var(--fg);
+  --primary-dark: var(--fg);
+  --primary-light: #e9ebe5;
+  --success: #558617;
+  --success-bg: #edf7d9;
+  --danger: #a23f35;
+  --warning: #8a6514;
+  --radius: 6px;
+  --radius-lg: 8px;
+  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font: var(--font-body);
 }
 
-/* ── Reset ───────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
 
 * {
   margin: 0;
   padding: 0;
-  box-sizing: border-box;
 }
 
 html,
 body {
-  font-family: var(--font);
-  font-weight: 300;
+  min-height: 100%;
   background: var(--bg);
   color: var(--fg);
+  font-family: var(--font);
   font-size: 16px;
-  line-height: 1.6;
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   scroll-behavior: smooth;
-  letter-spacing: 0;
 }
 
 a {
@@ -68,25 +54,147 @@ a {
   text-decoration: none;
 }
 
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  letter-spacing: 0;
+}
+
 button {
-  font-family: inherit;
   cursor: pointer;
 }
 
-/* Editorial body weight — no chunky 700+ by default */
-h1, h2, h3, h4, h5, h6 {
-  font-weight: 400;
-  letter-spacing: -0.01em;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   color: var(--fg);
+  font-weight: 650;
+  letter-spacing: 0;
 }
 
-/* No shadows on content, per the design language */
-* {
-  box-shadow: none !important;
-}
-
-/* Selection — quiet gold */
 ::selection {
   background: var(--accent);
+  color: var(--accent-dark);
+}
+
+:focus-visible {
+  outline: 2px solid #527f16;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Public legal documents use the same Signal system as the product. */
+.legal-page {
+  min-height: 100vh !important;
+  background: var(--bg) !important;
+  color: var(--fg) !important;
+  font-family: var(--font) !important;
+}
+
+.legal-page .legal-header {
+  padding: 0 28px !important;
+  border-bottom: 1px solid var(--border) !important;
+  background: var(--bg) !important;
+}
+
+.legal-page .legal-header-inner {
+  max-width: 960px !important;
+  min-height: 64px;
+}
+
+.legal-page .legal-brand > span {
   color: var(--fg);
+  font-size: 17px;
+  font-weight: 850;
+}
+
+.legal-page .legal-brand > span > span,
+.legal-page .legal-main > h1 > span {
+  color: #79a925;
+}
+
+.legal-page .legal-main {
+  max-width: 960px !important;
+  padding: 64px 28px 96px !important;
+}
+
+.legal-page .legal-main > h1 {
+  margin-bottom: 10px !important;
+  font-size: clamp(42px, 7vw, 70px) !important;
+  line-height: 1 !important;
+}
+
+.legal-page .legal-updated {
+  margin-bottom: 48px !important;
+  color: var(--muted) !important;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.legal-page section {
+  display: grid;
+  grid-template-columns: minmax(170px, 230px) minmax(0, 1fr);
+  gap: 38px;
+  margin-bottom: 0 !important;
+  padding: 28px 0;
+  border-top: 1px solid var(--border);
+}
+
+.legal-page section h2 {
+  margin: 0 !important;
+  font-size: 15px !important;
+  line-height: 1.4;
+}
+
+.legal-page section > p,
+.legal-page section > ul {
+  color: var(--muted) !important;
+  font-size: 14px;
+  line-height: 1.75 !important;
+}
+
+.legal-page section > p + ul {
+  grid-column: 2;
+}
+
+.legal-page section ul {
+  padding-left: 18px !important;
+}
+
+.legal-page section strong {
+  color: var(--fg);
+}
+
+.legal-page a {
+  color: #527f16 !important;
+}
+
+.legal-page .legal-footer {
+  justify-content: space-between;
+  border-top: 1px solid var(--fg) !important;
+}
+
+@media (max-width: 640px) {
+  .legal-page .legal-header { padding: 0 18px !important; }
+  .legal-page .legal-main { padding: 42px 18px 72px !important; }
+  .legal-page section { grid-template-columns: 1fr; gap: 10px; padding: 24px 0; }
+  .legal-page section > p + ul { grid-column: 1; }
+  .legal-page .legal-footer { align-items: flex-start; flex-direction: column; }
 }

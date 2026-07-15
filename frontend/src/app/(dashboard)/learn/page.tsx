@@ -8,6 +8,7 @@
 
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ListTree, MessageCircle, X } from "lucide-react";
 import { useLearner } from "@/lib/learner";
 import PathSidebar from "@/components/learn/PathSidebar";
 import ProgressBar from "@/components/learn/ProgressBar";
@@ -22,7 +23,7 @@ import "./learn.css";
 
 export default function LearnWorkspace() {
   const router = useRouter();
-  const { activeCourse, activeLessonId, setActiveLesson, completeLesson, addXp } = useLearner();
+  const { activeCourse, activeLessonId, setActiveLesson, completeLesson } = useLearner();
 
   React.useEffect(() => {
     if (!activeCourse) router.replace("/discover");
@@ -32,7 +33,7 @@ export default function LearnWorkspace() {
   if (!activeCourse || activeCourse.format === "rich") {
     return <div className="ls-empty" style={{ display: "grid", placeItems: "center" }}><p style={{ color: "var(--muted)" }}>Pick a course to begin your journey…</p></div>;
   }
-  return <Workspace course={activeCourse} activeLessonId={activeLessonId} setActiveLesson={setActiveLesson} completeLesson={completeLesson} addXp={addXp} router={router} />;
+  return <Workspace course={activeCourse} activeLessonId={activeLessonId} setActiveLesson={setActiveLesson} completeLesson={completeLesson} router={router} />;
 }
 
 interface WProps {
@@ -40,11 +41,12 @@ interface WProps {
   activeLessonId: string | null;
   setActiveLesson: (id: string) => void;
   completeLesson: (id: string) => void;
-  addXp: (n: number) => void;
   router: ReturnType<typeof useRouter>;
 }
 
-function Workspace({ course, activeLessonId, setActiveLesson, completeLesson, addXp, router }: WProps) {
+function Workspace({ course, activeLessonId, setActiveLesson, completeLesson, router }: WProps) {
+  const { isLessonComplete } = useLearner();
+  const [mobilePanel, setMobilePanel] = useState<"path" | "companion" | null>(null);
   const flat = useMemo(() => flattenLessons(course), [course]);
   // Default to the first lesson if none active.
   const currentLessonId = activeLessonId ?? flat[0]?.lessonId ?? null;
@@ -60,12 +62,17 @@ function Workspace({ course, activeLessonId, setActiveLesson, completeLesson, ad
 
   const onSelectLesson = (id: string) => {
     setActiveLesson(id);
+    setMobilePanel(null);
   };
 
   const advance = () => {
     const nxt = nextLesson(course, currentLessonId);
     if (nxt) { setActiveLesson(nxt.lessonId); }
-    else { router.push("/learn/completion"); }
+    else {
+      const firstIncomplete = flat.find((item) => !isLessonComplete(course.id, item.lessonId));
+      if (firstIncomplete) setActiveLesson(firstIncomplete.lessonId);
+      else router.push("/learn/completion");
+    }
   };
 
   const onModeDone = () => {
@@ -73,10 +80,11 @@ function Workspace({ course, activeLessonId, setActiveLesson, completeLesson, ad
     if (lesson) completeLesson(lesson.id);
   };
 
-  const typePillStyle: React.CSSProperties = { background: "#6366f11a", color: "#6366f1" };
+  const typePillStyle: React.CSSProperties = { background: "#ebf8d1", color: "#4f7716" };
+  const lessonComplete = Boolean(lesson && isLessonComplete(course.id, lesson.id));
 
   return (
-    <div className="learn-app">
+    <div className={`learn-app${mobilePanel ? ` mobile-${mobilePanel}` : ""}`}>
       <PathSidebar course={course} activeLessonId={currentLessonId} onSelectLesson={onSelectLesson} />
 
       <div className="learn-center">
@@ -84,9 +92,29 @@ function Workspace({ course, activeLessonId, setActiveLesson, completeLesson, ad
           <span className="ls-eyebrow">{course.platform}</span>
           <span className="ls-title">{lesson?.title ?? "Select a lesson"}</span>
           {lesson && <span className={`ls-type-pill ${lesson.type}`} style={lesson.type === "lab" ? typePillStyle : undefined}>{lesson.type}</span>}
-          {(mode === "assessment" || mode === "roleplay") && (
+          {lessonComplete && (
             <button className="bp-mode-btn" style={{ marginLeft: "auto" }} onClick={advance}>Next lesson ›</button>
           )}
+          <div className="learn-mobile-actions">
+            <button
+              type="button"
+              className={mobilePanel === "path" ? "active" : ""}
+              aria-label="Open learning path"
+              aria-expanded={mobilePanel === "path"}
+              onClick={() => setMobilePanel((panel) => panel === "path" ? null : "path")}
+            >
+              <ListTree size={16} />
+            </button>
+            <button
+              type="button"
+              className={mobilePanel === "companion" ? "active" : ""}
+              aria-label="Open AI companion"
+              aria-expanded={mobilePanel === "companion"}
+              onClick={() => setMobilePanel((panel) => panel === "companion" ? null : "companion")}
+            >
+              <MessageCircle size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="ls-stage">
@@ -96,20 +124,31 @@ function Workspace({ course, activeLessonId, setActiveLesson, completeLesson, ad
               <p style={{ color: "var(--muted)" }}>Your AI companion is ready whenever you are.</p>
             </div>
           ) : mode === "study" ? (
-            <StudyMode course={course} lesson={lesson} />
+            <StudyMode key={`study:${lesson.id}`} course={course} lesson={lesson} />
           ) : mode === "lab" ? (
-            <LabMode lesson={lesson} onComplete={onModeDone} />
+            <LabMode key={`lab:${lesson.id}`} lesson={lesson} onComplete={onModeDone} />
           ) : mode === "assessment" ? (
             <div style={{ padding: 24, height: "100%", overflowY: "auto" }}>
-              <AssessmentMode course={course} courseId={course.id} lessonId={lesson.id} onDone={onModeDone} />
+              <AssessmentMode key={`assessment:${lesson.id}`} course={course} courseId={course.id} lessonId={lesson.id} onDone={onModeDone} />
             </div>
           ) : (
-            <RoleplayMode lesson={lesson} onCoached={onModeDone} />
+            <RoleplayMode key={`roleplay:${lesson.id}`} lesson={lesson} onCoached={onModeDone} />
           )}
         </div>
       </div>
 
       <CompanionPanel course={course} lesson={lesson} />
+
+      {mobilePanel && (
+        <button
+          type="button"
+          className="learn-mobile-drawer-close"
+          aria-label={`Close ${mobilePanel === "path" ? "learning path" : "AI companion"}`}
+          onClick={() => setMobilePanel(null)}
+        >
+          <X size={18} />
+        </button>
+      )}
 
       <ProgressBar mode={mode} onMode={setMode} />
     </div>

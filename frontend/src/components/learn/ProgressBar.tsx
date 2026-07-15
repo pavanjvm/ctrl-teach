@@ -36,7 +36,7 @@ export default function ProgressBar({ mode, onMode }: Props) {
         </div>
         <div className="bp-sep" />
         <div className="bp-stat">
-          <span className="v">{progress.confidence}<span style={{ fontSize: 11, color: "var(--muted)" }}>%</span></span>
+          <span className="v">{progress.confidence}<span style={{ fontSize: 11, color: "var(--muted)" }}>/5</span></span>
           <span className="l">Confidence</span>
         </div>
         <div className="bp-sep" />

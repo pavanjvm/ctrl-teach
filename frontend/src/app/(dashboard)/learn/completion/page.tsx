@@ -6,9 +6,8 @@
  * learned, a progress summary grid, the badges earned on this journey, and
  * CTAs to head back to the dashboard or find another course.
  *
- * Editorial / Luxe Whitespace: warm off-white field, ink type, single gold
- * accent, parchment certificate with a dashed gold border and an inline SVG
- * seal. Gold hairlines carry the structure — no content shadows.
+ * Signal system: paper field, ink type, acid-green verification marks, and
+ * hard editorial dividers. The certificate remains printable and restrained.
  */
 
 import { useMemo } from "react";
@@ -46,26 +45,24 @@ function iconFor(badge: Badge): LucideIcon {
   return ICONS[badge.icon] ?? Trophy;
 }
 
-const CONFETTI_PALETTE = ["#D4A574", "#6366F1", "#E0DCD6", "#6B8E5A"];
+const CONFETTI_PALETTE = ["#b7ec52", "#10120f", "#d8dbd1", "#6b8e5a"];
 
 export default function CompletionPage() {
   const { user } = useAuth();
-  const { activeCourse, progress } = useLearner();
-
-  /* lessons that belong to this course, for the "lessons completed" count */
-  const courseLessonIds = useMemo(
-    () =>
-      activeCourse
-        ? activeCourse.modules.flatMap((m) => m.lessons.map((l) => l.id))
-        : [],
-    [activeCourse]
-  );
+  const { activeCourse, progress, isLessonComplete } = useLearner();
+  const totalLessons = activeCourse?.modules.reduce(
+    (total, module) => total + module.lessons.length,
+    0,
+  ) ?? 0;
 
   const completedInCourse = useMemo(
     () =>
-      progress.completedLessons.filter((id) => courseLessonIds.includes(id))
-        .length,
-    [progress.completedLessons, courseLessonIds]
+      activeCourse
+        ? activeCourse.modules
+            .flatMap((module) => module.lessons)
+            .filter((lesson) => isLessonComplete(activeCourse.id, lesson.id)).length
+        : 0,
+    [activeCourse, isLessonComplete]
   );
 
   /* ── empty state ── */
@@ -94,12 +91,40 @@ export default function CompletionPage() {
     );
   }
 
+  const allLessonsComplete = totalLessons > 0 && completedInCourse === totalLessons;
+  if (!allLessonsComplete) {
+    const continueHref = activeCourse.format === "rich"
+      ? `/learn/${activeCourse.id}`
+      : "/learn";
+    return (
+      <div className="cmp cmp-empty page">
+        <div className="sec sec-tight">
+          <div className="sec-eyebrow">Course in progress</div>
+          <h1 className="sec-title">
+            Finish the path first<span className="stop">.</span>
+          </h1>
+          <p className="lede">
+            You completed {completedInCourse} of {totalLessons} lessons. Your certificate unlocks after every lesson is complete.
+          </p>
+          <div className="ctas">
+            <Link href={continueHref} className="cta cta-primary">
+              <ArrowRight size={14} /> Continue course
+            </Link>
+            <Link href="/dashboard" className="cta cta-secondary">
+              Back to dashboard
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const learnerName = user?.displayName || user?.username || "Learner";
   const certificate = activeCourse.certificateCriteria;
   const verifiedSkills = certificate?.skills?.length
     ? certificate.skills
     : activeCourse.skills;
-  const completedOn = new Date().toLocaleDateString("en-US", {
+  const completedOn = new Date(progress.courseCompletedAt?.[activeCourse.id] ?? Date.now()).toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
@@ -208,7 +233,7 @@ export default function CompletionPage() {
             <div className="cmp-stat-label">Lessons done</div>
             <div className="cmp-stat-value">
               {completedInCourse}
-              <span className="cmp-unit">/{courseLessonIds.length}</span>
+              <span className="cmp-unit">/{totalLessons}</span>
             </div>
             <div className="cmp-stat-foot">In this course</div>
           </div>
@@ -302,11 +327,11 @@ function Seal() {
       height="64"
       aria-hidden
     >
-      <circle cx="32" cy="32" r="30" fill="none" stroke="#D4A574" strokeWidth="1.5" />
-      <circle cx="32" cy="32" r="24" fill="#FBF8F1" stroke="#D4A574" strokeWidth="1" />
+      <circle cx="32" cy="32" r="30" fill="none" stroke="#79A925" strokeWidth="1.5" />
+      <circle cx="32" cy="32" r="24" fill="#EBF8D1" stroke="#79A925" strokeWidth="1" />
       <path
         d="M32 18l3.6 7.3 8 1.2-5.8 5.6 1.4 8-7.2-3.8-7.2 3.8 1.4-8-5.8-5.6 8-1.2z"
-        fill="#D4A574"
+        fill="#628D1B"
       />
     </svg>
   );

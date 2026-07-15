@@ -71,4 +71,7 @@ media_image_*.png
 # --- Misc ---
 *.pem
 .cache/
+.firecrawl/
+.claude/
+.agents/
 tmp/

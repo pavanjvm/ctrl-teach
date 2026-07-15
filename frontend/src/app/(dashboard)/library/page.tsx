@@ -92,9 +92,16 @@ export default function LibraryPage() {
                 <button type="button" onClick={() => open(job)} aria-label={`Open ${job.topic}`}>
                   <div
                     className="library-cover"
-                    style={image ? { backgroundImage: `url("${image}")` } : undefined}
                   >
-                    {!image && <Sparkles size={28} />}
+                    <Sparkles className="library-cover-fallback" size={28} aria-hidden="true" />
+                    {image && (
+                      <img
+                        src={image}
+                        alt={course?.coverImage?.alt || `${course?.title || job.topic} course cover`}
+                        loading="lazy"
+                        onError={(event) => { event.currentTarget.style.display = "none"; }}
+                      />
+                    )}
                     <span className={`library-status ${job.status}`}>
                       {job.status === "ready" ? "Ready" : job.status === "failed" ? "Needs attention" : job.status === "intake" ? "Needs answers" : "Generating"}
                     </span>

@@ -8,13 +8,15 @@ fallback keeps the hackathon flow usable when connector keys are unavailable.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import mimetypes
 import re
+import socket
 from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from openai import OpenAI
@@ -26,6 +28,8 @@ logger = logging.getLogger(__name__)
 LEVELS = {"Beginner", "Intermediate", "Advanced"}
 LESSON_TYPES = ("study", "lab", "assessment", "roleplay")
 MAX_SOURCE_CHARS = 36_000
+MAX_DIRECT_SOURCE_BYTES = 2 * 1024 * 1024
+MAX_DIRECT_REDIRECTS = 5
 
 _firecrawl_client: Any = None
 _openai_client: Optional[OpenAI] = None
@@ -98,12 +102,82 @@ def _metadata_value(document: Any, key: str, default: str = "") -> str:
     return str(getattr(metadata, key, None) or default)
 
 
+def _validate_public_http_url(url: str) -> str:
+    """Reject credentials, local names, and every non-public resolved address."""
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Enter a complete public http:// or https:// course URL.")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Course URLs cannot contain credentials.")
+
+    hostname = parsed.hostname.rstrip(".").lower()
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        raise ValueError("Private or local course URLs are not allowed.")
+    try:
+        addresses = socket.getaddrinfo(
+            hostname,
+            parsed.port or (443 if parsed.scheme.lower() == "https" else 80),
+            type=socket.SOCK_STREAM,
+        )
+    except (OSError, ValueError) as exc:
+        raise ValueError("The course URL hostname could not be resolved.") from exc
+    if not addresses:
+        raise ValueError("The course URL hostname could not be resolved.")
+
+    for address in addresses:
+        raw_address = str(address[4][0]).split("%", 1)[0]
+        try:
+            ip = ipaddress.ip_address(raw_address)
+        except ValueError as exc:
+            raise ValueError("The course URL resolved to an invalid address.") from exc
+        if not ip.is_global:
+            raise ValueError("Private or local course URLs are not allowed.")
+    return url
+
+
+def _fetch_public_html(url: str) -> tuple[str, str]:
+    current_url = url
+    headers = {"User-Agent": "CtrlTeach-CourseFactory/1.0"}
+    with httpx.Client(
+        follow_redirects=False,
+        timeout=20,
+        headers=headers,
+        trust_env=False,
+    ) as client:
+        for redirect_count in range(MAX_DIRECT_REDIRECTS + 1):
+            _validate_public_http_url(current_url)
+            with client.stream("GET", current_url) as response:
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        raise ValueError("Course URL returned an invalid redirect.")
+                    if redirect_count >= MAX_DIRECT_REDIRECTS:
+                        raise ValueError("Course URL redirected too many times.")
+                    current_url = urljoin(current_url, location)
+                    continue
+
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "").lower()
+                if content_type and not any(
+                    allowed in content_type
+                    for allowed in ("text/html", "application/xhtml+xml", "text/plain")
+                ):
+                    raise ValueError("Course URL did not return readable text or HTML.")
+                content = bytearray()
+                for chunk in response.iter_bytes():
+                    if len(content) + len(chunk) > MAX_DIRECT_SOURCE_BYTES:
+                        raise ValueError("Course page is too large to import.")
+                    content.extend(chunk)
+                encoding = response.encoding or "utf-8"
+                return current_url, bytes(content).decode(encoding, errors="replace")
+    raise ValueError("Course URL could not be fetched.")
+
+
 def extract_url_source(url: str) -> Dict[str, str]:
     """Extract one known course URL into markdown-like source text."""
 
     url = url.strip()
-    if not url.startswith(("https://", "http://")):
-        raise ValueError("Enter a complete http:// or https:// course URL.")
+    _validate_public_http_url(url)
 
     client = _firecrawl()
     if client is not None:
@@ -128,21 +202,15 @@ def extract_url_source(url: str) -> Dict[str, str]:
             logger.warning("course page scrape failed, using direct fallback: %s", exc)
 
     try:
-        response = httpx.get(
-            url,
-            follow_redirects=True,
-            timeout=20,
-            headers={"User-Agent": "CtrlTeach-CourseFactory/1.0"},
-        )
-        response.raise_for_status()
+        final_url, html = _fetch_public_html(url)
         parser = _ReadableHTML()
-        parser.feed(response.text)
+        parser.feed(html)
         text = parser.text()
         if text:
             return {
                 "text": text[:MAX_SOURCE_CHARS],
-                "title": _html_title(response.text) or _title_from_url(url),
-                "label": urlparse(url).netloc.removeprefix("www."),
+                "title": _html_title(html) or _title_from_url(final_url),
+                "label": urlparse(final_url).netloc.removeprefix("www."),
                 "mode": "direct",
             }
     except Exception as exc:

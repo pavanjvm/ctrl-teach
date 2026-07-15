@@ -59,7 +59,7 @@ function asCourse(path: PathPayload): Course {
   return {
     ...path,
     thumbnail: PATH_GRADIENT,
-    instructor: "Curated by Clicky",
+    instructor: "Curated by Tars",
     platform: "Ctrl+Teach",
     rating: 0,
     ratingCount: 0,
@@ -169,7 +169,7 @@ export default function GoalPathBuilder() {
           Start with the outcome, not the course<span className="stop">.</span>
         </h1>
         <p className="lede">
-          Describe what you need to be able to do. Clicky will find grounded
+          Describe what you need to be able to do. Tars will find grounded
           resources, sequence the work, and add practice and checkpoints.
         </p>
 

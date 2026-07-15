@@ -17,14 +17,14 @@ import type { CanvasCommand, AnimationGroup } from "@/hooks/useWebSocket";
 // Corner radius applied to AI-generated images (px)
 const IMAGE_CORNER_RADIUS = 20;
 
-// ── Clicky cursor (bezier-arc coach pointer) ─────────────────────────────────
-// Clicky is the platform's virtual assistant. On the whiteboard it follows the
+// ── Tars cursor (bezier-arc coach pointer) ─────────────────────────────────
+// Tars is the platform's virtual assistant. On the whiteboard it follows the
 // tutor's pen as it draws — flying a quadratic-bezier arc to each freshly
 // started element, then tracking the live "draw tip" (line tip / text cursor /
 // element center) frame-by-frame so it always points at what is being drawn.
 
-const CLICKY_COLOR = "#6366f1"; // indigo-500 — vivid against the warm palette
-const CLICKY_GLOW = "rgba(99,102,241,0.55)";
+const TARS_COLOR = "#79a925";
+const TARS_GLOW = "rgba(99,102,241,0.55)";
 
 function bezierPoint(t: number, p0: number, p1: number, p2: number) {
   const m = 1 - t;
@@ -32,11 +32,11 @@ function bezierPoint(t: number, p0: number, p1: number, p2: number) {
 }
 
 /**
- * Fly Clicky's cursor along a quadratic-bezier arc from `from` to `to` over
+ * Fly Tars's cursor along a quadratic-bezier arc from `from` to `to` over
  * `dur` ms. Smoothstep easing, tangent rotation, midpoint scale pulse — ported
- * from LabCoach's flight() (originally Clicky's animateBezierFlightArc).
+ * from LabCoach's flight() (originally Tars's animateBezierFlightArc).
  */
-function clickyFlight(
+function tarsFlight(
   from: { x: number; y: number },
   to: { x: number; y: number },
   onFrame: (p: { x: number; y: number; rot: number; scale: number }) => void,
@@ -140,18 +140,18 @@ export interface GeneratedImageViewportBounds {
 interface WhiteboardCanvasProps {
   canvasCommands: CanvasCommand[];
   onCanvasChange?: () => void;
-  /** Releases Realtime audio waiting for this rendered board/Clicky action. */
+  /** Releases Realtime audio waiting for this rendered board/Tars action. */
   onVisualSettled?: (syncId: string) => void;
   isGeneratingImage?: boolean;
   isSavingProgress?: boolean;
-  /** Whether Clicky's cursor should be visible (default true once mounted). */
-  clickyActive?: boolean;
-  /** Optional external point target from Clicky-style [POINT:x,y:label] tags. */
-  clickyPointTarget?: { x: number; y: number; label?: string; id: string } | null;
+  /** Whether Tars's cursor should be visible (default true once mounted). */
+  tarsActive?: boolean;
+  /** Optional external point target from Tars-style [POINT:x,y:label] tags. */
+  tarsPointTarget?: { x: number; y: number; label?: string; id: string } | null;
 }
 
 const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
-  ({ canvasCommands, onCanvasChange, onVisualSettled, isGeneratingImage = false, isSavingProgress = false, clickyActive = true, clickyPointTarget = null }, ref) => {
+  ({ canvasCommands, onCanvasChange, onVisualSettled, isGeneratingImage = false, isSavingProgress = false, tarsActive = true, tarsPointTarget = null }, ref) => {
     const [ready, setReady] = useState(false);
     const apiRef = useRef<any>(null);
     const [ExcalidrawComp, setExcalidrawComp] = useState<any>(null);
@@ -160,54 +160,54 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
     const [mounted, setMounted] = useState(false);
     const lastAppliedRef = useRef(0);
 
-    // ── Clicky cursor refs ──────────────────────────────────────────────────
+    // ── Tars cursor refs ──────────────────────────────────────────────────
     // All updated imperatively inside the animation tick so we never trigger a
     // React re-render per frame.
     const appStateRef = useRef<any>(null); // { scrollX, scrollY, zoom:{value} }
-    const clickyElRef = useRef<HTMLDivElement>(null); // overlay triangle
-    const clickyBubbleAnchorRef = useRef<HTMLDivElement>(null);
-    const clickyRotationRef = useRef(-35);
-    const clickyCancelRef = useRef<(() => void) | null>(null); // active flight cancel fn
-    const clickyCurPos = useRef<{ x: number; y: number } | null>(null); // last cursor pos (container px)
-    const clickyFocusId = useRef<string | null>(null); // element id we're currently attached to
-    const clickyIdleRaf = useRef<number>(0); // idle-bob rAF id
-    const clickyIdleStart = useRef<number>(0); // idle bob t0
-    const clickyMousePos = useRef<{ x: number; y: number } | null>(null); // local mouse position
-    const clickyMouseInside = useRef<boolean>(false); // only follow inside whiteboard
-    const clickyDrawing = useRef<boolean>(false); // currently tracking a live tip
-    const clickyPointTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // hold timer for external pointing
-    const clickyExternalPointing = useRef<boolean>(false); // true while honoring a model [POINT]
-    const clickySpringVelocity = useRef({ x: 0, y: 0 });
-    const clickySpringTimestamp = useRef<number | null>(null);
-    const [clickyBubbleText, setClickyBubbleText] = useState("");
+    const tarsElRef = useRef<HTMLDivElement>(null); // overlay triangle
+    const tarsBubbleAnchorRef = useRef<HTMLDivElement>(null);
+    const tarsRotationRef = useRef(-35);
+    const tarsCancelRef = useRef<(() => void) | null>(null); // active flight cancel fn
+    const tarsCurPos = useRef<{ x: number; y: number } | null>(null); // last cursor pos (container px)
+    const tarsFocusId = useRef<string | null>(null); // element id we're currently attached to
+    const tarsIdleRaf = useRef<number>(0); // idle-bob rAF id
+    const tarsIdleStart = useRef<number>(0); // idle bob t0
+    const tarsMousePos = useRef<{ x: number; y: number } | null>(null); // local mouse position
+    const tarsMouseInside = useRef<boolean>(false); // only follow inside whiteboard
+    const tarsDrawing = useRef<boolean>(false); // currently tracking a live tip
+    const tarsPointTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null); // hold timer for external pointing
+    const tarsExternalPointing = useRef<boolean>(false); // true while honoring a model [POINT]
+    const tarsSpringVelocity = useRef({ x: 0, y: 0 });
+    const tarsSpringTimestamp = useRef<number | null>(null);
+    const [tarsBubbleText, setTarsBubbleText] = useState("");
 
-    const setClickyTransform = useCallback((x: number, y: number, rot: number, scale: number, opacity = 1) => {
-      const el = clickyElRef.current;
+    const setTarsTransform = useCallback((x: number, y: number, rot: number, scale: number, opacity = 1) => {
+      const el = tarsElRef.current;
       if (!el) return;
       el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${rot}deg) scale(${scale})`;
       el.style.opacity = String(opacity);
-      clickyRotationRef.current = rot;
-      if (clickyBubbleAnchorRef.current) {
-        clickyBubbleAnchorRef.current.style.transform = `rotate(${-rot}deg)`;
+      tarsRotationRef.current = rot;
+      if (tarsBubbleAnchorRef.current) {
+        tarsBubbleAnchorRef.current.style.transform = `rotate(${-rot}deg)`;
       }
     }, []);
 
-    // ── Clicky idle follow — real Clicky-style cursor trailing ──────────────
-    // When Clicky is not drawing or pointing, it trails the user's cursor inside
+    // ── Tars idle follow — real Tars-style cursor trailing ──────────────
+    // When Tars is not drawing or pointing, it trails the user's cursor inside
     // the whiteboard with a small lag. It does not follow outside the board.
     useEffect(() => {
-      if (!clickyActive) {
+      if (!tarsActive) {
         // Hide + stop idle when deactivated.
-        if (clickyIdleRaf.current) cancelAnimationFrame(clickyIdleRaf.current);
-        clickyIdleRaf.current = 0;
-        if (clickyCancelRef.current) clickyCancelRef.current();
-        clickyCancelRef.current = null;
-        clickyDrawing.current = false;
-        clickyFocusId.current = null;
-        clickyCurPos.current = null;
-        clickySpringVelocity.current = { x: 0, y: 0 };
-        clickySpringTimestamp.current = null;
-        const el = clickyElRef.current;
+        if (tarsIdleRaf.current) cancelAnimationFrame(tarsIdleRaf.current);
+        tarsIdleRaf.current = 0;
+        if (tarsCancelRef.current) tarsCancelRef.current();
+        tarsCancelRef.current = null;
+        tarsDrawing.current = false;
+        tarsFocusId.current = null;
+        tarsCurPos.current = null;
+        tarsSpringVelocity.current = { x: 0, y: 0 };
+        tarsSpringTimestamp.current = null;
+        const el = tarsElRef.current;
         if (el) el.style.opacity = "0";
         return;
       }
@@ -217,14 +217,14 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
 
       const updateMouse = (event: PointerEvent) => {
         const r = container.getBoundingClientRect();
-        clickyMouseInside.current = true;
-        clickyMousePos.current = {
+        tarsMouseInside.current = true;
+        tarsMousePos.current = {
           x: event.clientX - r.left,
           y: event.clientY - r.top,
         };
       };
       const leaveMouse = () => {
-        clickyMouseInside.current = false;
+        tarsMouseInside.current = false;
       };
       container.addEventListener("pointermove", updateMouse);
       container.addEventListener("pointerenter", updateMouse);
@@ -232,19 +232,19 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
 
       const tickIdle = (now: number) => {
         // Pause the bob while we're actively drawing (flying/tracking).
-        if (clickyDrawing.current || clickyCancelRef.current || clickyExternalPointing.current) {
-          clickyIdleStart.current = now; // hold phase; resume smoothly later
-          clickySpringTimestamp.current = now;
-          clickySpringVelocity.current = { x: 0, y: 0 };
-          clickyIdleRaf.current = requestAnimationFrame(tickIdle);
+        if (tarsDrawing.current || tarsCancelRef.current || tarsExternalPointing.current) {
+          tarsIdleStart.current = now; // hold phase; resume smoothly later
+          tarsSpringTimestamp.current = now;
+          tarsSpringVelocity.current = { x: 0, y: 0 };
+          tarsIdleRaf.current = requestAnimationFrame(tickIdle);
           return;
         }
-        if (!clickyIdleStart.current) clickyIdleStart.current = now;
-        const target = clickyMousePos.current;
-        const current = clickyCurPos.current;
+        if (!tarsIdleStart.current) tarsIdleStart.current = now;
+        const target = tarsMousePos.current;
+        const current = tarsCurPos.current;
 
         // If the user has not moved inside the board yet, seed near center
-        // instead of pinning Clicky to a corner.
+        // instead of pinning Tars to a corner.
         const r = container.getBoundingClientRect();
         const seededTarget = target ?? { x: r.width / 2, y: r.height / 2 };
         const desired = {
@@ -252,90 +252,90 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           y: seededTarget.y + 25,
         };
         const from = current ?? desired;
-        if (!current) clickySpringVelocity.current = { x: 0, y: 0 };
-        if (clickySpringTimestamp.current == null) clickySpringTimestamp.current = now;
-        const dt = Math.min(32, now - clickySpringTimestamp.current) / 1000;
-        clickySpringTimestamp.current = now;
+        if (!current) tarsSpringVelocity.current = { x: 0, y: 0 };
+        if (tarsSpringTimestamp.current == null) tarsSpringTimestamp.current = now;
+        const dt = Math.min(32, now - tarsSpringTimestamp.current) / 1000;
+        tarsSpringTimestamp.current = now;
         const response = 0.38;
-        const damping = clickyMouseInside.current ? 0.68 : 0.76;
+        const damping = tarsMouseInside.current ? 0.68 : 0.76;
         const omega = (2 * Math.PI) / response;
         const stiffness = omega ** 2;
         const drag = 2 * damping * omega;
-        clickySpringVelocity.current.x += (-stiffness * (from.x - desired.x) - drag * clickySpringVelocity.current.x) * dt;
-        clickySpringVelocity.current.y += (-stiffness * (from.y - desired.y) - drag * clickySpringVelocity.current.y) * dt;
-        const x = from.x + clickySpringVelocity.current.x * dt;
-        const y = from.y + clickySpringVelocity.current.y * dt;
+        tarsSpringVelocity.current.x += (-stiffness * (from.x - desired.x) - drag * tarsSpringVelocity.current.x) * dt;
+        tarsSpringVelocity.current.y += (-stiffness * (from.y - desired.y) - drag * tarsSpringVelocity.current.y) * dt;
+        const x = from.x + tarsSpringVelocity.current.x * dt;
+        const y = from.y + tarsSpringVelocity.current.y * dt;
         const dx = x - from.x;
         const dy = y - from.y;
         const speed = Math.hypot(dx, dy);
         const rot = speed > 0.2 ? (Math.atan2(dy, dx) * 180) / Math.PI + 90 : -35;
         const scale = 1 + Math.min(speed / 90, 0.08);
-        const el = clickyElRef.current;
+        const el = tarsElRef.current;
         if (el) el.style.transition = "opacity 0.25s ease";
-        setClickyTransform(x, y, rot, scale, clickyMouseInside.current ? 1 : 0.55);
-        clickyCurPos.current = { x, y };
-        clickyIdleRaf.current = requestAnimationFrame(tickIdle);
+        setTarsTransform(x, y, rot, scale, tarsMouseInside.current ? 1 : 0.55);
+        tarsCurPos.current = { x, y };
+        tarsIdleRaf.current = requestAnimationFrame(tickIdle);
       };
-      clickyIdleRaf.current = requestAnimationFrame(tickIdle);
+      tarsIdleRaf.current = requestAnimationFrame(tickIdle);
 
       return () => {
-        if (clickyIdleRaf.current) cancelAnimationFrame(clickyIdleRaf.current);
-        clickyIdleRaf.current = 0;
+        if (tarsIdleRaf.current) cancelAnimationFrame(tarsIdleRaf.current);
+        tarsIdleRaf.current = 0;
         container.removeEventListener("pointermove", updateMouse);
         container.removeEventListener("pointerenter", updateMouse);
         container.removeEventListener("pointerleave", leaveMouse);
-        clickySpringTimestamp.current = null;
-        clickySpringVelocity.current = { x: 0, y: 0 };
+        tarsSpringTimestamp.current = null;
+        tarsSpringVelocity.current = { x: 0, y: 0 };
       };
-    }, [clickyActive, setClickyTransform]);
+    }, [tarsActive, setTarsTransform]);
 
-    // ── External Clicky point target (true Clicky-style [POINT:x,y:label]) ──
+    // ── External Tars point target (true Tars-style [POINT:x,y:label]) ──
     useEffect(() => {
-      if (!clickyActive || !clickyPointTarget) return;
+      if (!tarsActive || !tarsPointTarget) return;
 
-      if (clickyPointTimerRef.current) {
-        clearTimeout(clickyPointTimerRef.current);
-        clickyPointTimerRef.current = null;
+      if (tarsPointTimerRef.current) {
+        clearTimeout(tarsPointTimerRef.current);
+        tarsPointTimerRef.current = null;
       }
-      clickyExternalPointing.current = true;
-      clickyDrawing.current = true;
-      clickyFocusId.current = `point:${clickyPointTarget.id}`;
+      tarsExternalPointing.current = true;
+      tarsDrawing.current = true;
+      tarsFocusId.current = `point:${tarsPointTarget.id}`;
 
-      const target = { x: clickyPointTarget.x, y: clickyPointTarget.y };
-      if (clickyCancelRef.current) clickyCancelRef.current();
-      const from = clickyCurPos.current ?? target;
+      const target = { x: tarsPointTarget.x, y: tarsPointTarget.y };
+      if (tarsCancelRef.current) tarsCancelRef.current();
+      const from = tarsCurPos.current ?? target;
 
-      clickyCancelRef.current = clickyFlight(
+      tarsCancelRef.current = tarsFlight(
         from,
         target,
         (p) => {
-          clickyCurPos.current = { x: p.x, y: p.y };
-          setClickyTransform(p.x, p.y, p.rot, p.scale, 1);
+          tarsCurPos.current = { x: p.x, y: p.y };
+          setTarsTransform(p.x, p.y, p.rot, p.scale, 1);
         },
         () => {
-          clickyCancelRef.current = null;
-          clickyCurPos.current = target;
-          const label = (clickyPointTarget.label || "right here").trim();
-          setClickyBubbleText(label);
-          onVisualSettled?.(clickyPointTarget.id);
-          clickyPointTimerRef.current = setTimeout(() => {
-            clickyExternalPointing.current = false;
-            clickyDrawing.current = false;
-            clickyFocusId.current = null;
-            clickyIdleStart.current = 0;
-            setClickyBubbleText("");
-            clickyPointTimerRef.current = null;
+          tarsCancelRef.current = null;
+          tarsCurPos.current = target;
+          const label = (tarsPointTarget.label || "right here").trim();
+          setTarsBubbleText(label);
+          onVisualSettled?.(tarsPointTarget.id);
+          tarsPointTimerRef.current = setTimeout(() => {
+            tarsExternalPointing.current = false;
+            tarsDrawing.current = false;
+            tarsFocusId.current = null;
+            tarsIdleStart.current = 0;
+            setTarsBubbleText("");
+            tarsPointTimerRef.current = null;
           }, 2600);
         }
       );
 
       return () => {
-        if (clickyPointTimerRef.current) {
-          clearTimeout(clickyPointTimerRef.current);
-          clickyPointTimerRef.current = null;
+        if (tarsPointTimerRef.current) {
+          clearTimeout(tarsPointTimerRef.current);
+          tarsPointTimerRef.current = null;
         }
       };
-    }, [clickyActive, clickyPointTarget, onVisualSettled, setClickyTransform]);
+    }, [tarsActive, tarsPointTarget, onVisualSettled, setTarsTransform]);
 
     // Load Excalidraw + convertToExcalidrawElements once
     useEffect(() => {
@@ -621,8 +621,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
         animFrameRef.current = 0;
       }
 
-      // ── Clicky helper: convert scene coords → container px ─────────────
-      const clickyToScreen = (sx: number, sy: number) => {
+      // ── Tars helper: convert scene coords → container px ─────────────
+      const tarsToScreen = (sx: number, sy: number) => {
         const as = appStateRef.current;
         const zoom = as?.zoom?.value ?? 1;
         const scrollX = as?.scrollX ?? 0;
@@ -631,7 +631,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
       };
       // The "live tip" of the element currently being drawn. We pick the most
       // recently-started group that is still animating and off this update we
-      // fly/follow Clicky's cursor.
+      // fly/follow Tars's cursor.
       let liveTip: { x: number; y: number; id: string; startedAt: number } | null = null;
       const settleAfterPaint = (syncId?: string, delayMs = 0) => {
         if (!syncId) return;
@@ -794,37 +794,37 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
 
         api.updateScene({ elements: [...baseElements, ...allAnimated] });
 
-        // ── Clicky cursor: fly / follow the live draw tip ──────────────
-        if (liveTip && !clickyExternalPointing.current) {
-          clickyDrawing.current = true;
-          const screen = clickyToScreen(liveTip.x, liveTip.y);
-          const isFocus = clickyFocusId.current === liveTip.id;
+        // ── Tars cursor: fly / follow the live draw tip ──────────────
+        if (liveTip && !tarsExternalPointing.current) {
+          tarsDrawing.current = true;
+          const screen = tarsToScreen(liveTip.x, liveTip.y);
+          const isFocus = tarsFocusId.current === liveTip.id;
           if (!isFocus) {
             // New element started drawing — fly a bezier arc to it.
-            if (clickyCancelRef.current) clickyCancelRef.current();
-            const from = clickyCurPos.current ?? screen;
-            clickyFocusId.current = liveTip.id;
-            clickyCancelRef.current = clickyFlight(
+            if (tarsCancelRef.current) tarsCancelRef.current();
+            const from = tarsCurPos.current ?? screen;
+            tarsFocusId.current = liveTip.id;
+            tarsCancelRef.current = tarsFlight(
               from,
               screen,
               (p) => {
-                clickyCurPos.current = { x: p.x, y: p.y };
-                setClickyTransform(p.x, p.y, p.rot, p.scale, 1);
+                tarsCurPos.current = { x: p.x, y: p.y };
+                setTarsTransform(p.x, p.y, p.rot, p.scale, 1);
               },
               () => {
-                clickyCancelRef.current = null;
+                tarsCancelRef.current = null;
               }
             );
-          } else if (!clickyCancelRef.current) {
+          } else if (!tarsCancelRef.current) {
             // Same element still drawing — smoothly track the live tip.
-            clickyCurPos.current = screen;
-            setClickyTransform(screen.x, screen.y, 0, 1, 1);
+            tarsCurPos.current = screen;
+            setTarsTransform(screen.x, screen.y, 0, 1, 1);
           }
-        } else if (clickyDrawing.current && !clickyCancelRef.current) {
+        } else if (tarsDrawing.current && !tarsCancelRef.current) {
           // Drawing just ended — release focus so the idle bob resumes.
-          clickyDrawing.current = false;
-          clickyFocusId.current = null;
-          clickyIdleStart.current = 0; // restart bob phase
+          tarsDrawing.current = false;
+          tarsFocusId.current = null;
+          tarsIdleStart.current = 0; // restart bob phase
         }
 
         // Remove completed tracks — their final-state elements are in
@@ -848,11 +848,11 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
         } else {
           animFrameRef.current = 0;
           console.log("[Canvas Anim] All animation tracks finished");
-          if (clickyCancelRef.current) clickyCancelRef.current();
-          clickyCancelRef.current = null;
-          clickyDrawing.current = false;
-          clickyFocusId.current = null;
-          clickyIdleStart.current = 0;
+          if (tarsCancelRef.current) tarsCancelRef.current();
+          tarsCancelRef.current = null;
+          tarsDrawing.current = false;
+          tarsFocusId.current = null;
+          tarsIdleStart.current = 0;
         }
       };
 
@@ -867,11 +867,11 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           // Clear everything including active animations
           animTracksRef.current.forEach((track) => settleAfterPaint(track.visualSyncId));
           animTracksRef.current = [];
-          if (clickyCancelRef.current) clickyCancelRef.current();
-          clickyCancelRef.current = null;
-          clickyDrawing.current = false;
-          clickyFocusId.current = null;
-          clickyIdleStart.current = 0;
+          if (tarsCancelRef.current) tarsCancelRef.current();
+          tarsCancelRef.current = null;
+          tarsDrawing.current = false;
+          tarsFocusId.current = null;
+          tarsIdleStart.current = 0;
           api.updateScene({ elements: [] });
           settleAfterPaint(cmd.visualSyncId);
           continue;
@@ -988,11 +988,11 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
         if (cmd.action === "replace") {
           animTracksRef.current.forEach((track) => settleAfterPaint(track.visualSyncId));
           animTracksRef.current = []; // clear animations on replace
-          if (clickyCancelRef.current) clickyCancelRef.current();
-          clickyCancelRef.current = null;
-          clickyDrawing.current = false;
-          clickyFocusId.current = null;
-          clickyIdleStart.current = 0;
+          if (tarsCancelRef.current) tarsCancelRef.current();
+          tarsCancelRef.current = null;
+          tarsDrawing.current = false;
+          tarsFocusId.current = null;
+          tarsIdleStart.current = 0;
           api.updateScene({ elements: newElements });
         } else {
           const existing = api.getSceneElements();
@@ -1030,7 +1030,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           animFrameRef.current = 0;
         }
       };
-    }, [canvasCommands, ready, toExcalidrawElements, shiftElementsBelowContent, setClickyTransform, onVisualSettled]);
+    }, [canvasCommands, ready, toExcalidrawElements, shiftElementsBelowContent, setTarsTransform, onVisualSettled]);
 
     // ── Get canvas snapshot as base64 JPEG ────────────────────────────────
 
@@ -1157,7 +1157,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           scale: Math.min(window.devicePixelRatio || 1, 2),
           logging: false,
           useCORS: true,
-          ignoreElements: (el) => el instanceof HTMLElement && el.dataset.clickyOverlay === "true",
+          ignoreElements: (el) => el instanceof HTMLElement && el.dataset.tarsOverlay === "true",
         });
         return {
           base64: canvas.toDataURL("image/jpeg", 0.88).split(",")[1],
@@ -1272,7 +1272,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
                 letterSpacing: "0.01em",
               }}
             >
-              ✨ Generating image…
+              Generating image…
             </span>
           </div>
         )}
@@ -1287,12 +1287,12 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
               display: "flex",
               alignItems: "center",
               gap: "12px",
-              background: "rgba(124, 58, 237, 0.92)",
+              background: "rgba(16, 18, 15, 0.94)",
               backdropFilter: "blur(8px)",
-              borderRadius: "16px",
+              borderRadius: "6px",
               padding: "12px 20px",
               zIndex: 50,
-              boxShadow: "0 8px 32px rgba(124, 58, 237, 0.3)",
+              boxShadow: "0 8px 28px rgba(16, 18, 15, 0.18)",
               animation: "fadeInUp 0.3s ease",
             }}
           >
@@ -1310,16 +1310,16 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
                 letterSpacing: "0.01em",
               }}
             >
-              📊 Saving progress…
+              Saving progress…
             </span>
           </div>
         )}
 
-        {/* ── Clicky cursor overlay — follows the tutor's pen ────── */}
+        {/* ── Tars cursor overlay — follows the tutor's pen ────── */}
         <div
-          ref={clickyElRef}
+          ref={tarsElRef}
           aria-hidden
-          data-clicky-overlay="true"
+          data-tars-overlay="true"
           style={{
             position: "absolute",
             left: 0,
@@ -1340,19 +1340,19 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
               top: 0,
               width: 16,
               height: 13.856,
-              background: CLICKY_COLOR,
+              background: TARS_COLOR,
               clipPath: "polygon(50% 0, 100% 100%, 0 100%)",
-              filter: `drop-shadow(0 0 8px ${CLICKY_GLOW})`,
+              filter: `drop-shadow(0 0 8px ${TARS_GLOW})`,
             }}
           />
-          {!!clickyBubbleText && (
+          {!!tarsBubbleText && (
             <div
-              ref={clickyBubbleAnchorRef}
+              ref={tarsBubbleAnchorRef}
               style={{
                 position: "absolute",
                 left: 16,
                 top: -6,
-                transform: `rotate(${-clickyRotationRef.current}deg)`,
+                transform: `rotate(${-tarsRotationRef.current}deg)`,
                 transformOrigin: "0 0",
               }}
             >
@@ -1371,7 +1371,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
                   whiteSpace: "nowrap",
                 }}
               >
-                {clickyBubbleText}
+                {tarsBubbleText}
               </div>
             </div>
           )}
