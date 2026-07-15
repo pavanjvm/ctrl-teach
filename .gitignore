@@ -73,4 +73,5 @@ media_image_*.png
 .cache/
 .firecrawl/
 .claude/
+.agents/
 tmp/

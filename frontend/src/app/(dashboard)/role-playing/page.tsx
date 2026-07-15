@@ -14,8 +14,8 @@ import {
 import type { DailyAudioHandle } from "@daily-co/daily-react/dist/components/DailyAudio";
 import {
   ArrowLeft, ArrowRight, AudioLines, BriefcaseBusiness, Check, CircleStop, Headphones,
-  LoaderCircle, MessageSquareText, Mic, MicOff, Play, RotateCcw, ShieldCheck, Square,
-  Sparkles, UserRound, UsersRound, Video, Volume2,
+  LoaderCircle, MessageSquareText, Mic, MicOff, PanelRightClose, PanelRightOpen, Play,
+  RotateCcw, ShieldCheck, Sparkles, Square, UserRound, UsersRound, Video, Volume2,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { useAudio } from "@/hooks/useAudio";
@@ -484,6 +484,7 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
   const [remoteVideoType, setRemoteVideoType] = useState<"video" | "rmpVideo">("video");
   const [soundBlocked, setSoundBlocked] = useState(false);
   const [micOn, setMicOn] = useState(false);
+  const [transcriptVisible, setTranscriptVisible] = useState(true);
   const [elapsed, setElapsed] = useState(0);
   const [ending, setEnding] = useState(false);
   const [sessionError, setSessionError] = useState("");
@@ -697,7 +698,7 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
   }, []);
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
+  }, [messages, transcriptVisible]);
 
   const handleDailyLoading = useCallback(() => {
     reportClientEvent("daily_call_object_loading");
@@ -1007,12 +1008,21 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
           <div><strong>{brief.counterpartName || brief.counterpartRole}</strong><span>{brief.counterpartRole} · {brief.difficulty} mode · {voice} voice</span></div>
         </div>
         <div className="rp-live-status"><span>{statusLabel}</span><time>{formatElapsed(elapsed)}</time></div>
-        <button type="button" className="rp-end-call" disabled={ending} onClick={() => void endConversation()}>
-          {ending ? <LoaderCircle className="rp-spin" size={15} /> : <CircleStop size={15} />}{ending ? "Closing" : "End conversation"}
-        </button>
+        <div className="rp-live-actions">
+          <button type="button" className="rp-transcript-toggle"
+            onClick={() => setTranscriptVisible((visible) => !visible)}
+            aria-label={transcriptVisible ? "Hide transcript panel" : "Show transcript panel"}
+            aria-expanded={transcriptVisible}
+            title={transcriptVisible ? "Hide transcript" : "Show transcript"}>
+            {transcriptVisible ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
+          </button>
+          <button type="button" className="rp-end-call" disabled={ending} onClick={() => void endConversation()}>
+            {ending ? <LoaderCircle className="rp-spin" size={15} /> : <CircleStop size={15} />}{ending ? "Closing" : "End conversation"}
+          </button>
+        </div>
       </header>
 
-      <section className="rp-live-layout">
+      <section className={`rp-live-layout${transcriptVisible ? "" : " transcript-hidden"}`}>
         <div className="rp-video-stage">
           {remoteParticipantId && (
             <DailyVideo
@@ -1053,10 +1063,10 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
               <Volume2 size={14} /> Enable sound
             </button>
           )}
-          <div className="rp-video-caption"><span><Volume2 size={14} /> Live AI actor</span><small>Voice by Tars · Face by Tavus</small></div>
+          <div className="rp-video-caption"><span><Volume2 size={14} /> Live AI actor</span></div>
         </div>
 
-        <aside className="rp-live-sidebar">
+        {transcriptVisible && <aside className="rp-live-sidebar">
           <div className="rp-live-brief">
             <div className="rp-side-heading"><span>Scene brief</span><Headphones size={15} /></div>
             <h2>{brief.purpose}</h2><p>{brief.scenario}</p>
@@ -1081,7 +1091,7 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
             </button>
             <button type="button" onClick={() => void endConversation()} disabled={ending}><RotateCcw size={18} /><span>New scene</span></button>
           </div>
-        </aside>
+        </aside>}
       </section>
     </main>
   );
