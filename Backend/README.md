@@ -8,15 +8,24 @@ rendering. Configure these backend-only values in `.env`:
 
 ```env
 TAVUS_API_KEY=your-tavus-api-key
-TAVUS_FACE_ID=your-stock-or-custom-face-id
+TAVUS_FACE_ID=
 TAVUS_PAL_ID=
+TAVUS_MAX_CALL_DURATION_SECONDS=600
+TAVUS_PARTICIPANT_LEFT_TIMEOUT_SECONDS=5
+TAVUS_PARTICIPANT_ABSENT_TIMEOUT_SECONDS=30
 ```
 
-`TAVUS_PAL_ID` is optional. When omitted, the authenticated
+`TAVUS_FACE_ID` is optional and acts as the preselected face in Role Playing;
+learners can choose from the ready faces returned by the Tavus account.
+`TAVUS_PAL_ID` is also optional. When omitted, the authenticated
 `POST /api/roleplay/sessions` route creates and caches an Echo PAL using the
-configured face. The browser receives only the private conversation URL and
+selected or default face. The browser receives only the private conversation URL and
 short-lived Daily meeting token. `DELETE /api/roleplay/sessions/{id}` ends the
-room immediately so unused Tavus minutes are not consumed.
+room immediately so unused Tavus minutes are not consumed. Tavus also receives
+a 10-minute hard cap, a 5-second participant-left timeout, and a 30-second
+never-joined timeout by default, protecting credits if the browser crashes.
+Tab and page exits additionally queue a beacon cleanup request that does not
+depend on an unload-time CORS preflight.
 
 ## Tars visual-grounding trials
 

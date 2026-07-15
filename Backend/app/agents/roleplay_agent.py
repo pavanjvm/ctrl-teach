@@ -8,6 +8,28 @@ from agents.realtime import RealtimeAgent
 
 logger = logging.getLogger(__name__)
 
+OPENAI_REALTIME_VOICES = (
+    "alloy",
+    "ash",
+    "ballad",
+    "coral",
+    "echo",
+    "sage",
+    "shimmer",
+    "verse",
+    "marin",
+    "cedar",
+)
+
+
+def normalize_roleplay_voice(value: str | None) -> str | None:
+    """Return a supported Realtime voice, or None for an invalid selection."""
+
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    return normalized if normalized in OPENAI_REALTIME_VOICES else None
+
 
 ROLEPLAY_INSTRUCTION = """\
 You are the live conversation partner inside Ctrl+Teach Role Playing.

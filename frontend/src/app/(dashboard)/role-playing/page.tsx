@@ -4,8 +4,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import type { DailyCall } from "@daily-co/daily-js";
 import {
-  ArrowLeft, ArrowRight, BriefcaseBusiness, Check, CircleStop, Headphones,
-  LoaderCircle, MessageSquareText, Mic, MicOff, RotateCcw, ShieldCheck,
+  DailyAudio,
+  DailyProvider,
+  DailyVideo,
+  useDaily,
+  useDailyEvent,
+  useParticipantIds,
+} from "@daily-co/daily-react";
+import type { DailyAudioHandle } from "@daily-co/daily-react/dist/components/DailyAudio";
+import {
+  ArrowLeft, ArrowRight, AudioLines, BriefcaseBusiness, Check, CircleStop, Headphones,
+  LoaderCircle, MessageSquareText, Mic, MicOff, Play, RotateCcw, ShieldCheck, Square,
   Sparkles, UserRound, UsersRound, Video, Volume2,
 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
@@ -16,6 +25,7 @@ import { generateId } from "@/lib/utils";
 import "./role-playing.css";
 
 type Difficulty = "supportive" | "realistic" | "challenging";
+type OpenAIVoice = "alloy" | "ash" | "ballad" | "coral" | "echo" | "sage" | "shimmer" | "verse" | "marin" | "cedar";
 interface RoleplayBrief {
   purpose: string;
   outcome: string;
@@ -29,6 +39,22 @@ interface TavusSession {
   conversation_url: string;
   meeting_token: string;
 }
+interface TavusSessionStatus {
+  status: string;
+  actor_ready: boolean;
+  shutdown_reason: string;
+}
+interface TavusFace {
+  face_id: string;
+  face_name: string;
+  thumbnail_video_url: string;
+  face_type: string;
+  model_name: string;
+  is_default: boolean;
+}
+interface TavusFaceList {
+  faces: TavusFace[];
+}
 
 const PURPOSES = [
   { value: "Job interview practice", title: "Interview", detail: "Answer under real hiring pressure.", icon: BriefcaseBusiness },
@@ -41,6 +67,18 @@ const DIFFICULTIES: Array<{ value: Difficulty; title: string; detail: string }> 
   { value: "supportive", title: "Supportive", detail: "Patient, with room to recover." },
   { value: "realistic", title: "Realistic", detail: "Natural pressure and honest follow-ups." },
   { value: "challenging", title: "Challenging", detail: "Sharp questions and fewer easy exits." },
+];
+const OPENAI_VOICES: Array<{ value: OpenAIVoice; label: string }> = [
+  { value: "alloy", label: "Alloy" },
+  { value: "ash", label: "Ash" },
+  { value: "ballad", label: "Ballad" },
+  { value: "coral", label: "Coral" },
+  { value: "echo", label: "Echo" },
+  { value: "sage", label: "Sage" },
+  { value: "shimmer", label: "Shimmer" },
+  { value: "verse", label: "Verse" },
+  { value: "marin", label: "Marin" },
+  { value: "cedar", label: "Cedar" },
 ];
 const DEFAULT_BRIEF: RoleplayBrief = {
   purpose: "Job interview practice",
@@ -56,6 +94,12 @@ function errorMessage(error: unknown): string {
     return error.response.data.detail;
   }
   return "The roleplay room could not be started. Please try again.";
+}
+function faceErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error) && typeof error.response?.data?.detail === "string") {
+    return error.response.data.detail;
+  }
+  return "The available Tavus faces could not be loaded.";
 }
 function formatElapsed(seconds: number): string {
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
@@ -86,16 +130,93 @@ export default function RolePlayingPage() {
   const [step, setStep] = useState(0);
   const [brief, setBrief] = useState<RoleplayBrief>(DEFAULT_BRIEF);
   const [session, setSession] = useState<TavusSession | null>(null);
+  const [sessionAuthToken, setSessionAuthToken] = useState("");
+  const [faces, setFaces] = useState<TavusFace[]>([]);
+  const [selectedFaceId, setSelectedFaceId] = useState("");
+  const [selectedVoice, setSelectedVoice] = useState<OpenAIVoice>("coral");
+  const [previewingVoice, setPreviewingVoice] = useState<OpenAIVoice | null>(null);
+  const [facesLoading, setFacesLoading] = useState(true);
+  const [facesError, setFacesError] = useState("");
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
+  const voicePreviewRef = useRef<HTMLAudioElement | null>(null);
+  const selectedFace = useMemo(
+    () => faces.find((face) => face.face_id === selectedFaceId) ?? null,
+    [faces, selectedFaceId],
+  );
+  const selectedVoiceLabel = OPENAI_VOICES.find((voice) => voice.value === selectedVoice)?.label ?? "Coral";
   const canContinue = useMemo(() => (
     step === 0 ? Boolean(brief.purpose)
-      : step === 1 ? Boolean(brief.counterpartRole.trim())
-        : Boolean(brief.scenario.trim())
-  ), [brief, step]);
+      : step === 1 ? Boolean(brief.counterpartRole.trim()) && Boolean(selectedFaceId)
+        : Boolean(brief.scenario.trim()) && Boolean(selectedFaceId)
+  ), [brief, selectedFaceId, step]);
+
+  const stopVoicePreview = useCallback(() => {
+    const preview = voicePreviewRef.current;
+    if (preview) {
+      preview.pause();
+      preview.currentTime = 0;
+      preview.onended = null;
+      preview.onerror = null;
+    }
+    voicePreviewRef.current = null;
+    setPreviewingVoice(null);
+  }, []);
+
+  const previewVoice = useCallback(() => {
+    if (previewingVoice === selectedVoice) {
+      stopVoicePreview();
+      return;
+    }
+
+    stopVoicePreview();
+    const preview = new Audio(`/audio/roleplay-voices/${selectedVoice}.wav`);
+    voicePreviewRef.current = preview;
+    preview.onended = stopVoicePreview;
+    preview.onerror = () => {
+      stopVoicePreview();
+      setError("The voice preview could not be played.");
+    };
+    setPreviewingVoice(selectedVoice);
+    void preview.play().catch(() => {
+      stopVoicePreview();
+      setError("The voice preview could not be played.");
+    });
+  }, [previewingVoice, selectedVoice, stopVoicePreview]);
+
+  const loadFaces = useCallback(async () => {
+    setFacesLoading(true);
+    setFacesError("");
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Your session has expired.");
+      const response = await axios.get<TavusFaceList>(`${API_URL}/api/roleplay/faces`, {
+        headers: { Authorization: token },
+      });
+      const availableFaces = Array.isArray(response.data.faces) ? response.data.faces : [];
+      setFaces(availableFaces);
+      setSelectedFaceId((current) => {
+        if (availableFaces.some((face) => face.face_id === current)) return current;
+        return (availableFaces.find((face) => face.is_default) ?? availableFaces[0])?.face_id ?? "";
+      });
+    } catch (requestError) {
+      setFaces([]);
+      setSelectedFaceId("");
+      setFacesError(faceErrorMessage(requestError));
+    } finally {
+      setFacesLoading(false);
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    void loadFaces();
+  }, [loadFaces]);
+
+  useEffect(() => stopVoicePreview, [stopVoicePreview]);
 
   const startSession = async () => {
     if (!canContinue || starting) return;
+    stopVoicePreview();
     setStarting(true);
     setError("");
     try {
@@ -103,9 +224,13 @@ export default function RolePlayingPage() {
       if (!token) throw new Error("Your session has expired.");
       const response = await axios.post<TavusSession>(
         `${API_URL}/api/roleplay/sessions`,
-        { conversation_name: `Ctrl+Teach · ${brief.counterpartRole}`.slice(0, 120) },
+        {
+          conversation_name: `Ctrl+Teach · ${brief.counterpartRole}`.slice(0, 120),
+          face_id: selectedFaceId,
+        },
         { headers: { Authorization: token } },
       );
+      setSessionAuthToken(token);
       setSession(response.data);
     } catch (requestError) {
       setError(errorMessage(requestError));
@@ -115,7 +240,19 @@ export default function RolePlayingPage() {
   };
 
   if (session) {
-    return <LiveRoleplay brief={brief} session={session} onEnded={() => { setSession(null); setStep(0); }} />;
+    return (
+      <LiveRoleplay
+        authToken={sessionAuthToken}
+        brief={brief}
+        session={session}
+        voice={selectedVoice}
+        onEnded={() => {
+          setSession(null);
+          setSessionAuthToken("");
+          setStep(0);
+        }}
+      />
+    );
   }
 
   return (
@@ -191,6 +328,73 @@ export default function RolePlayingPage() {
                   onChange={(event) => setBrief((current) => ({ ...current, counterpartName: event.target.value }))}
                   placeholder="e.g. Maya" /></label>
               </div>
+              <div className="rp-face-picker">
+                <div className="rp-face-picker-heading">
+                  <div><strong>Choose the actor and voice</strong><span>Tavus renders the face; OpenAI supplies the live voice.</span></div>
+                  {!facesLoading && !facesError && <small>{faces.length} ready</small>}
+                </div>
+                {facesLoading ? (
+                  <div className="rp-face-loading" aria-label="Loading Tavus faces">
+                    <i /><div><span /><span /></div>
+                  </div>
+                ) : facesError ? (
+                  <div className="rp-face-state" role="alert">
+                    <UserRound size={18} />
+                    <span>{facesError}</span>
+                    <button type="button" onClick={() => void loadFaces()}><RotateCcw size={13} /> Retry</button>
+                  </div>
+                ) : faces.length === 0 ? (
+                  <div className="rp-face-state">
+                    <UserRound size={18} />
+                    <span>No ready faces were found in this Tavus account.</span>
+                  </div>
+                ) : (
+                  <div className="rp-face-selection">
+                    <div className="rp-face-preview" aria-hidden="true">
+                      <UserRound size={25} />
+                      {selectedFace?.thumbnail_video_url && (
+                        <video key={selectedFace.face_id} src={selectedFace.thumbnail_video_url}
+                          muted playsInline preload="metadata"
+                          onError={(event) => { event.currentTarget.hidden = true; }} />
+                      )}
+                    </div>
+                    <div className="rp-actor-selectors">
+                      <label className="rp-face-select">
+                        <span>Video actor</span>
+                        <select value={selectedFaceId} onChange={(event) => setSelectedFaceId(event.target.value)}>
+                          {faces.map((face) => (
+                            <option key={face.face_id} value={face.face_id}>
+                              {face.face_name}{face.is_default ? " (Default)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <small>{selectedFace?.model_name || "Tavus Phoenix face"}</small>
+                      </label>
+                      <div className="rp-face-select rp-voice-select">
+                        <label htmlFor="rp-openai-voice"><AudioLines size={12} /> OpenAI voice</label>
+                        <div className="rp-voice-control">
+                          <select id="rp-openai-voice" value={selectedVoice}
+                            onChange={(event) => {
+                              stopVoicePreview();
+                              setSelectedVoice(event.target.value as OpenAIVoice);
+                            }}>
+                            {OPENAI_VOICES.map((voice) => (
+                              <option key={voice.value} value={voice.value}>{voice.label}</option>
+                            ))}
+                          </select>
+                          <button type="button" className={previewingVoice === selectedVoice ? "rp-voice-preview playing" : "rp-voice-preview"}
+                            onClick={previewVoice}
+                            aria-label={previewingVoice === selectedVoice ? `Stop ${selectedVoiceLabel} preview` : `Preview ${selectedVoiceLabel} voice`}
+                            title={previewingVoice === selectedVoice ? "Stop preview" : "Preview voice"}>
+                            {previewingVoice === selectedVoice ? <Square size={13} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+                          </button>
+                        </div>
+                        <small>Realtime audio through Tavus Echo</small>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -214,7 +418,7 @@ export default function RolePlayingPage() {
                   </button>
                 ))}
               </div></div>
-              <div className="rp-ready-note"><Video size={18} /><div><strong>{brief.counterpartName || brief.counterpartRole} will join on video.</strong><span>Tars stays the brain and voice; Tavus renders the face.</span></div></div>
+              <div className="rp-ready-note"><Video size={18} /><div><strong>{brief.counterpartName || brief.counterpartRole} will use {selectedFace?.face_name || "your selected actor"} with the {selectedVoiceLabel} voice.</strong><span>OpenAI stays the brain and voice; Tavus renders the face.</span></div></div>
             </div>
           )}
 
@@ -239,25 +443,64 @@ export default function RolePlayingPage() {
   );
 }
 
-function LiveRoleplay({ brief, session, onEnded }: {
+function LiveRoleplay(props: {
+  authToken: string;
   brief: RoleplayBrief;
   session: TavusSession;
+  voice: OpenAIVoice;
+  onEnded: () => void;
+}) {
+  return (
+    <DailyProvider
+      audioSource={false}
+      videoSource={false}
+      startAudioOff
+      startVideoOff
+      showLocalVideo={false}
+      subscribeToTracksAutomatically
+      strictMode
+      aboutClient={{ integration: "ctrl-teach-roleplay" }}
+    >
+      <LiveRoleplayCall {...props} />
+    </DailyProvider>
+  );
+}
+
+function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
+  authToken: string;
+  brief: RoleplayBrief;
+  session: TavusSession;
+  voice: OpenAIVoice;
   onEnded: () => void;
 }) {
   const { user, getToken } = useAuth();
+  const call = useDaily();
+  const remoteParticipantIds = useParticipantIds({ filter: "remote" });
+  const remoteParticipantId = remoteParticipantIds[0] ?? "";
   const [clientSessionId] = useState(() => `roleplay-${generateId()}`);
   const [faceReady, setFaceReady] = useState(false);
+  const [dailyJoined, setDailyJoined] = useState(false);
+  const [videoPlaying, setVideoPlaying] = useState(false);
+  const [remoteVideoType, setRemoteVideoType] = useState<"video" | "rmpVideo">("video");
+  const [soundBlocked, setSoundBlocked] = useState(false);
   const [micOn, setMicOn] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [ending, setEnding] = useState(false);
   const [sessionError, setSessionError] = useState("");
-  const dailyContainerRef = useRef<HTMLDivElement>(null);
   const callRef = useRef<DailyCall | null>(null);
+  const dailyAudioRef = useRef<DailyAudioHandle | null>(null);
+  const authTokenRef = useRef(authToken);
   const faceReadyRef = useRef(false);
+  const dailyJoinedRef = useRef(false);
+  const tavusActorReadyRef = useRef(false);
+  const joinStartedRef = useRef(false);
+  const joinTimeoutRef = useRef<number | null>(null);
+  const lastParticipantCountRef = useRef(-1);
   const inferenceIdRef = useRef<string | null>(null);
   const wsConnectStartedRef = useRef(false);
   const briefSentRef = useRef(false);
   const closedRef = useRef(false);
+  const lifecycleRef = useRef(0);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -265,6 +508,31 @@ function LiveRoleplay({ brief, session, onEnded }: {
     sendAudio, sendRoleplayStart,
   } = useWebSocket();
   const { startRecording, stopRecording, cleanup: cleanupAudio } = useAudio();
+
+  const reportClientEvent = useCallback((stage: string, detail = "", participantCount = 0) => {
+    console.info("[Roleplay]", stage, { conversationId: session.conversation_id, detail, participantCount });
+    void getToken().then((token) => {
+      if (!token) return;
+      return fetch(
+        `${API_URL}/api/roleplay/sessions/${encodeURIComponent(session.conversation_id)}/events`,
+        {
+          method: "POST",
+          headers: { Authorization: token, "Content-Type": "application/json" },
+          body: JSON.stringify({ stage, detail, participant_count: participantCount }),
+        },
+      );
+    }).catch((eventError) => {
+      console.warn("Roleplay diagnostics could not be recorded", eventError);
+    });
+  }, [getToken, session.conversation_id]);
+
+  const confirmActorReady = useCallback((source: string, participantCount = 0) => {
+    tavusActorReadyRef.current = true;
+    if (faceReadyRef.current) return;
+    faceReadyRef.current = true;
+    setFaceReady(true);
+    reportClientEvent("actor_ready", source, participantCount);
+  }, [reportClientEvent]);
 
   const sendInteraction = useCallback((message: Record<string, unknown>) => {
     if (!faceReadyRef.current) return;
@@ -322,7 +590,107 @@ function LiveRoleplay({ brief, session, onEnded }: {
     });
   }, [sendInteraction, session.conversation_id]);
 
+  const getParticipantCount = useCallback(() => {
+    const currentCall = callRef.current;
+    if (!currentCall || currentCall.isDestroyed()) return 0;
+    return Object.keys(currentCall.participants()).length;
+  }, []);
+
+  const markDailyRoomJoined = useCallback((source: string) => {
+    if (joinTimeoutRef.current !== null) {
+      window.clearTimeout(joinTimeoutRef.current);
+      joinTimeoutRef.current = null;
+    }
+    const participantCount = getParticipantCount();
+    if (!dailyJoinedRef.current) {
+      dailyJoinedRef.current = true;
+      setDailyJoined(true);
+      reportClientEvent("daily_room_joined", source, participantCount);
+    }
+    if (tavusActorReadyRef.current && participantCount > 1) {
+      confirmActorReady("tavus-api-event", participantCount);
+    }
+  }, [confirmActorReady, getParticipantCount, reportClientEvent]);
+
+  const inspectParticipants = useCallback((source: string) => {
+    const currentCall = callRef.current;
+    if (!currentCall || currentCall.isDestroyed()) return;
+    const participants = Object.values(currentCall.participants());
+    const hasRemoteParticipant = participants.some((participant) => !participant.local);
+    if (source !== "participant-updated" || participants.length !== lastParticipantCountRef.current) {
+      lastParticipantCountRef.current = participants.length;
+      reportClientEvent(
+        `daily_${source.replaceAll("-", "_")}`,
+        hasRemoteParticipant ? "remote Tavus participant detected" : "no remote participant yet",
+        participants.length,
+      );
+    }
+    if (hasRemoteParticipant) confirmActorReady(source, participants.length);
+  }, [confirmActorReady, reportClientEvent]);
+
   useEffect(() => { faceReadyRef.current = faceReady; }, [faceReady]);
+  useEffect(() => { authTokenRef.current = authToken; }, [authToken]);
+  useEffect(() => {
+    if (call && !call.isDestroyed()) callRef.current = call;
+  }, [call]);
+  useEffect(() => {
+    if (!remoteParticipantId || !dailyJoined) return;
+    confirmActorReady("daily-react-remote-participant", getParticipantCount());
+  }, [confirmActorReady, dailyJoined, getParticipantCount, remoteParticipantId]);
+  useEffect(() => { setVideoPlaying(false); }, [remoteParticipantId]);
+
+  useEffect(() => {
+    if (faceReady) return;
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const pollTavusStatus = async () => {
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+        const response = await axios.get<TavusSessionStatus>(
+          `${API_URL}/api/roleplay/sessions/${encodeURIComponent(session.conversation_id)}`,
+          { headers: { Authorization: token } },
+        );
+        if (cancelled) return;
+        if (response.data.actor_ready) {
+          tavusActorReadyRef.current = true;
+          const participantCount = getParticipantCount();
+          if (dailyJoinedRef.current && participantCount > 1) {
+            confirmActorReady("tavus-api-event", participantCount);
+            return;
+          }
+        }
+        if (response.data.status === "ended") {
+          const reason = response.data.shutdown_reason || "the Tavus room ended before the actor connected";
+          reportClientEvent("tavus_shutdown", reason);
+          setSessionError(`Tavus ended the video room: ${reason}.`);
+          return;
+        }
+      } catch (statusError) {
+        console.warn("Tavus readiness status could not be read", statusError);
+      }
+      if (!cancelled) timer = window.setTimeout(pollTavusStatus, 1_500);
+    };
+
+    timer = window.setTimeout(pollTavusStatus, 750);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [confirmActorReady, faceReady, getParticipantCount, getToken, reportClientEvent, session.conversation_id]);
+
+  useEffect(() => {
+    if (faceReady || !dailyJoined) return;
+    const timer = window.setTimeout(() => {
+      const participantCount = getParticipantCount();
+      const detail = "The video room connected, but no remote Tavus participant appeared";
+      reportClientEvent("actor_join_timeout", detail, participantCount);
+      setSessionError(`${detail}. End this session and try another face.`);
+    }, 45_000);
+    return () => window.clearTimeout(timer);
+  }, [dailyJoined, faceReady, getParticipantCount, reportClientEvent]);
+
   useEffect(() => {
     const timer = window.setInterval(() => setElapsed((current) => current + 1), 1000);
     return () => window.clearInterval(timer);
@@ -331,61 +699,131 @@ function LiveRoleplay({ brief, session, onEnded }: {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  useEffect(() => {
-    let disposed = false;
-    let call: DailyCall | null = null;
-    async function joinFaceRoom() {
-      try {
-        const DailyIframe = (await import("@daily-co/daily-js")).default;
-        if (disposed || !dailyContainerRef.current) return;
-        call = DailyIframe.createFrame(dailyContainerRef.current, {
-          showLeaveButton: false,
-          showParticipantsBar: false,
-          showFullscreenButton: false,
-          showLocalVideo: false,
-          startAudioOff: true,
-          startVideoOff: true,
-          userName: user?.displayName || "Learner",
-          iframeStyle: {
-            position: "absolute", inset: "0", width: "100%", height: "100%",
-            border: "0", background: "#11130f",
-          },
-        });
-        callRef.current = call;
-        const markActorReady = () => {
-          if (!call || disposed) return;
-          if (Object.values(call.participants()).some((participant) => !participant.local)) {
-            setFaceReady(true);
-          }
-        };
-        call.on("participant-joined", markActorReady);
-        call.on("participant-updated", markActorReady);
-        call.on("app-message", (event) => {
-          const payload = event?.data as { event_type?: string } | undefined;
-          if (payload?.event_type === "system.replica_joined") setFaceReady(true);
-        });
-        call.on("error", () => {
-          if (!disposed) setSessionError("The video renderer lost its connection.");
-        });
-        await call.join({
-          url: session.conversation_url,
-          token: session.meeting_token,
-          startAudioOff: true,
-          startVideoOff: true,
-        });
-        markActorReady();
-      } catch (error) {
-        console.error("Could not join Tavus room", error);
-        if (!disposed) setSessionError("The human face could not join. End the session and try again.");
-      }
+  const handleDailyLoading = useCallback(() => {
+    reportClientEvent("daily_call_object_loading");
+  }, [reportClientEvent]);
+  const handleDailyLoaded = useCallback(() => {
+    reportClientEvent("daily_call_object_loaded");
+  }, [reportClientEvent]);
+  const handleDailyJoining = useCallback(() => {
+    reportClientEvent("daily_joining_meeting", callRef.current?.meetingState() ?? "unknown");
+  }, [reportClientEvent]);
+  const handleDailyJoined = useCallback(() => {
+    markDailyRoomJoined("joined-meeting");
+    inspectParticipants("joined-meeting");
+  }, [inspectParticipants, markDailyRoomJoined]);
+  const handleParticipantJoined = useCallback(() => {
+    inspectParticipants("participant-joined");
+  }, [inspectParticipants]);
+  const handleParticipantUpdated = useCallback(() => {
+    inspectParticipants("participant-updated");
+  }, [inspectParticipants]);
+  const handleTrackStarted = useCallback((event: {
+    participant: { local: boolean } | null;
+    type: string;
+  }) => {
+    if (!event.participant || event.participant.local) return;
+    reportClientEvent("daily_remote_track_started", event.type, getParticipantCount());
+    if (event.type === "video" || event.type === "rmpVideo") {
+      setRemoteVideoType(event.type);
+      confirmActorReady(`track-started:${event.type}`, getParticipantCount());
     }
-    void joinFaceRoom();
-    return () => {
-      disposed = true;
-      if (callRef.current === call) callRef.current = null;
-      if (call) void call.leave().catch(() => undefined).finally(() => call?.destroy().catch(() => undefined));
-    };
-  }, [session.conversation_url, session.meeting_token, user?.displayName]);
+  }, [confirmActorReady, getParticipantCount, reportClientEvent]);
+  const handleAppMessage = useCallback((event: { data?: unknown }) => {
+    const payload = event.data as {
+      event_type?: string;
+      properties?: { reason?: string; shutdown_reason?: string };
+    } | undefined;
+    const eventType = payload?.event_type ?? "";
+    if (eventType.startsWith("system.")) {
+      reportClientEvent("daily_app_message", eventType, getParticipantCount());
+    }
+    if (["system.pal_joined", "system.replica_joined"].includes(eventType)) {
+      tavusActorReadyRef.current = true;
+      confirmActorReady(eventType, getParticipantCount());
+    } else if (eventType === "system.shutdown" && !closedRef.current) {
+      const reason = payload?.properties?.shutdown_reason || payload?.properties?.reason || "unknown reason";
+      reportClientEvent("tavus_shutdown", reason, getParticipantCount());
+      setSessionError(`Tavus ended the video room: ${reason}.`);
+    }
+  }, [confirmActorReady, getParticipantCount, reportClientEvent]);
+  const handleDailyError = useCallback((event: { errorMsg: string }) => {
+    const detail = event.errorMsg || "Unknown Daily call error";
+    reportClientEvent("daily_error", detail, getParticipantCount());
+    if (!closedRef.current) setSessionError(`Daily could not maintain the video room: ${detail}`);
+  }, [getParticipantCount, reportClientEvent]);
+  const handleDailyNonfatalError = useCallback((event: { type: string; errorMsg: string }) => {
+    reportClientEvent("daily_nonfatal_error", `${event.type}: ${event.errorMsg}`, getParticipantCount());
+  }, [getParticipantCount, reportClientEvent]);
+  const handleCameraError = useCallback((event: {
+    error?: { type?: string; msg?: string };
+    errorMsg?: { errorMsg?: string };
+  }) => {
+    const detail = event.error?.msg || event.errorMsg?.errorMsg || event.error?.type || "local device error";
+    reportClientEvent("daily_local_device_notice", detail, getParticipantCount());
+  }, [getParticipantCount, reportClientEvent]);
+  const handleLeftMeeting = useCallback(() => {
+    if (!closedRef.current && dailyJoinedRef.current) {
+      reportClientEvent("daily_left_meeting", "Daily left before the roleplay ended", getParticipantCount());
+      setSessionError("The video room disconnected. Start a new scene to reconnect.");
+    }
+  }, [getParticipantCount, reportClientEvent]);
+
+  useDailyEvent("loading", handleDailyLoading);
+  useDailyEvent("loaded", handleDailyLoaded);
+  useDailyEvent("joining-meeting", handleDailyJoining);
+  useDailyEvent("joined-meeting", handleDailyJoined);
+  useDailyEvent("participant-joined", handleParticipantJoined);
+  useDailyEvent("participant-updated", handleParticipantUpdated);
+  useDailyEvent("track-started", handleTrackStarted);
+  useDailyEvent("app-message", handleAppMessage);
+  useDailyEvent("error", handleDailyError);
+  useDailyEvent("nonfatal-error", handleDailyNonfatalError);
+  useDailyEvent("camera-error", handleCameraError);
+  useDailyEvent("left-meeting", handleLeftMeeting);
+
+  useEffect(() => {
+    if (!call || call.isDestroyed() || joinStartedRef.current) return;
+    joinStartedRef.current = true;
+    callRef.current = call;
+    reportClientEvent("daily_call_object_created", "local audio and video inputs disabled");
+    reportClientEvent("daily_join_started", call.meetingState());
+
+    joinTimeoutRef.current = window.setTimeout(() => {
+      if (closedRef.current || dailyJoinedRef.current) return;
+      const state = call.meetingState();
+      const detail = `Daily call-object timed out while ${state}`;
+      reportClientEvent("daily_join_timeout", detail, getParticipantCount());
+      setSessionError(`The secure video room could not connect (state: ${state}). Start a new scene to retry.`);
+      void call.leave().catch(() => undefined);
+    }, 25_000);
+
+    void call.join({
+      url: session.conversation_url,
+      token: session.meeting_token,
+      userName: user?.displayName || "Learner",
+      audioSource: false,
+      videoSource: false,
+      startAudioOff: true,
+      startVideoOff: true,
+    }).then(() => {
+      if (closedRef.current) return;
+      markDailyRoomJoined("join-resolved");
+      inspectParticipants("join-resolved");
+    }).catch((error: unknown) => {
+      if (joinTimeoutRef.current !== null) {
+        window.clearTimeout(joinTimeoutRef.current);
+        joinTimeoutRef.current = null;
+      }
+      const detail = error instanceof Error ? error.message : String(error);
+      console.error("Could not join Tavus room", error);
+      reportClientEvent("daily_join_error", detail, getParticipantCount());
+      if (!closedRef.current) setSessionError(`Daily could not join the secure video room: ${detail}`);
+    });
+    // Teardown is intentionally handled by the final lifecycle effect below.
+    // React Strict Mode probes this effect with an immediate cleanup; leaving
+    // here would destroy the call while join() is still in flight.
+  }, [call, getParticipantCount, inspectParticipants, markDailyRoomJoined, reportClientEvent, session.conversation_url, session.meeting_token, user?.displayName]);
 
   useEffect(() => {
     if (!faceReady || !user || wsConnectStartedRef.current) return;
@@ -396,7 +834,8 @@ function LiveRoleplay({ brief, session, onEnded }: {
         setSessionError("Your Ctrl+Teach session expired. Please sign in again.");
         return;
       }
-      connect(`${WS_URL}/ws/${user.uid}/${clientSessionId}?mode=roleplay`, {
+      const query = new URLSearchParams({ mode: "roleplay", voice });
+      connect(`${WS_URL}/ws/${user.uid}/${clientSessionId}?${query.toString()}`, {
         authToken: token,
         onAudio: sendAudioToFace,
         onInterrupt: interruptFace,
@@ -405,7 +844,7 @@ function LiveRoleplay({ brief, session, onEnded }: {
         halfDuplexAudio: false,
       });
     })();
-  }, [clientSessionId, connect, faceReady, finishFaceTurn, getToken, interruptFace, sendAudioToFace, user]);
+  }, [clientSessionId, connect, faceReady, finishFaceTurn, getToken, interruptFace, sendAudioToFace, user, voice]);
 
   useEffect(() => {
     if (!faceReady || !realtimeReady || briefSentRef.current) return;
@@ -416,27 +855,49 @@ function LiveRoleplay({ brief, session, onEnded }: {
       .catch(() => setSessionError("Microphone access is required for a live roleplay."));
   }, [brief, faceReady, realtimeReady, sendAudio, sendRoleplayStart, startRecording]);
 
+  const requestConversationEnd = useCallback((token: string, keepalive: boolean) => {
+    if (!token) return Promise.resolve();
+    return fetch(
+      `${API_URL}/api/roleplay/sessions/${encodeURIComponent(session.conversation_id)}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: token },
+        keepalive,
+      },
+    ).then(() => undefined);
+  }, [session.conversation_id]);
+
+  const queueEmergencyConversationEnd = useCallback((token: string) => {
+    if (!token) return;
+    const url = `${API_URL}/api/roleplay/sessions/${encodeURIComponent(session.conversation_id)}/end-beacon`;
+    const body = new URLSearchParams({ token });
+    if (navigator.sendBeacon(url, body)) return;
+    void fetch(url, {
+      method: "POST",
+      body,
+      keepalive: true,
+    }).catch((error) => {
+      console.warn("Emergency roleplay cleanup was not queued", error);
+    });
+  }, [session.conversation_id]);
+
   const shutdown = useCallback(async () => {
     if (closedRef.current) return;
     closedRef.current = true;
+    if (joinTimeoutRef.current !== null) {
+      window.clearTimeout(joinTimeoutRef.current);
+      joinTimeoutRef.current = null;
+    }
     stopRecording();
     setMicOn(false);
     interruptFace();
     disconnect();
     cleanupAudio();
-    const token = await getToken();
-    const endRequest = token
-      ? fetch(
-          `${API_URL}/api/roleplay/sessions/${encodeURIComponent(session.conversation_id)}`,
-          {
-            method: "DELETE",
-            headers: { Authorization: token },
-            keepalive: true,
-          },
-        ).catch((error) => {
-          console.warn("Roleplay session cleanup was not acknowledged", error);
-        })
-      : Promise.resolve();
+    const token = authTokenRef.current || await getToken() || "";
+    authTokenRef.current = token;
+    const endRequest = requestConversationEnd(token, true).catch((error) => {
+      console.warn("Roleplay session cleanup was not acknowledged", error);
+    });
     const call = callRef.current;
     callRef.current = null;
     if (call) {
@@ -444,11 +905,62 @@ function LiveRoleplay({ brief, session, onEnded }: {
       await call.destroy().catch(() => undefined);
     }
     await endRequest;
-  }, [cleanupAudio, disconnect, getToken, interruptFace, session.conversation_id, stopRecording]);
+  }, [cleanupAudio, disconnect, getToken, interruptFace, requestConversationEnd, stopRecording]);
+
+  const emergencyShutdown = useCallback((reason: "beforeunload" | "pagehide") => {
+    if (closedRef.current) return;
+    closedRef.current = true;
+    if (joinTimeoutRef.current !== null) {
+      window.clearTimeout(joinTimeoutRef.current);
+      joinTimeoutRef.current = null;
+    }
+    stopRecording();
+    disconnect();
+    cleanupAudio();
+
+    const currentCall = callRef.current;
+    callRef.current = null;
+    if (currentCall && !currentCall.isDestroyed()) {
+      void currentCall.leave()
+        .catch(() => undefined)
+        .finally(() => currentCall.destroy().catch(() => undefined));
+    }
+
+    const token = authTokenRef.current;
+    queueEmergencyConversationEnd(token);
+    console.info("[Roleplay] emergency_shutdown", {
+      conversationId: session.conversation_id,
+      reason,
+    });
+  }, [cleanupAudio, disconnect, queueEmergencyConversationEnd, session.conversation_id, stopRecording]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => emergencyShutdown("beforeunload");
+    const handlePageHide = () => emergencyShutdown("pagehide");
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted && closedRef.current) onEnded();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("pageshow", handlePageShow);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("pageshow", handlePageShow);
+    };
+  }, [emergencyShutdown, onEnded]);
 
   const shutdownRef = useRef(shutdown);
   useEffect(() => { shutdownRef.current = shutdown; }, [shutdown]);
-  useEffect(() => () => { void shutdownRef.current(); }, []);
+  useEffect(() => {
+    const lifecycle = lifecycleRef.current + 1;
+    lifecycleRef.current = lifecycle;
+    return () => {
+      window.queueMicrotask(() => {
+        if (lifecycleRef.current === lifecycle) void shutdownRef.current();
+      });
+    };
+  }, []);
 
   const toggleMic = async () => {
     if (micOn) {
@@ -461,6 +973,18 @@ function LiveRoleplay({ brief, session, onEnded }: {
       setMicOn(true);
     } catch {
       setSessionError("Microphone access is required for a live roleplay.");
+    }
+  };
+  const enableSound = async () => {
+    const audioElements = dailyAudioRef.current?.getAllAudio() ?? [];
+    try {
+      await Promise.all(audioElements.map((element) => element.play()));
+      setSoundBlocked(false);
+      reportClientEvent("daily_audio_enabled", "remote audio playback resumed", getParticipantCount());
+    } catch (playbackError) {
+      const detail = playbackError instanceof Error ? playbackError.message : String(playbackError);
+      reportClientEvent("daily_audio_play_failed", detail, getParticipantCount());
+      setSessionError("Your browser blocked the actor's audio. Allow autoplay, then enable sound again.");
     }
   };
   const endConversation = async () => {
@@ -480,7 +1004,7 @@ function LiveRoleplay({ brief, session, onEnded }: {
       <header className="rp-live-header">
         <div className="rp-live-title">
           <span className={`rp-live-dot ${realtimeReady && faceReady ? "ready" : ""}`} />
-          <div><strong>{brief.counterpartName || brief.counterpartRole}</strong><span>{brief.counterpartRole} · {brief.difficulty} mode</span></div>
+          <div><strong>{brief.counterpartName || brief.counterpartRole}</strong><span>{brief.counterpartRole} · {brief.difficulty} mode · {voice} voice</span></div>
         </div>
         <div className="rp-live-status"><span>{statusLabel}</span><time>{formatElapsed(elapsed)}</time></div>
         <button type="button" className="rp-end-call" disabled={ending} onClick={() => void endConversation()}>
@@ -490,13 +1014,45 @@ function LiveRoleplay({ brief, session, onEnded }: {
 
       <section className="rp-live-layout">
         <div className="rp-video-stage">
-          <div ref={dailyContainerRef} className="rp-daily-frame" />
-          {!faceReady && (
+          {remoteParticipantId && (
+            <DailyVideo
+              key={`${remoteParticipantId}:${remoteVideoType}`}
+              className="rp-remote-video"
+              sessionId={remoteParticipantId}
+              type={remoteVideoType}
+              fit="cover"
+              autoPlay
+              muted
+              playsInline
+              onPlaying={() => {
+                if (videoPlaying) return;
+                setVideoPlaying(true);
+                reportClientEvent("daily_video_playing", remoteVideoType, getParticipantCount());
+              }}
+            />
+          )}
+          <DailyAudio
+            ref={dailyAudioRef}
+            onPlayFailed={(playbackError) => {
+              setSoundBlocked(true);
+              reportClientEvent("daily_audio_blocked", playbackError.message, getParticipantCount());
+            }}
+          />
+          {(!faceReady || !videoPlaying) && (
             <div className="rp-video-loading"><div className="rp-face-orbit"><UserRound size={30} /><i /></div>
-              <strong>Preparing a human presence</strong><span>Tavus is warming the face renderer.</span>
+              <strong>{sessionError ? "The actor could not join" : "Preparing a human presence"}</strong>
+              <span>{sessionError
+                ? "End this session and try another face."
+                : faceReady ? "The actor connected. Starting the video stream."
+                  : dailyJoined ? "Video room connected. Waiting for the Tavus actor." : "Joining the secure video room."}</span>
             </div>
           )}
           {faceReady && !realtimeReady && <div className="rp-connection-pill"><LoaderCircle className="rp-spin" size={13} /> Connecting Tars</div>}
+          {soundBlocked && (
+            <button type="button" className="rp-enable-sound" onClick={() => void enableSound()}>
+              <Volume2 size={14} /> Enable sound
+            </button>
+          )}
           <div className="rp-video-caption"><span><Volume2 size={14} /> Live AI actor</span><small>Voice by Tars · Face by Tavus</small></div>
         </div>
 

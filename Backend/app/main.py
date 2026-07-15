@@ -51,7 +51,7 @@ from app.agents.tutor_agent import TUTOR_INSTRUCTION, build_tutor_agent
 from app.agents.companion_identity import COMPANION_AGENT_NAME
 from app.agents.prompt_builder import build_tutor_instruction
 from app.agents.tars_agent import build_tars_agent
-from app.agents.roleplay_agent import build_roleplay_agent
+from app.agents.roleplay_agent import build_roleplay_agent, normalize_roleplay_voice
 from app.auth.extension_tokens import verify_tars_extension_token
 from app.auth.session_tokens import verify_app_session_token
 from app.config import settings
@@ -429,6 +429,13 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
     if any(len(value) > 128 for value in (tutor_id, course_id, lesson_id) if value):
         await websocket.close(code=1008, reason="Invalid resource identifier")
         return
+    requested_roleplay_voice = (
+        websocket.query_params.get("voice") if agent_kind == "roleplay" else None
+    )
+    roleplay_voice = normalize_roleplay_voice(requested_roleplay_voice)
+    if requested_roleplay_voice and roleplay_voice is None:
+        await websocket.close(code=1008, reason="Invalid roleplay voice")
+        return
     classroom_mode = requested_mode == "classroom" or websocket.query_params.get("classroom", "").lower() in {"1", "true", "yes"}
     tutor_voice: str = settings.realtime_voice
     root_agent: Optional[RealtimeAgent] = default_root_agent
@@ -436,8 +443,13 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
 
     if agent_kind == "roleplay":
         root_agent = build_roleplay_agent()
-        tutor_voice = settings.realtime_voice
-        logger.info("Roleplay mode selected for user=%s session=%s", user_id, session_id)
+        tutor_voice = roleplay_voice or settings.realtime_voice
+        logger.info(
+            "Roleplay mode selected for user=%s session=%s voice=%s",
+            user_id,
+            session_id,
+            tutor_voice,
+        )
 
     elif agent_kind == "tars":
         # Tars owns its own agent tree and never depends on tutor config.

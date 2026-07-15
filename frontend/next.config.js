@@ -7,11 +7,18 @@ const cspOrigin = (value, fallback) => {
   }
 };
 const apiOrigin = cspOrigin(process.env.NEXT_PUBLIC_API_URL, "http://localhost:8000");
+const dailyCallMachineOrigin = "https://c.daily.co";
+// Daily WebRTC signaling/media endpoints used by call-object mode.
+const dailyConnectSource = "https://*.daily.co";
+const dailyWebsocketSource = "wss://*.daily.co";
+const tavusMediaOrigin = "https://cdn.replica.tavus.io";
 const connectSources = new Set([
   "'self'",
   apiOrigin,
   cspOrigin(process.env.NEXT_PUBLIC_WS_URL, "ws://localhost:8000"),
   "https://www.gstatic.com",
+  dailyConnectSource,
+  dailyWebsocketSource,
 ]);
 if (isDevelopment) {
   connectSources.add("http://localhost:*");
@@ -25,13 +32,15 @@ const contentSecurityPolicy = [
   "form-action 'self'",
   "frame-ancestors 'none'",
   "object-src 'none'",
-  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isDevelopment ? " 'unsafe-eval'" : ""}`,
+  // daily-js loads its call machine from c.daily.co and executes part of it in
+  // a blob worker. Both sources are required before call.join() can resolve.
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: ${dailyCallMachineOrigin}${isDevelopment ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: https: ${apiOrigin}`,
   "font-src 'self' data:",
-  "media-src 'self' data: blob: https://www.gstatic.com",
+  `media-src 'self' data: blob: https://www.gstatic.com ${tavusMediaOrigin}`,
   `connect-src ${Array.from(connectSources).join(" ")}`,
-  "worker-src 'self' blob:",
+  `worker-src 'self' blob: ${dailyCallMachineOrigin}`,
   "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
 ].join("; ");
 
@@ -56,7 +65,9 @@ const nextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           {
             key: "Permissions-Policy",
-            value: "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()",
+            // Call-object media elements and the separate OpenAI microphone
+            // capture both run in this page; no cross-origin frame needs access.
+            value: "camera=(self), microphone=(self), autoplay=(self), display-capture=(self), geolocation=(), payment=(), usb=()",
           },
         ],
       },

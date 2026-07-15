@@ -28,10 +28,10 @@ export interface RankedCprimeRecommendation {
 }
 
 interface RecommendationSignals {
-  prefs: OnboardingPrefs | null;
-  skillProfile: LearnerSkillProfile;
-  activeCourse: Course | null;
-  completedCourses: Course[];
+  prefs?: Partial<OnboardingPrefs> | null;
+  skillProfile?: Partial<LearnerSkillProfile> | null;
+  activeCourse?: Course | null;
+  completedCourses?: Course[] | null;
 }
 
 const GENERIC_RECOMMENDATION_WORDS = new Set([
@@ -97,6 +97,18 @@ function tokens(value: string): Set<string> {
   );
 }
 
+function safeTerms(values: unknown[]): string[] {
+  return values.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function courseTitle(course: Course): string {
+  return typeof course.title === "string" && course.title.trim().length > 0 ? course.title : "this course";
+}
+
+function courseRating(course: Course): number {
+  return Number.isFinite(course.rating) ? course.rating : 0;
+}
+
 function overlaps(left: string[], right: string[]): boolean {
   const leftTokens = tokens(left.join(" "));
   const rightTokens = tokens(right.join(" "));
@@ -104,40 +116,45 @@ function overlaps(left: string[], right: string[]): boolean {
 }
 
 function courseTerms(course: Course): string[] {
-  return [course.title, ...course.skills];
+  return safeTerms([courseTitle(course), ...(Array.isArray(course.skills) ? course.skills : [])]);
 }
 
 function scoreTerms(terms: string[], signals: RecommendationSignals): { score: number; reason: string } {
-  const completedMatch = signals.completedCourses.find((course) =>
-    overlaps(terms, courseTerms(course)),
+  const normalizedTerms = safeTerms(terms);
+  const completedCourses = Array.isArray(signals.completedCourses) ? signals.completedCourses : [];
+  const focusAreas = Array.isArray(signals.skillProfile?.focusAreas) ? signals.skillProfile.focusAreas : [];
+  const interests = Array.isArray(signals.prefs?.interests) ? signals.prefs.interests : [];
+
+  const completedMatch = completedCourses.find((course) =>
+    overlaps(normalizedTerms, courseTerms(course)),
   );
   if (completedMatch) {
-    return { score: 60, reason: `Because you completed ${completedMatch.title}` };
+    return { score: 60, reason: `Because you completed ${courseTitle(completedMatch)}` };
   }
 
-  if (signals.activeCourse && overlaps(terms, courseTerms(signals.activeCourse))) {
-    return { score: 50, reason: `Because you are studying ${signals.activeCourse.title}` };
+  if (signals.activeCourse && overlaps(normalizedTerms, courseTerms(signals.activeCourse))) {
+    return { score: 50, reason: `Because you are studying ${courseTitle(signals.activeCourse)}` };
   }
 
-  const focusMatch = signals.skillProfile.focusAreas.find((skill) =>
-    overlaps(terms, [skill.name]),
+  const focusMatch = focusAreas.find((skill) =>
+    overlaps(normalizedTerms, safeTerms([skill.name])),
   );
   if (focusMatch) {
     return { score: 40, reason: `Strengthen your ${focusMatch.name} skills` };
   }
 
-  const interestMatch = signals.prefs?.interests.find((interest) =>
-    overlaps(terms, [interest]),
+  const interestMatch = interests.find((interest) =>
+    overlaps(normalizedTerms, safeTerms([interest])),
   );
   if (interestMatch) {
     return { score: 30, reason: `Matches your interest in ${interestMatch}` };
   }
 
-  if (signals.prefs?.preparingFor && overlaps(terms, [signals.prefs.preparingFor])) {
+  if (signals.prefs?.preparingFor && overlaps(normalizedTerms, [signals.prefs.preparingFor])) {
     return { score: 20, reason: `Supports your goal: ${signals.prefs.preparingFor}` };
   }
 
-  if (signals.prefs?.role && overlaps(terms, [signals.prefs.role])) {
+  if (signals.prefs?.role && overlaps(normalizedTerms, [signals.prefs.role])) {
     return { score: 10, reason: `Relevant to your work as ${signals.prefs.role}` };
   }
 
@@ -155,8 +172,8 @@ export function rankCourseRecommendations(
     .map((course) => ({ course, ...scoreTerms(courseTerms(course), signals) }))
     .sort((left, right) => (
       right.score - left.score
-      || right.course.rating - left.course.rating
-      || left.course.title.localeCompare(right.course.title)
+      || courseRating(right.course) - courseRating(left.course)
+      || courseTitle(left.course).localeCompare(courseTitle(right.course))
     ))
     .slice(0, limit);
 }
@@ -167,8 +184,7 @@ export function rankCprimeRecommendations(
   return CPRIME_COURSES
     .map((course) => ({
       course,
-      ...scoreTerms([course.title, ...course.tags], signals),
+      ...scoreTerms(safeTerms([course.title, ...(Array.isArray(course.tags) ? course.tags : [])]), signals),
     }))
     .sort((left, right) => right.score - left.score || left.course.title.localeCompare(right.course.title));
 }
-

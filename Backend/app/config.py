@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     tavus_api_key: str = ""
     tavus_face_id: str = ""
     tavus_pal_id: str = ""
+    # Billing safeguards. Tavus starts metering when it creates the room, so
+    # short server-enforced timeouts protect credits if browser cleanup fails.
+    tavus_max_call_duration_seconds: int = 600
+    tavus_participant_left_timeout_seconds: int = 5
+    tavus_participant_absent_timeout_seconds: int = 30
     # Backward-compatible aliases for deployments configured before Tavus
     # renamed Replicas/Personas to Faces/PALs.
     tavus_replica_id: str = ""
