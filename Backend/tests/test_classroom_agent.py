@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, patch
 from PIL import Image
 
 from app.agents.tutor_agent import build_tutor_agent
-from app.agents.clicky_agent import build_clicky_agent
-from app.main import _turn_requires_learner_response
-from app.services.clicky_visual_locator import (
+from app.agents.tars_agent import build_tars_agent
+from app.main import _turn_detection_for_mode, _turn_requires_learner_response
+from app.services.tars_visual_locator import (
     LocalizationResult,
     crop_image_region,
     refine_classroom_point,
@@ -19,8 +19,15 @@ from app.tools import canvas_tools
 
 
 class ClassroomAgentTests(unittest.TestCase):
-    def test_page_and_teacher_modes_share_clicky_identity_but_not_tools(self) -> None:
-        page_agent = build_clicky_agent()
+    def test_page_tars_uses_explicit_ptt_while_teaching_uses_vad(self) -> None:
+        self.assertIsNone(_turn_detection_for_mode(push_to_talk=True))
+        self.assertEqual(
+            _turn_detection_for_mode(push_to_talk=False),
+            {"type": "semantic_vad", "interrupt_response": True},
+        )
+
+    def test_page_and_teacher_modes_share_tars_identity_but_not_tools(self) -> None:
+        page_agent = build_tars_agent()
         teacher_agent = build_tutor_agent(
             include_image_generation=False,
             include_handoffs=False,
@@ -29,8 +36,8 @@ class ClassroomAgentTests(unittest.TestCase):
         )
         page_tools = {getattr(tool, "name", "") for tool in page_agent.tools}
         teacher_tools = {getattr(tool, "name", "") for tool in teacher_agent.tools}
-        self.assertEqual(page_agent.name, "clicky")
-        self.assertEqual(teacher_agent.name, "clicky")
+        self.assertEqual(page_agent.name, "tars")
+        self.assertEqual(teacher_agent.name, "tars")
         self.assertIn("interact_with_page", page_tools)
         self.assertNotIn("interact_with_page", teacher_tools)
         self.assertIn("draw_on_canvas", teacher_tools)
@@ -104,7 +111,7 @@ class ClassroomPointGroundingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_gpt_point_inside_crop_maps_back_to_viewport(self) -> None:
         payload = {
-            "clickyPoint": {
+            "tarsPoint": {
                 "x": 90,
                 "y": 4,
                 "label": "Docker image blueprint box",
@@ -121,7 +128,7 @@ class ClassroomPointGroundingTests(unittest.IsolatedAsyncioTestCase):
             }
         }
         locator = AsyncMock(return_value=LocalizationResult(mode="point", start=(5, 7)))
-        with patch("app.services.clicky_visual_locator.locate_visual_target", locator):
+        with patch("app.services.tars_visual_locator.locate_visual_target", locator):
             result = await refine_classroom_point(payload, state, model="gpt-5.5")
 
         self.assertEqual((result["x"], result["y"]), (15, 27))

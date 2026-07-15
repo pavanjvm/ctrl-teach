@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { Check, ExternalLink, Loader2, MonitorCheck, ShieldCheck } from "lucide-react";
 
-import { useClicky } from "@/lib/clicky";
+import { useTars } from "@/lib/tars";
 import { API_URL } from "@/lib/constants";
 import type { BrowserLabBlueprint } from "@/lib/types";
 
@@ -50,7 +50,7 @@ export default function BrowserLabPanel({
   getToken,
   onVerified,
 }: Props) {
-  const { extensionAvailable } = useClicky();
+  const { extensionAvailable } = useTars();
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -133,7 +133,7 @@ export default function BrowserLabPanel({
   const status = useMemo(() => {
     if (verified) return "Verified by backend";
     if (attempt?.status === "needs_cleanup") return "Cleanup evidence needed";
-    if (attempt) return "Clicky is collecting evidence";
+    if (attempt) return "Tars is collecting evidence";
     return "Ready to start";
   }, [attempt, verified]);
 
@@ -191,9 +191,9 @@ export default function BrowserLabPanel({
       <div className="rich-browser-lab-actions">
         <button type="button" className="rich-primary" disabled={busy || verified} onClick={startLab}>
           {busy ? <Loader2 size={14} className="rich-spin" /> : <MonitorCheck size={14} />}
-          {attempt ? "Reopen with Clicky" : "Start with Clicky"}
+          {attempt ? "Reopen with Tars" : "Start with Tars"}
         </button>
-        <small>{extensionAvailable === false ? "Clicky extension not detected in this tab." : "Completion waits for backend verification."}</small>
+        <small>{extensionAvailable === false ? "Tars extension not detected in this tab." : "Completion waits for backend verification."}</small>
       </div>
     </section>
   );

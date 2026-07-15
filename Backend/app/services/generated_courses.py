@@ -1046,7 +1046,7 @@ only conceptual or theory-based, set browserLab to null. Browser labs must be
 safe, reversible, and practiceable in a normal browser. Use platformId from:
 {", ".join(BROWSER_PLATFORM_CATALOG.keys())}. The backend will resolve the real
 launch URL and allowed hosts, so do not invent URLs. Write practical steps and
-cleanupSteps. Include taskAssertions and cleanupAssertions that Clicky can
+cleanupSteps. Include taskAssertions and cleanupAssertions that Tars can
 observe deterministically from browser evidence: visit_host, url_contains,
 click_text, input_changed, page_text, or interaction_observed. Use exact UI
 labels or URL fragments where possible. Never ask the learner to enter secrets,
@@ -1183,7 +1183,7 @@ def _sanitize_browser_lab(
         "id": "visit-platform",
         "kind": "visit_host",
         "value": allowed_hosts[0] if allowed_hosts else "",
-        "description": f"Clicky observed the learner on {platform['label']}.",
+        "description": f"Tars observed the learner on {platform['label']}.",
     }]
     for index, assertion in enumerate(raw_task_assertions, start=1):
         kind = assertion.get("kind")
@@ -1193,14 +1193,14 @@ def _sanitize_browser_lab(
             "id": _clean_lab_id(assertion.get("id"), f"task-{index}"),
             "kind": kind,
             "value": _clean_text(assertion.get("value"), 180),
-            "description": _clean_text(assertion.get("description") or "Clicky observed the task evidence.", 260),
+            "description": _clean_text(assertion.get("description") or "Tars observed the task evidence.", 260),
         })
     if len(task_assertions) == 1:
         task_assertions.append({
             "id": "task-interaction",
             "kind": "interaction_observed",
             "value": "",
-            "description": "Clicky observed a learner interaction on the platform.",
+            "description": "Tars observed a learner interaction on the platform.",
         })
 
     cleanup_assertions: list[Dict[str, Any]] = []
@@ -1212,14 +1212,14 @@ def _sanitize_browser_lab(
             "id": _clean_lab_id(assertion.get("id"), f"cleanup-{index}"),
             "kind": kind,
             "value": _clean_text(assertion.get("value"), 180),
-            "description": _clean_text(assertion.get("description") or "Clicky observed cleanup evidence.", 260),
+            "description": _clean_text(assertion.get("description") or "Tars observed cleanup evidence.", 260),
         })
     if not cleanup_assertions:
         cleanup_assertions.append({
             "id": "cleanup-reviewed",
             "kind": "interaction_observed",
             "value": "",
-            "description": "Clicky observed cleanup or neutral-state review on the platform.",
+            "description": "Tars observed cleanup or neutral-state review on the platform.",
         })
 
     task_assertions = _dedupe_assertions(task_assertions)[:10]
@@ -1237,13 +1237,13 @@ def _sanitize_browser_lab(
             {
                 "id": "open-platform",
                 "instruction": f"Open {platform['label']} and sign in if your account requires it.",
-                "expectedEvidence": f"Clicky records a page visit on {platform['label']}.",
+                "expectedEvidence": f"Tars records a page visit on {platform['label']}.",
                 "assertionIds": ["visit-platform"],
             },
             {
                 "id": "practice-workflow",
                 "instruction": f"Find the area related to '{lesson_plan.title}' and complete a reversible practice interaction.",
-                "expectedEvidence": "Clicky records an interaction in the relevant platform area.",
+                "expectedEvidence": "Tars records an interaction in the relevant platform area.",
                 "assertionIds": ["task-interaction"],
             },
         ]
@@ -1261,7 +1261,7 @@ def _sanitize_browser_lab(
         steps.append({
             "id": _clean_lab_id(step.get("id"), f"step-{index}"),
             "instruction": _clean_text(step.get("instruction"), 420),
-            "expectedEvidence": _clean_text(step.get("expectedEvidence") or "Clicky records evidence for this step.", 260),
+            "expectedEvidence": _clean_text(step.get("expectedEvidence") or "Tars records evidence for this step.", 260),
             "assertionIds": assertion_ids[:4],
         })
 
@@ -1274,7 +1274,7 @@ def _sanitize_browser_lab(
         raw_cleanup_steps = [{
             "id": "cleanup",
             "instruction": "Close unsaved dialogs, discard temporary work, or remove any practice artifact created during the lab.",
-            "expectedEvidence": "Clicky observes a cleanup or neutral-state review interaction.",
+            "expectedEvidence": "Tars observes a cleanup or neutral-state review interaction.",
             "assertionIds": [cleanup_assertions[0]["id"]],
         }]
     cleanup_steps: list[Dict[str, Any]] = []
@@ -1287,7 +1287,7 @@ def _sanitize_browser_lab(
         cleanup_steps.append({
             "id": _clean_lab_id(step.get("id"), f"cleanup-{index}"),
             "instruction": _clean_text(step.get("instruction"), 420),
-            "expectedEvidence": _clean_text(step.get("expectedEvidence") or "Clicky records cleanup evidence.", 260),
+            "expectedEvidence": _clean_text(step.get("expectedEvidence") or "Tars records cleanup evidence.", 260),
             "assertionIds": assertion_ids[:4],
         })
 
@@ -1304,7 +1304,7 @@ def _sanitize_browser_lab(
         "steps": steps,
         "successCriteria": [
             _clean_text(item, 220)
-            for item in (lab.get("successCriteria") or ["All task evidence is observed by Clicky.", "All cleanup evidence is observed by Clicky."])[:6]
+            for item in (lab.get("successCriteria") or ["All task evidence is observed by Tars.", "All cleanup evidence is observed by Tars."])[:6]
         ],
         "cleanupSteps": cleanup_steps,
         "taskAssertions": task_assertions,
@@ -1474,8 +1474,17 @@ async def _ensure_asset(
 ) -> Dict[str, Any]:
     previous = existing.get(asset_id) or {}
     previous_url = str(previous.get("url") or "")
-    if previous_url.startswith("/uploads/"):
-        path = Path(settings.uploads_dir) / previous_url.removeprefix("/uploads/")
+    uploads_root = Path(settings.uploads_dir).resolve()
+    owner_root = (uploads_root / "generated" / str(owner_user_id)).resolve()
+    previous_path = (
+        uploads_root / previous_url.removeprefix("/uploads/")
+    ).resolve()
+    if (
+        previous_url.startswith("/uploads/generated/")
+        and previous_path.suffix == ".webp"
+        and owner_root in previous_path.parents
+    ):
+        path = previous_path
         url = previous_url
     else:
         path, url = _asset_file(owner_user_id, course_id, asset_id)

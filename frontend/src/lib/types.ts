@@ -39,7 +39,7 @@ export type ContentPlatform =
  * Generic onboarding preferences — collected ONCE right after signup.
  *
  * Captures WHO the learner is, WHAT they care about, and WHY they're here.
- * This shapes the empty dashboard, suggested topics, and the clicky
+ * This shapes the empty dashboard, suggested topics, and the tars
  * assistant's greeting. Course-specific preferences (level, sources, pace,
  * testing style, …) live separately in `CourseOnboardingPrefs` and are
  * collected the first time a learner launches a course.
@@ -55,6 +55,64 @@ export interface OnboardingPrefs {
   preparingFor: string;
   /** Set to true once the generic onboarding wizard is complete. */
   onboarded: boolean;
+}
+
+// ── Learner memory + skill profile ──────────────────────────────────────────
+
+/** A truthful observation captured from an activity the learner completed. */
+export type LearningMemoryKind =
+  | "interest"
+  | "lesson"
+  | "assessment"
+  | "lab"
+  | "roleplay";
+
+export type LearningMemorySignal =
+  | "interest"
+  | "progress"
+  | "strength"
+  | "growth";
+
+export interface LearningMemory {
+  id: string;
+  kind: LearningMemoryKind;
+  signal: LearningMemorySignal;
+  title: string;
+  summary: string;
+  createdAt: number;
+  courseId?: string;
+  courseTitle?: string;
+  lessonId?: string;
+  lessonTitle?: string;
+  skills: string[];
+  score?: number;
+  confidence?: number;
+  evidence?: string[];
+}
+
+export type SkillEvidenceStatus = "strength" | "building" | "focus";
+
+/** A derived view of the evidence log. This is never stored as ground truth. */
+export interface SkillEvidence {
+  name: string;
+  status: SkillEvidenceStatus;
+  evidenceCount: number;
+  profileConfidence: number;
+  lastObservedAt: number;
+  averageScore?: number;
+  reason: string;
+}
+
+export interface LearnerSkillProfile {
+  interests: string[];
+  skills: SkillEvidence[];
+  strengths: SkillEvidence[];
+  building: SkillEvidence[];
+  focusAreas: SkillEvidence[];
+  memoryCount: number;
+  assessmentCount: number;
+  practicalCount: number;
+  lastUpdatedAt: number | null;
 }
 
 /**
@@ -348,7 +406,7 @@ export interface Flashcard {
 // A Lab scene is a sequence of coaching "steps" the AI coach walks through.
 // Each step targets a DOM element (by CSS selector) and renders pixel-precise
 // annotations: arrows, circles, pulsing hotspots, hint cards, dim/focus, etc.
-// Inspired by Clicky's `[POINT:x,y:label]` + bezier-arc flight, but ported to
+// Inspired by Tars's `[POINT:x,y:label]` + bezier-arc flight, but ported to
 // the browser: targets are resolved from live element rects so they stay
 // pixel-accurate even as the practice surface reflows.
 
@@ -398,6 +456,10 @@ export interface LabScene {
 export interface ProgressState {
   xp: number;
   streak: number;
+  /** Local calendar date of the most recent completed lesson (YYYY-MM-DD). */
+  lastActivityDate?: string;
+  /** First completion timestamp for each course, keyed by course id. */
+  courseCompletedAt?: Record<string, number>;
   confidence: number;
   completedLessons: string[];
   checkpoints: string[];

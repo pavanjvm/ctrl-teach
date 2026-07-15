@@ -1,6 +1,6 @@
 """Users router — local SQLite (replaces Firestore).
 
-Endpoints (all Basic-auth protected):
+Endpoints (all signed bearer-session protected):
   GET  /api/users/me
   GET  /api/users/me/full
   PUT  /api/users/me
@@ -58,6 +58,18 @@ def _serialize_ts(val) -> str:
     if hasattr(val, "isoformat"):
         return val.isoformat()
     return str(val)
+
+
+def _merge_preferences(existing: Any, incoming: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge profile namespaces so one client cannot erase another's settings."""
+    merged = dict(existing) if isinstance(existing, dict) else {}
+    for key, value in incoming.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = {**current, **value}
+        else:
+            merged[key] = value
+    return merged
 
 
 def _compute_streak(session_dates: set) -> tuple[int, int]:
@@ -240,7 +252,7 @@ async def update_user_profile(body: ProfileUpdate, user: dict = Depends(get_curr
             p.languages = body.languages
             updated_fields.append("languages")
         if body.preferences is not None:
-            p.preferences = body.preferences
+            p.preferences = _merge_preferences(p.preferences, body.preferences)
             updated_fields.append("preferences")
         p.updated_at = datetime.now(timezone.utc)
         db.commit()

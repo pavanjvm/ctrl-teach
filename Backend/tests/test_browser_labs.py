@@ -28,7 +28,7 @@ class BrowserLabRouterTests(unittest.TestCase):
         app = FastAPI()
         app.include_router(browser_labs_router.router)
         app.dependency_overrides[get_current_user] = lambda: {"uid": "7", "username": "learner"}
-        app.dependency_overrides[browser_labs_router.get_clicky_extension_user] = lambda: {"uid": "7", "username": "learner"}
+        app.dependency_overrides[browser_labs_router.get_tars_extension_user] = lambda: {"uid": "7", "username": "learner"}
         self.client = TestClient(app)
         self.patcher = patch.object(browser_labs_service, "SessionLocal", self.session_factory)
         self.patcher.start()

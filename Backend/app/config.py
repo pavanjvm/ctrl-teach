@@ -1,6 +1,6 @@
 """Application configuration using pydantic-settings.
 
-Local-only stack: OpenAI Realtime API + SQLite persistence + Basic auth.
+Local-first stack: OpenAI Realtime API + SQLite + signed bearer sessions.
 No Firebase / Google Cloud / OAuth dependencies remain.
 """
 
@@ -28,11 +28,11 @@ class Settings(BaseSettings):
     transcription_model: str = "gpt-4o-mini-transcribe"
     course_generation_model: str = "gpt-5.4-mini"
     image_model: str = "gpt-image-2"
-    clicky_visual_locator_enabled: bool = True
-    clicky_visual_locator_model: str = "gpt-5.6-sol"
-    clicky_visual_locator_trial_models: str = "gpt-5.6-sol"
-    clicky_visual_locator_reasoning_effort: str = "medium"
-    clicky_visual_locator_timeout_seconds: float = 20.0
+    tars_visual_locator_enabled: bool = True
+    tars_visual_locator_model: str = "gpt-5.6-sol"
+    tars_visual_locator_trial_models: str = "gpt-5.6-sol"
+    tars_visual_locator_reasoning_effort: str = "medium"
+    tars_visual_locator_timeout_seconds: float = 20.0
 
     # ── Firecrawl (discovery + course-page/document extraction) ───────────
     firecrawl_api_key: str = ""
@@ -41,17 +41,21 @@ class Settings(BaseSettings):
     # A local file path. Use "sqlite:///:memory:" for an ephemeral DB.
     database_url: str = "sqlite:///./boardyboo.db"
 
-    # ── Auth (Basic) ────────────────────────────────────────────────────────
+    # ── Auth ────────────────────────────────────────────────────────────────
     # JSON list of {"username":"x","password":"y"} seeded into the users
-    # table on startup.  e.g.  APP_USERS=[{"username":"admin","password":"admin"}]
+    # table on startup. Prefer registering users through /api/auth/register.
     app_users: str = "[]"
-    # Bcrypt rounds used when hashing passwords for new registrations.
-    bcrypt_rounds: int = 12
+    # New PBKDF2-SHA256 password hashes use at least 600,000 rounds.
+    password_pbkdf2_rounds: int = 600_000
+    # HMAC secret for short-lived application bearer sessions. Production
+    # deployments should always provide an independent high-entropy value.
+    app_session_token_secret: str = ""
+    app_session_token_ttl_seconds: int = 43_200
     # HMAC secret for short-lived browser-extension sessions. When omitted a
     # process-local secret is generated, which is safe for development but
     # invalidates extension sessions whenever the backend restarts.
-    clicky_extension_token_secret: str = ""
-    clicky_extension_token_ttl_seconds: int = 43_200
+    tars_extension_token_secret: str = ""
+    tars_extension_token_ttl_seconds: int = 43_200
 
     # ── Local file storage (replaces GCS) ──────────────────────────────────
     # Directory where canvas snapshots / generated images are written.

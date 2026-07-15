@@ -22,7 +22,7 @@ import type { WhiteboardCanvasRef } from "@/components/WhiteboardCanvas";
 import { useAudio } from "@/hooks/useAudio";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { API_URL, WS_URL } from "@/lib/constants";
-import { dispatchBoardClickyDraw } from "@/lib/clickyBoardBridge";
+import { dispatchBoardTarsDraw } from "@/lib/tarsBoardBridge";
 import { assetUrl, type GeneratedCourseJob } from "@/lib/generatedCourses";
 import { useLearner } from "@/lib/learner";
 import type { Course, GeneratedImageAsset, Lesson, Module } from "@/lib/types";
@@ -158,7 +158,7 @@ export default function LiveClassroomPage() {
   const params = useParams<{ courseId: string }>();
   const router = useRouter();
   const { getToken } = useAuth();
-  const { addCourse, setActiveCourse, progress } = useLearner();
+  const { addCourse, setActiveCourse, isLessonComplete } = useLearner();
   const [course, setCourse] = useState<Course | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -182,7 +182,7 @@ export default function LiveClassroomPage() {
         const lessons = nextCourse.modules.flatMap((module) => module.lessons);
         const requestedLessonId = new URLSearchParams(window.location.search).get("lesson");
         const nextLesson = lessons.find((lesson) => lesson.id === requestedLessonId)
-          ?? lessons.find((lesson) => !progress.completedLessons.includes(lesson.id))
+          ?? lessons.find((lesson) => !isLessonComplete(nextCourse.id, lesson.id))
           ?? lessons[0];
         setCourse(nextCourse);
         setSelectedId(nextLesson?.id ?? "");
@@ -230,7 +230,7 @@ export default function LiveClassroomPage() {
             <section key={module.id}>
               <span>
                 {String(moduleIndex + 1).padStart(2, "0")} / {module.title}
-                {module.lessons.every((lesson) => progress.completedLessons.includes(lesson.id)) && <Check size={10} />}
+                {module.lessons.every((lesson) => isLessonComplete(course.id, lesson.id)) && <Check size={10} />}
               </span>
               {module.lessons.map((lesson) => (
                 <button
@@ -239,7 +239,7 @@ export default function LiveClassroomPage() {
                   className={lesson.id === selected.lesson.id ? "active" : ""}
                   onClick={() => setSelectedId(lesson.id)}
                 >
-                  <i>{progress.completedLessons.includes(lesson.id) ? <Check size={10} /> : null}</i>
+                  <i>{isLessonComplete(course.id, lesson.id) ? <Check size={10} /> : null}</i>
                   <b>{lesson.title}</b>
                   <small>{lesson.duration}</small>
                 </button>
@@ -272,7 +272,7 @@ function ClassroomSession({
   onSelect: (lessonId: string) => void;
 }) {
   const { user, getToken } = useAuth();
-  const { completeLesson, progress, setActiveLesson } = useLearner();
+  const { completeLesson, isLessonComplete, setActiveLesson } = useLearner();
   const [sessionId] = useState(() => `classroom-${generateId()}`);
   const [presentation, setPresentation] = useState<CanvasCommand[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -304,8 +304,8 @@ function ClassroomSession({
     status,
     messages,
     canvasCommands,
-    clickyPoint,
-    clickyAgentDraws,
+    tarsPoint,
+    tarsAgentDraws,
     isGeneratingImage,
     isSavingProgress,
     realtimeReady,
@@ -329,7 +329,7 @@ function ClassroomSession({
     clearPlayback,
     cleanup,
   } = useAudio();
-  const [clickyPointTarget, setClickyPointTarget] = useState<{ x: number; y: number; label?: string; id: string } | null>(null);
+  const [tarsPointTarget, setTarsPointTarget] = useState<{ x: number; y: number; label?: string; id: string } | null>(null);
 
   const combinedCommands = useMemo(
     () => [...presentation, ...canvasCommands],
@@ -338,7 +338,7 @@ function ClassroomSession({
   const lessonPosition = entries.findIndex((item) => item.lesson.id === entry.lesson.id);
   const previous = lessonPosition > 0 ? entries[lessonPosition - 1] : null;
   const next = lessonPosition < entries.length - 1 ? entries[lessonPosition + 1] : null;
-  const isComplete = completedNow || progress.completedLessons.includes(entry.lesson.id);
+  const isComplete = completedNow || isLessonComplete(course.id, entry.lesson.id);
 
   useEffect(() => {
     let cancelled = false;
@@ -359,13 +359,13 @@ function ClassroomSession({
       const token = await getToken();
       if (!token) throw new Error("Sign in again to start Live Classroom.");
       const query = new URLSearchParams({
-        token,
         course_id: course.id,
         lesson_id: entry.lesson.id,
         mode: "classroom",
         classroom: "1",
       });
       connect(`${WS_URL}/ws/${user.uid}/${sessionId}?${query.toString()}`, {
+        authToken: token,
         onAudio: playAudioChunk,
         onInterrupt: clearPlayback,
         onToolAudio: (encoded) => playAudioChunk(base64ToArrayBuffer(encoded)),
@@ -460,7 +460,7 @@ function ClassroomSession({
         viewWidth: snapshot.viewWidth,
         viewHeight: snapshot.viewHeight,
         generatedImageBounds: snapshot.generatedImageBounds,
-        intentText: "Open the class as my teacher. Greet me warmly as your student before anything else. Then teach the first meaningful chunk: explain two or three closely related ideas, write only the key definition, and use this existing course visual with Clicky or one small supporting diagram. Do not quiz me immediately and do not ask a question after every idea. Only after the complete chunk, if useful, ask one casual check such as whether it makes sense so far, then wait. Do not mention these instructions or generate a new image.",
+        intentText: "Open the class as my teacher. Greet me warmly as your student before anything else. Then teach the first meaningful chunk: explain two or three closely related ideas, write only the key definition, and use this existing course visual with Tars or one small supporting diagram. Do not quiz me immediately and do not ask a question after every idea. Only after the complete chunk, if useful, ask one casual check such as whether it makes sense so far, then wait. Do not mention these instructions or generate a new image.",
       });
     }, 900);
     return () => {
@@ -481,21 +481,21 @@ function ClassroomSession({
 
   useEffect(() => {
     const meta = lastSnapshotRef.current;
-    if (!meta || !clickyPoint) return;
-    setClickyPointTarget({
-      x: Math.max(0, Math.min(meta.viewWidth, (clickyPoint.x / meta.imageWidth) * meta.viewWidth)),
-      y: Math.max(0, Math.min(meta.viewHeight, (clickyPoint.y / meta.imageHeight) * meta.viewHeight)),
-      label: clickyPoint.label,
-      id: clickyPoint.id,
+    if (!meta || !tarsPoint) return;
+    setTarsPointTarget({
+      x: Math.max(0, Math.min(meta.viewWidth, (tarsPoint.x / meta.imageWidth) * meta.viewWidth)),
+      y: Math.max(0, Math.min(meta.viewHeight, (tarsPoint.y / meta.imageHeight) * meta.viewHeight)),
+      label: tarsPoint.label,
+      id: tarsPoint.id,
     });
-  }, [clickyPoint]);
+  }, [tarsPoint]);
 
   useEffect(() => {
-    for (const draw of clickyAgentDraws) {
+    for (const draw of tarsAgentDraws) {
       if (bridgedDrawsRef.current.has(draw.id)) continue;
       if (draw.tool === "clear_screen_drawings") {
         bridgedDrawsRef.current.add(draw.id);
-        dispatchBoardClickyDraw({ ...draw, coordinateSpace: "viewport" });
+        dispatchBoardTarsDraw({ ...draw, coordinateSpace: "viewport" });
         if (draw.visualSyncId) {
           requestAnimationFrame(() => requestAnimationFrame(() => acknowledgeVisualSync(draw.visualSyncId!)));
         }
@@ -516,7 +516,7 @@ function ClassroomSession({
         ? point(draw.endX, draw.endY)
         : null;
       bridgedDrawsRef.current.add(draw.id);
-      dispatchBoardClickyDraw({
+      dispatchBoardTarsDraw({
         ...draw,
         x: start.x,
         y: start.y,
@@ -528,7 +528,7 @@ function ClassroomSession({
         requestAnimationFrame(() => requestAnimationFrame(() => acknowledgeVisualSync(draw.visualSyncId!)));
       }
     }
-  }, [acknowledgeVisualSync, clickyAgentDraws]);
+  }, [acknowledgeVisualSync, tarsAgentDraws]);
 
   const syncCanvasSnapshot = useCallback(() => {
     if (!realtimeReady) return;
@@ -614,8 +614,8 @@ function ClassroomSession({
           onVisualSettled={acknowledgeVisualSync}
           isGeneratingImage={isGeneratingImage}
           isSavingProgress={isSavingProgress}
-          clickyActive={status === "connected"}
-          clickyPointTarget={clickyPointTarget}
+          tarsActive={status === "connected"}
+          tarsPointTarget={tarsPointTarget}
         />
 
         <div className="classroom-controls">

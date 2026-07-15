@@ -20,9 +20,9 @@
 - Quiz types: multiple choice, drag & drop, open answer
 
 **Where Ctrl+Teach beats them:**
-- **Real-time voice interaction** — Coursebox AI tutor is chat-only. Clicky talks back
-- **Whiteboard drawing** — Coursebox has no visual explanation. Clicky draws on Excalidraw
-- **Screen-aware tutoring** — Clicky sees what's on screen, can point at things. Coursebox is blind
+- **Real-time voice interaction** — Coursebox AI tutor is chat-only. Tars talks back
+- **Whiteboard drawing** — Coursebox has no visual explanation. Tars draws on Excalidraw
+- **Screen-aware tutoring** — Tars sees what's on screen, can point at things. Coursebox is blind
 - **Latency** — OpenAI Realtime API vs chatbot turn-taking
 
 **Verdict:** Coursebox is a polished LMS with AI features. Ctrl+Teach is an AI tutor that happens to generate courses. Different DNA. Coursebox wins on platform completeness. Ctrl+Teach wins on teaching quality.
@@ -43,9 +43,9 @@
 - Security/compliance features (SOC 2, GDPR)
 
 **Where Ctrl+Teach beats them:**
-- Sana's AI tutor is basic Q&A on uploaded docs. Clicky is a real-time voice + drawing tutor
+- Sana's AI tutor is basic Q&A on uploaded docs. Tars is a real-time voice + drawing tutor
 - Sana generates courses from docs but no interactive teaching. Ctrl+Teach generates AND teaches
-- Clicky's screen awareness means it can show you *on the actual tool* (Jira, ServiceNow) not just slides
+- Tars's screen awareness means it can show you *on the actual tool* (Jira, ServiceNow) not just slides
 
 **Verdict:** Sana competes with Docebo/Cornerstone for enterprise LMS dollars. They're not building a realtime AI tutor. Ctrl+Teach isn't an LMS — it's a teaching engine that could plug into one.
 
@@ -63,7 +63,7 @@
 - AI grading + instructor feedback tools
 
 **Where Ctrl+Teach beats them:**
-- Clicky is better for 1:1 tutoring than cohort lecture format
+- Tars is better for 1:1 tutoring than cohort lecture format
 - Whiteboard for technical/diagram-heavy topics vs text-only cohort
 
 ---
@@ -81,7 +81,7 @@
 ### Khan Academy Khanmigo
 **What they do:** AI tutor for K-12/college. Step-by-step guidance, Socratic questioning. Not for corporate training.
 
-**Ctrl+Teach edge:** Corporate focus. Clicky can point at real software (Jira, ServiceNow). Khanmigo can't.
+**Ctrl+Teach edge:** Corporate focus. Tars can point at real software (Jira, ServiceNow). Khanmigo can't.
 
 ---
 
@@ -108,7 +108,7 @@
 
 ## Ctrl+Teach's Unique Moats
 
-**1. Clicky — real-time voice tutor with screen awareness**
+**1. Tars — real-time voice tutor with screen awareness**
 Nobody in corporate training has this. Coursebox's AI tutor is a chatbot. Sana's is document Q&A. Ctrl+Teach talks to you, listens, points at things on screen, draws on a whiteboard. This is the killer feature.
 
 **2. Whiteboard for technical training**
@@ -126,7 +126,7 @@ Sub-second voice turns. Market competitors use turn-based chat. Ctrl+Teach feels
 | No analytics | 🟡 Medium | Track time, topics, scores per user. Report to admins. |
 | No certification | 🟡 Medium | Auto-generate cert on completion. Basic PDF or badge. |
 | No integration | 🟡 Medium | SSO (Google/Microsoft), SCORM export for existing LMS. |
-| No video generation | 🟢 Low | Nice-to-have. Clicky voice is better than avatar video. |
+| No video generation | 🟢 Low | Nice-to-have. Tars voice is better than avatar video. |
 | No group/cohort | 🟢 Low | Cprime's model is individual. Add later. |
 
 ---
@@ -139,6 +139,6 @@ Sub-second voice turns. Market competitors use turn-based chat. Ctrl+Teach feels
 
 **Two products:**
 1. **Course Generator** — prompt → course outline + content + quizzes (catch up to Coursebox)
-2. **Clicky Tutor** — the real moat. Voice + whiteboard + screen-aware. Nobody else has this.
+2. **Tars Tutor** — the real moat. Voice + whiteboard + screen-aware. Nobody else has this.
 
 Customers buy #2. #1 is table stakes.

@@ -73,6 +73,13 @@ export default function DiscoverPage() {
     window.history.replaceState({}, "", url);
   }, []);
 
+  useEffect(() => {
+    const suggestedPrompt = new URLSearchParams(window.location.search).get("prompt");
+    if (!suggestedPrompt) return;
+    setSourceMode("prompt");
+    setPrompt(suggestedPrompt);
+  }, []);
+
   const loadJob = useCallback(async (id: string) => {
     const token = await getToken();
     const response = await axios.get<GeneratedCourseJob>(
@@ -81,6 +88,8 @@ export default function DiscoverPage() {
     );
     const next = response.data;
     setJob(next);
+    setAnswers(next.answers ?? {});
+    setError(null);
     if (next.status === "intake") {
       const storedAnswers = next.answers ?? {};
       const nextQuestions = next.questions ?? [];
@@ -88,7 +97,6 @@ export default function DiscoverPage() {
         const value = storedAnswers[item.id];
         return value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
       });
-      setAnswers(storedAnswers);
       setQuestionIndex(unansweredIndex >= 0 ? unansweredIndex : Math.max(0, nextQuestions.length - 1));
       setPhase("interview");
     }
@@ -119,12 +127,23 @@ export default function DiscoverPage() {
 
   useEffect(() => {
     if (!job || !isGenerationActive(job.status)) return;
-    const timer = window.setInterval(() => {
-      loadJob(job.id).catch((pollError) => {
+    let cancelled = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      try {
+        await loadJob(job.id);
+      } catch (pollError) {
+        if (cancelled) return;
         setError(errorMessage(pollError, "Could not refresh generation progress."));
-      });
-    }, 2500);
-    return () => window.clearInterval(timer);
+      } finally {
+        if (!cancelled) timer = window.setTimeout(poll, 2500);
+      }
+    };
+    timer = window.setTimeout(poll, 2500);
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
   }, [job, loadJob]);
 
   async function beginIntake() {
@@ -335,7 +354,14 @@ export default function DiscoverPage() {
                   <span>{file ? "Ready to analyze" : "PDF, DOCX, PPTX, TXT, or Markdown · max 20 MB"}</span>
                 </button>
                 {file && (
-                  <button className="gen-clear-file" type="button" onClick={() => setFile(null)}>
+                  <button
+                    className="gen-clear-file"
+                    type="button"
+                    onClick={() => {
+                      setFile(null);
+                      if (fileInput.current) fileInput.current.value = "";
+                    }}
+                  >
                     Use pasted text instead
                   </button>
                 )}

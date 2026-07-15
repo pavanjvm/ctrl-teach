@@ -30,7 +30,7 @@ export default function LabMode(props: Props) {
 }
 
 function ScriptedLabMode({ lesson, onComplete }: Props) {
-  const { earnBadge, addXp, completeLesson } = useLearner();
+  const { earnBadge, awardActivity, completeLesson, recordPracticeResult } = useLearner();
   const scene = useMemo(() => sceneForLesson(lesson?.id ?? "") ?? USER_STORY_FOUNDATION_SCENE, [lesson?.id]);
   const [values, setValues] = useState<Record<string, string>>(() => seedForScene(scene.id));
   const [done, setDone] = useState(false);
@@ -55,9 +55,21 @@ function ScriptedLabMode({ lesson, onComplete }: Props) {
           scene={scene}
           onComplete={() => {
             setDone(true);
-            addXp(120);
+            if (lesson) awardActivity({ lessonId: lesson.id, kind: "lab", xp: 120 });
             earnBadge("lab-master");
-            if (lesson) completeLesson(lesson.id);
+            if (lesson) {
+              const completedFields = Object.values(values).filter((value) => value.trim()).length;
+              recordPracticeResult({
+                lessonId: lesson.id,
+                kind: "lab",
+                summary: `Completed the guided ${scene.title} practice with Tars coaching on the work surface.`,
+                evidence: [
+                  "Finished the guided coaching sequence",
+                  `${completedFields} practice fields completed`,
+                ],
+              });
+              completeLesson(lesson.id);
+            }
             onComplete();
           }}
         />
@@ -74,15 +86,17 @@ function ScriptedLabMode({ lesson, onComplete }: Props) {
 }
 
 function GeneratedLabMode({ lesson, onComplete }: { lesson: Lesson; onComplete: () => void }) {
-  const { earnBadge, addXp, completeLesson } = useLearner();
+  const { earnBadge, awardActivity, completeLesson, recordPracticeResult } = useLearner();
   const lab = lesson.lab!;
   const [artifact, setArtifact] = useState("");
   const [criteria, setCriteria] = useState<boolean[]>(() => lab.successCriteria.map(() => false));
   const [reviewed, setReviewed] = useState(false);
   const [done, setDone] = useState(false);
 
-  const ready = artifact.trim().length >= 80;
   const metCount = criteria.filter(Boolean).length;
+  const artifactReady = artifact.trim().length >= 80;
+  const criteriaReady = criteria.length === 0 || metCount === criteria.length;
+  const ready = artifactReady && criteriaReady;
 
   function toggleCriterion(index: number) {
     setCriteria((current) => current.map((value, itemIndex) => itemIndex === index ? !value : value));
@@ -96,8 +110,17 @@ function GeneratedLabMode({ lesson, onComplete }: { lesson: Lesson; onComplete: 
   function finish() {
     if (done) return;
     setDone(true);
-    addXp(120);
+    awardActivity({ lessonId: lesson.id, kind: "lab", xp: 120 });
     earnBadge("lab-master");
+    recordPracticeResult({
+      lessonId: lesson.id,
+      kind: "lab",
+      summary: `Built and reviewed a ${artifact.trim().length}-character artifact for ${lesson.title}.`,
+      evidence: [
+        `${metCount}/${lab.successCriteria.length} criteria self-checked`,
+        "Artifact reviewed with Tars",
+      ],
+    });
     completeLesson(lesson.id);
     onComplete();
   }
@@ -106,7 +129,7 @@ function GeneratedLabMode({ lesson, onComplete }: { lesson: Lesson; onComplete: 
     <div className="lab-wrap generated-lab-wrap">
       <div className="lab-coach-banner">
         <span className="lab-coach-dot" />
-        <span className="lab-coach-text">CLICKY LAB COACH · LIVE ARTIFACT REVIEW</span>
+        <span className="lab-coach-text">TARS LAB COACH · LIVE ARTIFACT REVIEW</span>
       </div>
 
       <div className="generated-lab-grid">
@@ -156,11 +179,13 @@ function GeneratedLabMode({ lesson, onComplete }: { lesson: Lesson; onComplete: 
             <div className={`generated-lab-review ${ready ? "ready" : "needs-work"}`}>
               <Sparkles size={17} />
               <div>
-                <strong>{ready ? "Clicky found a reviewable artifact" : "Clicky needs a little more evidence"}</strong>
+                <strong>{ready ? "Tars found a reviewable artifact" : "Tars needs a little more evidence"}</strong>
                 <p>
                   {ready
                     ? `${metCount} of ${lab.successCriteria.length} criteria are marked. Your reasoning is visible; tighten one measurable success signal before sharing.`
-                    : "Add the intended outcome, one important assumption, and the decision you made. Then I can check it against the criteria."}
+                    : !artifactReady
+                      ? "Add the intended outcome, one important assumption, and the decision you made. Then I can check it against the criteria."
+                      : `Review and mark all ${lab.successCriteria.length} success criteria before completing the lab.`}
                 </p>
               </div>
             </div>
@@ -168,7 +193,7 @@ function GeneratedLabMode({ lesson, onComplete }: { lesson: Lesson; onComplete: 
 
           <div className="generated-lab-actions">
             <button type="button" className="generated-lab-review-btn" onClick={review}>
-              <Send size={14} /> Ask Clicky to review
+              <Send size={14} /> Ask Tars to review
             </button>
             <button type="button" className="generated-lab-complete-btn" onClick={finish} disabled={!reviewed || !ready || done}>
               {done ? <CheckCircle2 size={14} /> : <Check size={14} />}

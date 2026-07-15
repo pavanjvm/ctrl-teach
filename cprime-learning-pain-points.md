@@ -375,7 +375,7 @@ Courses teaching specific software products — not frameworks, just "how to use
 
 **Pain:** Instructor-led training (ILT) needs a real person in the room. $595/seat for a 1-day PO course sounds good until you subtract instructor fee, venue, travel, materials. Scale kills margin — more students means more sessions, not zero marginal cost.
 
-**Ctrl+Teach fix:** AI tutoring (Clicky) + self-paced generated courses. One AI instructor handles unlimited concurrent students. Margins approach software levels, not services levels.
+**Ctrl+Teach fix:** AI tutoring (Tars) + self-paced generated courses. One AI instructor handles unlimited concurrent students. Margins approach software levels, not services levels.
 
 ---
 
@@ -391,7 +391,7 @@ Courses teaching specific software products — not frameworks, just "how to use
 
 **Pain:** Every student gets the same curriculum regardless of experience level. A senior dev and a new grad sit through the exact same Agile 101. No adaptive difficulty, no skipping known material, no focus on weak areas.
 
-**Ctrl+Teach fix:** AI tutor (Clicky) adapts in real time. It asks questions, gauges understanding, goes deeper where needed, skips where not. Each session is unique to the learner.
+**Ctrl+Teach fix:** AI tutor (Tars) adapts in real time. It asks questions, gauges understanding, goes deeper where needed, skips where not. Each session is unique to the learner.
 
 ---
 
@@ -399,7 +399,7 @@ Courses teaching specific software products — not frameworks, just "how to use
 
 **Pain:** Cprime's online offering is recorded videos or scheduled Zoom sessions. Students watch passively. No way to ask "what does this mean?" mid-lesson. No way to draw on a diagram and get feedback. Engagement drops, completion rates suck.
 
-**Ctrl+Teach fix:** Clicky's push-to-talk voice + whiteboard mode. Students can talk to the AI, ask questions verbally, draw on the screen, get realtime spoken responses with visual annotations. It's a live tutor, not a recording.
+**Ctrl+Teach fix:** Tars's push-to-talk voice + whiteboard mode. Students can talk to the AI, ask questions verbally, draw on the screen, get realtime spoken responses with visual annotations. It's a live tutor, not a recording.
 
 ---
 

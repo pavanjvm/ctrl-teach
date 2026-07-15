@@ -174,7 +174,7 @@
   display: none; /* quiet nav, no subtitle */
 }
 
-.topbar-clicky-switch {
+.topbar-tars-switch {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -186,7 +186,7 @@
   transition: color 0.2s ease;
 }
 
-.topbar-clicky-switch-label {
+.topbar-tars-switch-label {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.16em;
@@ -195,11 +195,11 @@
   transition: color 0.2s ease;
 }
 
-.topbar-clicky-switch.is-on .topbar-clicky-switch-label {
+.topbar-tars-switch.is-on .topbar-tars-switch-label {
   color: var(--text-main, #1a1a1a);
 }
 
-.topbar-clicky-switch-track {
+.topbar-tars-switch-track {
   position: relative;
   width: 34px;
   height: 20px;
@@ -210,13 +210,13 @@
   transition: background 0.22s ease, border-color 0.22s ease;
 }
 
-.topbar-clicky-switch.is-on .topbar-clicky-switch-track {
-  background: #6366f1;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+.topbar-tars-switch.is-on .topbar-tars-switch-track {
+  background: #b7ec52;
+  border-color: #79a925;
+  box-shadow: 0 0 0 3px rgba(121, 169, 37, 0.15);
 }
 
-.topbar-clicky-switch-thumb {
+.topbar-tars-switch-thumb {
   position: absolute;
   top: 50%;
   left: 2px;
@@ -229,26 +229,26 @@
   transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.22s ease;
 }
 
-.topbar-clicky-switch.is-on .topbar-clicky-switch-thumb {
+.topbar-tars-switch.is-on .topbar-tars-switch-thumb {
   transform: translate(14px, -50%);
   background: #ffffff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
-.topbar-clicky-switch:hover .topbar-clicky-switch-thumb {
+.topbar-tars-switch:hover .topbar-tars-switch-thumb {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 
-.topbar-clicky-switch.is-paused {
+.topbar-tars-switch.is-paused {
   cursor: default;
   opacity: 0.58;
 }
 
-.topbar-clicky-switch.is-paused:hover .topbar-clicky-switch-thumb {
+.topbar-tars-switch.is-paused:hover .topbar-tars-switch-thumb {
   transform: translate(0, -50%);
 }
 
-.topbar-clicky-switch-input {
+.topbar-tars-switch-input {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -1335,9 +1335,9 @@
 }
 
 @media (max-width: 900px) {
-  /* Between tablet and phone: drop the Clicky label and the user name so the
+  /* Between tablet and phone: drop the Tars label and the user name so the
      profile avatar + notification icons stay fully visible. */
-  .topbar-clicky-switch-label { display: none; }
+  .topbar-tars-switch-label { display: none; }
   .topbar-user-info { display: none; }
   .topbar-user-card { gap: 0; padding: 2px; }
   .topbar-controls { gap: 10px; }
@@ -1353,9 +1353,9 @@
   .dash-header-area { flex-direction: column; align-items: flex-start; gap: 20px; }
   .dash-daily-goal { border-left: none; padding-left: 0; border-top: 1px solid var(--border-color); padding-top: 16px; width: 100%; }
   /* Collapse the right-side controls so the profile avatar never gets clipped
-     off-screen on phone widths. The name text and Clicky label are the first
+     off-screen on phone widths. The name text and Tars label are the first
      things to go — icons + avatar remain. */
-  .topbar-clicky-switch-label { display: none; }
+  .topbar-tars-switch-label { display: none; }
   .topbar-controls { gap: 8px; }
   .topbar-user-info { display: none; }
   .topbar-user-card { gap: 0; padding: 2px; }

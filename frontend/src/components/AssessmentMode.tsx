@@ -163,7 +163,7 @@ export default function AssessmentMode({
   lessonId,
   onDone,
 }: AssessmentModeProps) {
-  const { addXp, addCheckpoint, setConfidence, earnBadge } = useLearner();
+  const { awardActivity, setConfidence, earnBadge, recordAssessmentResult } = useLearner();
 
   const activeLesson = useMemo(() => {
     for (const m of course.modules) {
@@ -236,9 +236,16 @@ export default function AssessmentMode({
   }
 
   function commitProgress() {
-    addXp(Math.round((score / 100) * 100));
-    addCheckpoint(`${lessonId}-checkpoint`);
+    awardActivity({ courseId, lessonId, kind: "assessment", xp: score });
     setConfidence(confidence);
+    recordAssessmentResult({
+      courseId,
+      lessonId,
+      score,
+      confidence,
+      correct: correctCount,
+      total,
+    });
     if (score === 100) earnBadge("quiz-ace");
   }
 

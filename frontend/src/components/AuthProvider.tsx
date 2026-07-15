@@ -31,12 +31,10 @@ const AuthContext = createContext<AuthContextType>({
   getToken: async () => null,
 });
 
-const AUTH_TOKEN_KEY = "boardyboo_basic_auth";
-const AUTH_USER_KEY = "boardyboo_user";
-
-function makeBasicToken(username: string, password: string): string {
-  return `Basic ${btoa(`${username}:${password}`)}`;
-}
+const AUTH_TOKEN_KEY = "ctrlteach_session_token";
+const AUTH_USER_KEY = "ctrlteach_session_user";
+const LEGACY_AUTH_TOKEN_KEY = "boardyboo_basic_auth";
+const LEGACY_AUTH_USER_KEY = "boardyboo_user";
 
 function saveAuth(token: string, user: AuthUser) {
   localStorage.setItem(AUTH_TOKEN_KEY, token);
@@ -46,6 +44,10 @@ function saveAuth(token: string, user: AuthUser) {
 function clearAuth() {
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_USER_KEY);
+  // Older builds persisted reversible Basic credentials. Remove them whenever
+  // auth state is touched so an upgrade cannot leave a password in storage.
+  localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_AUTH_USER_KEY);
 }
 
 function loadStoredUser(): AuthUser | null {
@@ -63,6 +65,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function bootstrap() {
+      localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
+      localStorage.removeItem(LEGACY_AUTH_USER_KEY);
       const token = localStorage.getItem(AUTH_TOKEN_KEY);
       const stored = loadStoredUser();
       if (!token || !stored) {
@@ -95,14 +99,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (username: string, password: string) => {
-    const token = makeBasicToken(username, password);
+    const loginResponse = await axios.post(`${API_URL}/api/auth/login`, {
+      username,
+      password,
+    });
+    const rawToken = String(loginResponse.data?.access_token ?? "");
+    if (!rawToken) throw new Error("Login did not return a session token.");
+    const token = `Bearer ${rawToken}`;
+    const canonicalUsername = String(
+      loginResponse.data?.user?.username ?? username.trim(),
+    );
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-    await axios.post(
-      `${API_URL}/api/users/sync`,
-      { timezone: tz },
-      { headers: { Authorization: token } }
-    );
+    try {
+      await axios.post(
+        `${API_URL}/api/users/sync`,
+        { timezone: tz },
+        { headers: { Authorization: token } }
+      );
+    } catch (error) {
+      // A profile refresh should not invalidate an otherwise valid session.
+      console.warn("Profile synchronization was skipped during sign-in.", error);
+    }
 
     const res = await axios.get(`${API_URL}/api/users/me`, {
       headers: { Authorization: token },
@@ -110,9 +128,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const metadata = res.data?.metadata ?? {};
     const nextUser: AuthUser = {
       uid: String(res.data?.uid ?? ""),
-      username,
-      email: metadata.email ?? username,
-      displayName: metadata.name ?? username,
+      username: canonicalUsername,
+      email: metadata.email ?? canonicalUsername,
+      displayName: metadata.name ?? canonicalUsername,
       photoURL: metadata.picture ?? null,
     };
     saveAuth(token, nextUser);

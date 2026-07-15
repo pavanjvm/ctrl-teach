@@ -11,12 +11,10 @@ When rendered on the frontend the elements are revealed progressively
 
 from __future__ import annotations
 
+import ast
 import logging
 import math
 from typing import Any, Dict, List, Optional
-
-from app.tools.canvas_tools import _defer_elements
-import app.tools.canvas_tools as _ct
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +24,127 @@ _CURVE_ANIM_SLICES = 6
 
 # Gap between the last written text and the top of the plot
 _PLOT_Y_GAP = 5.0
+
+_MAX_EXPRESSION_LENGTH = 256
+_MAX_EXPRESSION_NODES = 80
+_MAX_POWER = 1_000.0
+_MATH_CONSTANTS = {"pi": math.pi, "e": math.e}
+_MATH_FUNCTIONS = {
+    "sin": math.sin,
+    "cos": math.cos,
+    "tan": math.tan,
+    "asin": math.asin,
+    "acos": math.acos,
+    "atan": math.atan,
+    "sinh": math.sinh,
+    "cosh": math.cosh,
+    "tanh": math.tanh,
+    "sqrt": math.sqrt,
+    "cbrt": lambda value: math.copysign(abs(value) ** (1 / 3), value),
+    "log": math.log,
+    "log2": math.log2,
+    "log10": math.log10,
+    "exp": math.exp,
+    "abs": abs,
+    "pow": math.pow,
+    "floor": math.floor,
+    "ceil": math.ceil,
+}
+
+
+def _parse_math_expression(expression: str) -> ast.Expression:
+    """Parse a deliberately small, non-executable math expression language."""
+    if not expression or len(expression) > _MAX_EXPRESSION_LENGTH:
+        raise ValueError("Expression is empty or too long")
+    parsed = ast.parse(expression, mode="eval")
+    if sum(1 for _ in ast.walk(parsed)) > _MAX_EXPRESSION_NODES:
+        raise ValueError("Expression is too complex")
+
+    allowed_nodes = (
+        ast.Expression,
+        ast.BinOp,
+        ast.UnaryOp,
+        ast.Call,
+        ast.Name,
+        ast.Constant,
+        ast.Add,
+        ast.Sub,
+        ast.Mult,
+        ast.Div,
+        ast.Mod,
+        ast.Pow,
+        ast.UAdd,
+        ast.USub,
+        ast.Load,
+    )
+    for node in ast.walk(parsed):
+        if not isinstance(node, allowed_nodes):
+            raise ValueError(f"Unsupported expression element: {type(node).__name__}")
+        if isinstance(node, ast.Name) and node.id not in {
+            "x",
+            *_MATH_CONSTANTS,
+            *_MATH_FUNCTIONS,
+        }:
+            raise ValueError(f"Unknown name: {node.id}")
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name) or node.func.id not in _MATH_FUNCTIONS:
+                raise ValueError("Only approved math functions may be called")
+            if node.keywords:
+                raise ValueError("Keyword arguments are not supported")
+        if isinstance(node, ast.Constant) and (
+            isinstance(node.value, bool) or not isinstance(node.value, (int, float))
+        ):
+            raise ValueError("Only numeric constants are supported")
+    return parsed
+
+
+def _evaluate_math_expression(parsed: ast.Expression, x_value: float) -> float:
+    def evaluate(node: ast.AST) -> float:
+        if isinstance(node, ast.Expression):
+            return evaluate(node.body)
+        if isinstance(node, ast.Constant):
+            value = float(node.value)
+        elif isinstance(node, ast.Name):
+            if node.id == "x":
+                value = x_value
+            elif node.id in _MATH_CONSTANTS:
+                value = _MATH_CONSTANTS[node.id]
+            else:
+                raise ValueError("Function names cannot be used as values")
+        elif isinstance(node, ast.UnaryOp):
+            operand = evaluate(node.operand)
+            value = operand if isinstance(node.op, ast.UAdd) else -operand
+        elif isinstance(node, ast.BinOp):
+            left = evaluate(node.left)
+            right = evaluate(node.right)
+            if isinstance(node.op, ast.Add):
+                value = left + right
+            elif isinstance(node.op, ast.Sub):
+                value = left - right
+            elif isinstance(node.op, ast.Mult):
+                value = left * right
+            elif isinstance(node.op, ast.Div):
+                value = left / right
+            elif isinstance(node.op, ast.Mod):
+                value = left % right
+            elif isinstance(node.op, ast.Pow):
+                if abs(right) > _MAX_POWER:
+                    raise ValueError("Exponent is too large")
+                value = math.pow(left, right)
+            else:  # pragma: no cover - parser rejects other operators
+                raise ValueError("Unsupported operator")
+        elif isinstance(node, ast.Call):
+            function = _MATH_FUNCTIONS[node.func.id]  # type: ignore[union-attr]
+            values = [evaluate(argument) for argument in node.args]
+            value = float(function(*values))
+        else:  # pragma: no cover - parser rejects other nodes
+            raise ValueError("Unsupported expression")
+
+        if not math.isfinite(value):
+            raise ValueError("Expression produced a non-finite result")
+        return float(value)
+
+    return evaluate(parsed)
 
 
 def plot_function(
@@ -87,6 +206,9 @@ def plot_function(
     num_points:
         Number of sample points along the x range (default 200).
     """
+    # Imported lazily to keep plot expression parsing independently testable
+    # and avoid the canvas_tools -> plot_tools compatibility re-export cycle.
+    from app.tools import canvas_tools as _ct
 
     # ── Auto-position below existing board content ────────────────────
     # Use the shared text cursor as the anchor so the plot always lands
@@ -94,20 +216,13 @@ def plot_function(
     if canvas_y < 0:
         canvas_y = max(_ct._cursor_y + _PLOT_Y_GAP, _ct._CURSOR_Y_INIT + _PLOT_Y_GAP)
 
-    # ── Safe evaluation namespace ──────────────────────────────────────
-    _safe_ns: Dict[str, Any] = {
-        "__builtins__": {},
-        "x": 0.0,
-        # math functions the model is allowed to use
-        "sin": math.sin, "cos": math.cos, "tan": math.tan,
-        "asin": math.asin, "acos": math.acos, "atan": math.atan,
-        "sinh": math.sinh, "cosh": math.cosh, "tanh": math.tanh,
-        "sqrt": math.sqrt, "cbrt": lambda v: math.copysign(abs(v) ** (1/3), v),
-        "log": math.log, "log2": math.log2, "log10": math.log10,
-        "exp": math.exp, "abs": abs, "pow": pow,
-        "pi": math.pi, "e": math.e,
-        "floor": math.floor, "ceil": math.ceil,
-    }
+    if not all(math.isfinite(value) for value in (x_min, x_max)) or x_max <= x_min:
+        return {"status": "error", "message": "The x range must be finite and increasing."}
+    num_points = max(2, min(int(num_points), 2_000))
+    try:
+        parsed_expression = _parse_math_expression(expression)
+    except (SyntaxError, ValueError) as exc:
+        return {"status": "error", "message": f"Invalid math expression: {exc}"}
 
     # ── Sample the function ────────────────────────────────────────────
     step = (x_max - x_min) / max(num_points - 1, 1)
@@ -115,9 +230,8 @@ def plot_function(
 
     for i in range(num_points):
         xv = x_min + i * step
-        _safe_ns["x"] = xv
         try:
-            yv = float(eval(expression, _safe_ns))  # noqa: S307
+            yv = _evaluate_math_expression(parsed_expression, xv)
             if math.isfinite(yv):
                 raw_points.append((xv, yv))
         except Exception:
@@ -352,4 +466,4 @@ def plot_function(
     # write_text_on_canvas calls don't overlap the graph.
     _ct._cursor_y = max(_ct._cursor_y, canvas_y + canvas_height + _ct._TEXT_SPACING + 7)
 
-    return _defer_elements("plot_function", "add", elements, animation=anim_groups)
+    return _ct._defer_elements("plot_function", "add", elements, animation=anim_groups)

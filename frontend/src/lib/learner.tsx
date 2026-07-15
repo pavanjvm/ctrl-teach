@@ -13,6 +13,7 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -25,12 +26,109 @@ import type {
   Course,
   ProgressState,
   Badge,
+  LearnerSkillProfile,
+  LearningMemory,
 } from "@/lib/types";
 import { SEED_COURSES } from "@/lib/courses";
+import {
+  appendLearningMemory,
+  createAssessmentMemory,
+  createFeedbackMemory,
+  createInterestMemory,
+  createLessonMemory,
+  createPracticeMemory,
+  deriveSkillProfile,
+  mergeLearningMemories,
+  resolveLearningContext,
+  sanitizeLearningMemories,
+} from "@/lib/skillProfile";
 
 const LS_KEY = "ctrlteach_learner_v1";
+const LESSON_PROGRESS_SEPARATOR = "::";
+
+function lessonProgressId(courseId: string, lessonId: string): string {
+  return `${courseId}${LESSON_PROGRESS_SEPARATOR}${lessonId}`;
+}
+
+function localDateKey(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function advanceDailyStreak(progress: ProgressState, now = new Date()): ProgressState {
+  const today = localDateKey(now);
+  if (progress.lastActivityDate === today) return progress;
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const continued = progress.lastActivityDate === localDateKey(yesterday);
+  return {
+    ...progress,
+    streak: continued ? Math.max(1, progress.streak) + 1 : 1,
+    lastActivityDate: today,
+  };
+}
+
+function migrateProgress(progress: ProgressState | undefined, activeCourseId: string | null): ProgressState {
+  const base = defaultProgress();
+  if (!progress || typeof progress !== "object") return base;
+  const completedLessons = Array.isArray(progress.completedLessons)
+    ? Array.from(new Set(
+        progress.completedLessons
+          .filter((id): id is string => typeof id === "string" && Boolean(id))
+          .map((id) => (
+            id.includes(LESSON_PROGRESS_SEPARATOR) || !activeCourseId
+              ? id
+              : lessonProgressId(activeCourseId, id)
+          )),
+      ))
+    : [];
+  return {
+    ...base,
+    ...progress,
+    xp: Number.isFinite(progress.xp) ? Math.max(0, Math.round(progress.xp)) : 0,
+    streak: typeof progress.lastActivityDate === "string" && Number.isFinite(progress.streak)
+      ? Math.max(0, Math.round(progress.streak))
+      : 0,
+    lastActivityDate: typeof progress.lastActivityDate === "string"
+      ? progress.lastActivityDate
+      : undefined,
+    courseCompletedAt: progress.courseCompletedAt && typeof progress.courseCompletedAt === "object"
+      ? Object.fromEntries(
+          Object.entries(progress.courseCompletedAt)
+            .filter(([courseId, timestamp]) => (
+              Boolean(courseId)
+              && Number.isFinite(timestamp)
+              && Number(timestamp) > 0
+            ))
+            .map(([courseId, timestamp]) => [courseId, Math.round(Number(timestamp))]),
+        )
+      : {},
+    confidence: Number.isFinite(progress.confidence)
+      ? Math.min(5, Math.max(0, Math.round(progress.confidence)))
+      : 0,
+    completedLessons,
+    checkpoints: Array.isArray(progress.checkpoints)
+      ? Array.from(new Set(
+          progress.checkpoints
+            .filter((id): id is string => typeof id === "string" && Boolean(id))
+            .map((id) => {
+              if (id.includes(LESSON_PROGRESS_SEPARATOR) || !activeCourseId || !id.endsWith("-checkpoint")) {
+                return id;
+              }
+              const lessonId = id.slice(0, -"-checkpoint".length);
+              return `${lessonProgressId(activeCourseId, lessonId)}${LESSON_PROGRESS_SEPARATOR}assessment`;
+            }),
+        ))
+      : [],
+    badges: Array.isArray(progress.badges) ? progress.badges : base.badges,
+  };
+}
 
 interface PersistedState {
+  /** Prevents one signed-in learner from inheriting another's browser cache. */
+  ownerUserId: string | null;
   prefs: OnboardingPrefs | null;
   /** Course-specific onboarding prefs keyed by courseId. */
   coursePrefs: Record<string, CourseOnboardingPrefs>;
@@ -38,10 +136,11 @@ interface PersistedState {
   activeLessonId: string | null;
   progress: ProgressState;
   savedCourses: Course[];
+  learningMemories: LearningMemory[];
 }
 
 const DEFAULT_BADGES: Badge[] = [
-  { id: "first-session", title: "First Steps", description: "Started your first lesson", icon: "sparkles" },
+  { id: "first-session", title: "First Steps", description: "Completed your first lesson", icon: "sparkles" },
   { id: "lab-master", title: "Pixel Coach", description: "Completed a Lab Mode session", icon: "target" },
   { id: "quiz-ace", title: "Quiz Ace", description: "Scored 100% on an assessment", icon: "brain" },
   { id: "roleplayer", title: "Roleplayer", description: "Completed a roleplay simulation", icon: "users" },
@@ -52,7 +151,8 @@ const DEFAULT_BADGES: Badge[] = [
 function defaultProgress(): ProgressState {
   return {
     xp: 0,
-    streak: 1,
+    streak: 0,
+    courseCompletedAt: {},
     confidence: 0,
     completedLessons: [],
     checkpoints: [],
@@ -62,22 +162,70 @@ function defaultProgress(): ProgressState {
 
 function loadState(): PersistedState {
   const base: PersistedState = {
+    ownerUserId: null,
     prefs: null,
     coursePrefs: {},
     activeCourseId: null,
     activeLessonId: null,
     progress: defaultProgress(),
     savedCourses: [],
+    learningMemories: [],
   };
   if (typeof window === "undefined") return base;
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (raw) return { ...base, ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const activeCourseId = typeof parsed?.activeCourseId === "string" ? parsed.activeCourseId : null;
+      const progress = migrateProgress(parsed?.progress, activeCourseId);
+      const courseCompletedAt = { ...(progress.courseCompletedAt ?? {}) };
+      const knownCourses = [
+        ...SEED_COURSES,
+        ...(Array.isArray(parsed?.savedCourses) ? parsed.savedCourses : []),
+      ];
+      for (const course of knownCourses) {
+        if (!course || typeof course.id !== "string") continue;
+        const lessons = course?.modules?.flatMap((module: Course["modules"][number]) => module.lessons) ?? [];
+        if (
+          lessons.length > 0
+          && !courseCompletedAt[course.id]
+          && lessons.every((lesson: Course["modules"][number]["lessons"][number]) => (
+            progress.completedLessons.includes(lessonProgressId(course.id, lesson.id))
+          ))
+        ) {
+          courseCompletedAt[course.id] = Date.now();
+        }
+      }
+      return {
+        ...base,
+        ...parsed,
+        activeCourseId,
+        progress: { ...progress, courseCompletedAt },
+        learningMemories: sanitizeLearningMemories(parsed?.learningMemories),
+      };
+    }
   } catch {}
   return base;
 }
 
+function onboardingPrefsFromRemote(value: unknown): OnboardingPrefs | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  if (!raw.onboarded) return null;
+  return {
+    name: typeof raw.name === "string" ? raw.name : "",
+    role: typeof raw.role === "string" ? raw.role : "",
+    interests: Array.isArray(raw.interests)
+      ? raw.interests.filter((item): item is string => typeof item === "string").slice(0, 12)
+      : [],
+    preparingFor: typeof raw.preparingFor === "string" ? raw.preparingFor : "",
+    onboarded: true,
+  };
+}
+
 interface LearnerContextValue {
+  /** True once the signed-in learner's remote profile has been reconciled. */
+  learnerReady: boolean;
   prefs: OnboardingPrefs | null;
   isOnboarded: boolean;
   /** Course-specific prefs for the given id (or null if not onboarded yet). */
@@ -88,6 +236,9 @@ interface LearnerContextValue {
   activeCourseId: string | null;
   activeLessonId: string | null;
   progress: ProgressState;
+  isLessonComplete: (courseId: string, lessonId: string) => boolean;
+  learningMemories: LearningMemory[];
+  skillProfile: LearnerSkillProfile;
   /** All known courses — seeded catalog + discovered courses saved by id. */
   courses: Course[];
   setPrefs: (prefs: OnboardingPrefs) => void;
@@ -96,11 +247,38 @@ interface LearnerContextValue {
   setActiveLesson: (lessonId: string) => void;
   addCourse: (course: Course) => void;
   addXp: (amount: number) => void;
+  awardActivity: (result: {
+    courseId?: string;
+    lessonId: string;
+    kind: "assessment" | "lab";
+    xp: number;
+  }) => void;
   completeLesson: (lessonId: string) => void;
   addCheckpoint: (id: string) => void;
   setConfidence: (value: number) => void;
   bumpStreak: () => void;
   earnBadge: (id: string) => void;
+  recordAssessmentResult: (result: {
+    courseId?: string;
+    lessonId: string;
+    score: number;
+    confidence?: number;
+    correct: number;
+    total: number;
+  }) => void;
+  recordPracticeResult: (result: {
+    courseId?: string;
+    lessonId: string;
+    kind: "lab" | "roleplay";
+    summary: string;
+    evidence: string[];
+  }) => void;
+  recordLessonFeedback: (result: {
+    courseId?: string;
+    lessonId: string;
+    feedback: string;
+  }) => void;
+  clearLearningMemories: () => void;
   reset: () => void;
 }
 
@@ -109,6 +287,7 @@ const LearnerContext = createContext<LearnerContextValue | null>(null);
 export function LearnerProvider({ children }: { children: React.ReactNode }) {
   const { user, getToken } = useAuth();
   const [state, setState] = useState<PersistedState>(loadState);
+  const [hydratedUserId, setHydratedUserId] = useState<string | null>(null);
   const lastSyncRef = useRef<string>("");
 
   // Persist to localStorage on every change.
@@ -122,7 +301,30 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
   // source of truth across devices), but only prefer backend if we have none
   // locally so a half-finished onboarding isn't lost.
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setHydratedUserId(null);
+      return;
+    }
+    let cancelled = false;
+    setHydratedUserId(null);
+    lastSyncRef.current = "";
+    setState((current) => {
+      if (!current.ownerUserId || current.ownerUserId === user.uid) {
+        return current.ownerUserId === user.uid
+          ? current
+          : { ...current, ownerUserId: user.uid };
+      }
+      return {
+        ownerUserId: user.uid,
+        prefs: null,
+        coursePrefs: {},
+        activeCourseId: null,
+        activeLessonId: null,
+        progress: defaultProgress(),
+        savedCourses: [],
+        learningMemories: [],
+      };
+    });
     (async () => {
       try {
         const token = await getToken();
@@ -130,14 +332,28 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
         const res = await axios.get(`${API_URL}/api/users/me`, {
           headers: { Authorization: token },
         });
-        const remote: OnboardingPrefs | undefined = res.data?.metadata?.preferences?.ctrlteach;
-        if (remote && !state.prefs) {
-          setState((s) => ({ ...s, prefs: remote }));
+        const remoteCtrlTeach = res.data?.metadata?.preferences?.ctrlteach;
+        const remotePrefs = onboardingPrefsFromRemote(remoteCtrlTeach);
+        const remoteMemories = sanitizeLearningMemories(remoteCtrlTeach?.learnerMemory?.events);
+        if (!cancelled) {
+          setState((current) => ({
+            ...current,
+            ownerUserId: user.uid,
+            prefs: current.ownerUserId === user.uid ? current.prefs ?? remotePrefs : remotePrefs,
+            learningMemories: mergeLearningMemories(
+              current.ownerUserId === user.uid ? current.learningMemories : [],
+              remoteMemories,
+            ),
+          }));
         }
-      } catch {}
+      } catch {
+        // Local state remains usable when the profile service is unavailable.
+      } finally {
+        if (!cancelled) setHydratedUserId(user.uid);
+      }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+    return () => { cancelled = true; };
+  }, [user, getToken]);
 
   // Pull this learner's completed generated courses into their local catalog.
   // Backend versions win by id so direct URLs and My Library stay in sync.
@@ -168,40 +384,94 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [user, getToken]);
 
-  // Mirror prefs to backend (debounced by ref-key).
+  // Mirror onboarding preferences and the bounded evidence log to the profile.
   useEffect(() => {
-    if (!state.prefs || !user) return;
-    const sig = JSON.stringify(state.prefs);
+    if (
+      !user
+      || state.ownerUserId !== user.uid
+      || hydratedUserId !== user.uid
+    ) return;
+    const ctrlteach = {
+      ...(state.prefs ?? {}),
+      learnerMemory: {
+        version: 1,
+        events: state.learningMemories,
+      },
+    };
+    const sig = JSON.stringify(ctrlteach);
     if (sig === lastSyncRef.current) return;
-    lastSyncRef.current = sig;
-    (async () => {
+    let cancelled = false;
+    let startTimer: number | null = null;
+    let retryTimer: number | null = null;
+    let retryDelay = 5_000;
+    let controller: AbortController | null = null;
+    const syncProfile = async () => {
       try {
         const token = await getToken();
         if (!token) return;
+        controller = new AbortController();
         await axios.put(
           `${API_URL}/api/users/me`,
           // Nest under ctrlteach so we don't clobber other preferences.
-          { preferences: { ctrlteach: state.prefs } },
-          { headers: { Authorization: token } }
+          { preferences: { ctrlteach } },
+          { headers: { Authorization: token }, signal: controller.signal }
         );
-      } catch {}
-    })();
+        if (!cancelled) lastSyncRef.current = sig;
+      } catch (error) {
+        if (axios.isCancel(error) || (axios.isAxiosError(error) && error.code === "ERR_CANCELED")) return;
+        if (!cancelled) {
+          retryTimer = window.setTimeout(() => {
+            retryDelay = Math.min(retryDelay * 2, 60_000);
+            void syncProfile();
+          }, retryDelay);
+        }
+      }
+    };
+    startTimer = window.setTimeout(() => { void syncProfile(); }, 300);
+    return () => {
+      cancelled = true;
+      controller?.abort();
+      if (startTimer !== null) window.clearTimeout(startTimer);
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.prefs, user]);
+  }, [state.prefs, state.learningMemories, user, hydratedUserId, getToken]);
 
-  const courses = [...SEED_COURSES, ...state.savedCourses];
+  const learnerReady = !user || hydratedUserId === user.uid;
+  const ownsCachedState = user
+    ? !state.ownerUserId || state.ownerUserId === user.uid
+    : !state.ownerUserId;
+  const exposedPrefs = ownsCachedState ? state.prefs : null;
+  const exposedMemories = ownsCachedState ? state.learningMemories : [];
+  const exposedProgress = ownsCachedState ? state.progress : defaultProgress();
+  const exposedCoursePrefs = ownsCachedState ? state.coursePrefs : {};
+  const courses = [...SEED_COURSES, ...(ownsCachedState ? state.savedCourses : [])];
+  const skillProfile = useMemo(
+    () => deriveSkillProfile(exposedMemories, exposedPrefs),
+    [exposedMemories, exposedPrefs],
+  );
 
   const value: LearnerContextValue = {
-    prefs: state.prefs,
-    isOnboarded: !!state.prefs?.onboarded,
-    getCoursePrefs: (courseId) => state.coursePrefs[courseId] ?? null,
-    coursePrefs: state.coursePrefs,
-    activeCourse: courses.find((c) => c.id === state.activeCourseId) ?? null,
-    activeCourseId: state.activeCourseId,
-    activeLessonId: state.activeLessonId,
-    progress: state.progress,
+    learnerReady,
+    prefs: exposedPrefs,
+    isOnboarded: !!exposedPrefs?.onboarded,
+    getCoursePrefs: (courseId) => exposedCoursePrefs[courseId] ?? null,
+    coursePrefs: exposedCoursePrefs,
+    activeCourse: courses.find((c) => c.id === (ownsCachedState ? state.activeCourseId : null)) ?? null,
+    activeCourseId: ownsCachedState ? state.activeCourseId : null,
+    activeLessonId: ownsCachedState ? state.activeLessonId : null,
+    progress: exposedProgress,
+    isLessonComplete: (courseId, lessonId) => (
+      exposedProgress.completedLessons.includes(lessonProgressId(courseId, lessonId))
+    ),
+    learningMemories: exposedMemories,
+    skillProfile,
     courses,
-    setPrefs: (prefs) => setState((s) => ({ ...s, prefs })),
+    setPrefs: (prefs) => setState((s) => ({
+      ...s,
+      prefs,
+      learningMemories: appendLearningMemory(s.learningMemories, createInterestMemory(prefs)),
+    })),
     setCoursePrefs: (courseId, cp) =>
       setState((s) => ({
         ...s,
@@ -223,18 +493,73 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
     addXp: (amount) =>
       setState((s) => ({
         ...s,
-        progress: { ...s.progress, xp: s.progress.xp + amount },
+        progress: {
+          ...s.progress,
+          xp: s.progress.xp + Math.max(0, Math.round(Number.isFinite(amount) ? amount : 0)),
+        },
       })),
-    completeLesson: (lessonId) =>
+    awardActivity: (result) =>
       setState((s) => {
-        if (s.progress.completedLessons.includes(lessonId)) return s;
+        const courseId = result.courseId ?? s.activeCourseId;
+        if (!courseId) return s;
+        const checkpointId = `${lessonProgressId(courseId, result.lessonId)}${LESSON_PROGRESS_SEPARATOR}${result.kind}`;
+        if (s.progress.checkpoints.includes(checkpointId)) return s;
         return {
           ...s,
           progress: {
             ...s.progress,
-            xp: s.progress.xp + 50,
-            completedLessons: [...s.progress.completedLessons, lessonId],
+            xp: s.progress.xp + Math.max(0, Math.round(Number.isFinite(result.xp) ? result.xp : 0)),
+            checkpoints: [...s.progress.checkpoints, checkpointId],
           },
+        };
+      }),
+    completeLesson: (lessonId) =>
+      setState((s) => {
+        const knownCourses = [...SEED_COURSES, ...s.savedCourses];
+        const context = resolveLearningContext(knownCourses, s.activeCourseId, lessonId);
+        const courseId = context.course?.id ?? s.activeCourseId;
+        if (!courseId) return s;
+        const completionId = lessonProgressId(courseId, lessonId);
+        if (s.progress.completedLessons.includes(completionId)) return s;
+        const completedLessons = [...s.progress.completedLessons, completionId];
+        const nextProgress = advanceDailyStreak({
+          ...s.progress,
+          xp: s.progress.xp + 50,
+          completedLessons,
+        });
+        const completedCourse = context.course
+          ? context.course.modules
+              .flatMap((module) => module.lessons)
+              .every((lesson) => completedLessons.includes(lessonProgressId(courseId, lesson.id)))
+          : false;
+        const earnedBadgeIds = new Set(["first-session"]);
+        if (nextProgress.streak >= 3) earnedBadgeIds.add("streak-3");
+        if (completedCourse) earnedBadgeIds.add("certified");
+        const earnedAt = Date.now();
+        const courseCompletedAt = { ...(nextProgress.courseCompletedAt ?? {}) };
+        if (completedCourse && !courseCompletedAt[courseId]) {
+          courseCompletedAt[courseId] = earnedAt;
+        }
+        const hasDetailedMemory = s.learningMemories.some((memory) =>
+          memory.lessonId === lessonId
+          && memory.courseId === context.course?.id
+          && memory.kind !== "lesson"
+          && memory.kind !== "interest"
+        );
+        return {
+          ...s,
+          progress: {
+            ...nextProgress,
+            courseCompletedAt,
+            badges: nextProgress.badges.map((badge) =>
+              earnedBadgeIds.has(badge.id) && !badge.earnedAt
+                ? { ...badge, earnedAt }
+                : badge
+            ),
+          },
+          learningMemories: hasDetailedMemory
+            ? s.learningMemories
+            : appendLearningMemory(s.learningMemories, createLessonMemory(context)),
         };
       }),
     addCheckpoint: (id) =>
@@ -249,13 +574,28 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
     setConfidence: (v) =>
       setState((s) => ({
         ...s,
-        progress: { ...s.progress, confidence: Math.max(s.progress.confidence, Math.round(v)) },
+        progress: {
+          ...s.progress,
+          confidence: Math.min(5, Math.max(0, Math.round(Number.isFinite(v) ? v : 0))),
+        },
       })),
     bumpStreak: () =>
-      setState((s) => ({
-        ...s,
-        progress: { ...s.progress, streak: s.progress.streak + 1 },
-      })),
+      setState((s) => {
+        const progress = advanceDailyStreak(s.progress);
+        if (progress === s.progress) return s;
+        const earnedAt = Date.now();
+        return {
+          ...s,
+          progress: {
+            ...progress,
+            badges: progress.badges.map((badge) =>
+              badge.id === "streak-3" && progress.streak >= 3 && !badge.earnedAt
+                ? { ...badge, earnedAt }
+                : badge
+            ),
+          },
+        };
+      }),
     earnBadge: (id) =>
       setState((s) => ({
         ...s,
@@ -266,15 +606,67 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
           ),
         },
       })),
+    recordAssessmentResult: (result) =>
+      setState((s) => {
+        const context = resolveLearningContext(
+          [...SEED_COURSES, ...s.savedCourses],
+          s.activeCourseId,
+          result.lessonId,
+          result.courseId,
+        );
+        return {
+          ...s,
+          learningMemories: appendLearningMemory(
+            s.learningMemories,
+            createAssessmentMemory(context, result),
+          ),
+        };
+      }),
+    recordPracticeResult: (result) =>
+      setState((s) => {
+        const context = resolveLearningContext(
+          [...SEED_COURSES, ...s.savedCourses],
+          s.activeCourseId,
+          result.lessonId,
+          result.courseId,
+        );
+        return {
+          ...s,
+          learningMemories: appendLearningMemory(
+            s.learningMemories,
+            createPracticeMemory(context, result.kind, result.summary, result.evidence),
+          ),
+        };
+      }),
+    recordLessonFeedback: (result) =>
+      setState((s) => {
+        const context = resolveLearningContext(
+          [...SEED_COURSES, ...s.savedCourses],
+          s.activeCourseId,
+          result.lessonId,
+          result.courseId,
+        );
+        return {
+          ...s,
+          learningMemories: appendLearningMemory(
+            s.learningMemories,
+            createFeedbackMemory(context, result.feedback),
+          ),
+        };
+      }),
+    clearLearningMemories: () =>
+      setState((s) => ({ ...s, learningMemories: [] })),
     reset: () => {
       localStorage.removeItem(LS_KEY);
       setState({
+        ownerUserId: user?.uid ?? null,
         prefs: null,
         coursePrefs: {},
         activeCourseId: null,
         activeLessonId: null,
         progress: defaultProgress(),
         savedCourses: [],
+        learningMemories: [],
       });
     },
   };

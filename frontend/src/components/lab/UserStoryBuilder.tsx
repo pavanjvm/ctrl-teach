@@ -28,7 +28,7 @@ const fieldStyle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 400,
   color: "var(--fg)",
-  fontFamily: "Inter, system-ui, sans-serif",
+  fontFamily: '"Avenir Next", Inter, system-ui, sans-serif',
   outline: "none",
   transition: "border-color .2s, box-shadow .2s",
 };
@@ -37,19 +37,19 @@ const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: 11,
   fontWeight: 600,
-  letterSpacing: "0.08em",
+  letterSpacing: 0,
   textTransform: "uppercase",
   color: "var(--muted)",
   marginBottom: 6,
 };
 
 const Part: React.FC<{ tag: string; color: string }> = ({ tag, color }) => (
-  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.08, textTransform: "uppercase", color, marginRight: 8 }}>{tag}</span>
+  <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color, marginRight: 8 }}>{tag}</span>
 );
 
 export default function UserStoryBuilder({ values, onChange }: Props) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28, height: "100%", alignItems: "start" }}>
+    <div className="story-builder-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28, height: "100%", alignItems: "start" }}>
       {/* ── Composer ─────────────────────────────────────── */}
       <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
         <div>
@@ -60,7 +60,7 @@ export default function UserStoryBuilder({ values, onChange }: Props) {
             onChange={(e) => onChange("role", e.target.value)}
             placeholder="product manager"
             style={fieldStyle}
-            onFocus={(e) => (e.currentTarget.style.borderColor = "#6366f1")}
+            onFocus={(e) => (e.currentTarget.style.borderColor = "#79a925")}
             onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
           />
         </div>
@@ -72,7 +72,7 @@ export default function UserStoryBuilder({ values, onChange }: Props) {
             onChange={(e) => onChange("goal", e.target.value)}
             placeholder="see cohort progress at a glance"
             style={fieldStyle}
-            onFocus={(e) => (e.currentTarget.style.borderColor = "#6366f1")}
+            onFocus={(e) => (e.currentTarget.style.borderColor = "#79a925")}
             onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
           />
         </div>
@@ -84,7 +84,7 @@ export default function UserStoryBuilder({ values, onChange }: Props) {
             onChange={(e) => onChange("benefit", e.target.value)}
             placeholder="prioritise the roadmap by value"
             style={fieldStyle}
-            onFocus={(e) => (e.currentTarget.style.borderColor = "#e8590c")}
+            onFocus={(e) => (e.currentTarget.style.borderColor = "#79a925")}
             onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
           />
         </div>
@@ -100,26 +100,26 @@ export default function UserStoryBuilder({ values, onChange }: Props) {
       </div>
 
       {/* ── Live story preview ───────────────────────────── */}
-      <div data-story-card="preview" style={{ position: "sticky", top: 0, background: "#fff", border: "1.5px solid var(--border)", borderRadius: 14, padding: 24, minHeight: 360 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.1, textTransform: "uppercase", color: "var(--accent)", marginBottom: 18 }}>Story Preview</div>
+      <div className="story-builder-preview" data-story-card="preview" style={{ position: "sticky", top: 0, background: "#fff", border: "1.5px solid var(--border)", borderRadius: 8, padding: 24, minHeight: 360 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0, textTransform: "uppercase", color: "#628d1b", marginBottom: 18 }}>Story Preview</div>
         <div style={{ fontSize: 20, lineHeight: 1.5, fontWeight: 300, color: "var(--fg)" }}>
           <div style={{ marginBottom: 6 }}>
-            <Part tag="As a" color="#1864ab" />
+            <Part tag="As a" color="#10120f" />
             <span style={{ fontWeight: 500 }}>{values.role || <em style={{ color: "var(--baseline)" }}>a user</em>}</span>
           </div>
           <div style={{ marginBottom: 6 }}>
-            <Part tag="I want" color="#2f9e44" />
+            <Part tag="I want" color="#628d1b" />
             <span style={{ fontWeight: 500 }}>{values.goal || <em style={{ color: "var(--baseline)" }}>a goal</em>}</span>
           </div>
           <div>
-            <Part tag="So that" color="#7048e8" />
-            <span style={{ fontWeight: 500 }}>{values.benefit || <em style={{ color: "#e8590c", fontWeight: 600 }}>…benefit left undefined</em>}</span>
+            <Part tag="So that" color="#656960" />
+            <span style={{ fontWeight: 500 }}>{values.benefit || <em style={{ color: "#8a6514", fontWeight: 600 }}>…benefit left undefined</em>}</span>
           </div>
         </div>
 
         <div style={{ height: 1, background: "var(--border)", margin: "22px 0 16px" }} />
 
-        <div style={{ fontFamily: "Inter, monospace", fontSize: 13, lineHeight: 1.7, color: "var(--fg)" }}>
+        <div style={{ fontFamily: '"SFMono-Regular", Consolas, monospace', fontSize: 13, lineHeight: 1.7, color: "var(--fg)" }}>
           <div><span style={{ color: "#666", marginRight: 8 }}>Given</span>{values.given || <em style={{ color: "var(--baseline)" }}>a state</em>}</div>
           <div><span style={{ color: "#666", marginRight: 8 }}>When</span>{values.when || <em style={{ color: "var(--baseline)" }}>an action</em>}</div>
           <div><span style={{ color: "#666", marginRight: 8 }}>Then</span>{values.then || <em style={{ color: "var(--baseline)" }}>an outcome</em>}</div>

@@ -471,7 +471,7 @@ export default function TutorsPage() {
                         </div>
                     </div>
 
-                    <div className="dash-sidebar-card" style={{ background: 'linear-gradient(135deg, var(--bg-card) 0%, #f0efff 100%)', border: '1px solid var(--primary-light)' }}>
+                    <div className="dash-sidebar-card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
                         <h3 style={{ fontSize: '16px', fontWeight: 700, marginBottom: '8px' }}>Need a specific expert?</h3>
                         <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px', lineHeight: '1.5' }}>
                             You can create a fully custom AI tutor with specific knowledge bases, personalities, and teaching styles.
@@ -489,15 +489,20 @@ export default function TutorsPage() {
                     <>
                         {/* Backdrop */}
                         <motion.div
+                            className="tutor-modal-backdrop"
                             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
                             style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(8px)', zIndex: 1000 }}
                             onClick={() => setSelectedTutor(null)}
                         />
                         {/* Modal Dialog */}
-                        <div style={{
+                        <div className="tutor-modal-frame" style={{
                             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001, pointerEvents: 'none', padding: '24px'
                         }}>
                             <motion.div
+                                className="tutor-modal tutor-profile-modal"
+                                role="dialog"
+                                aria-modal="true"
+                                aria-label={`${selectedTutor.name} tutor profile`}
                                 initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 10 }} transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                                 style={{
                                     background: 'var(--bg-card)', borderRadius: '24px', width: '100%', maxWidth: '860px', maxHeight: '90vh', overflowY: 'auto',
@@ -506,7 +511,7 @@ export default function TutorsPage() {
                             >
                                 {/* Header / Close Button Layer */}
                                 <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '16px 24px 0', zIndex: 2 }}>
-                                    <button onClick={() => setSelectedTutor(null)} style={{ background: 'var(--bg-main)', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }} className="hover:bg-[#e2e8f0]">
+                                    <button aria-label="Close tutor profile" onClick={() => setSelectedTutor(null)} style={{ background: 'var(--bg-main)', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }} className="tutor-modal-close hover:bg-[#e2e8f0]">
                                         <X size={18} />
                                     </button>
                                 </div>
@@ -544,7 +549,7 @@ export default function TutorsPage() {
 
                                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                                             <div style={{ background: 'var(--bg-main)', padding: '16px', borderRadius: '16px', textAlign: 'center', border: '1px solid var(--border-color)' }}>
-                                                <GraduationCap size={20} className="text-indigo-500" style={{ margin: '0 auto 8px' }} />
+                                                <GraduationCap size={20} style={{ margin: '0 auto 8px', color: '#628d1b' }} />
                                                 <h3 style={{ fontSize: '20px', fontWeight: 800, margin: '0 0 4px', color: 'var(--text-main)' }}>{selectedTutor.stats.sessions}</h3>
                                                 <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.5px' }}>SESSIONS</span>
                                             </div>
@@ -563,7 +568,7 @@ export default function TutorsPage() {
 
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '32px' }}>
                                             {selectedTutor.subjects.map(s => (
-                                                <span key={s} style={{ background: '#e0e7ff', color: 'var(--primary)', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <span key={s} style={{ background: '#ebf8d1', color: '#4f7716', padding: '6px 12px', borderRadius: '8px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                     {getSubjectIcon(s)} {s}
                                                 </span>
                                             ))}
@@ -596,25 +601,25 @@ export default function TutorsPage() {
                                             <div style={{ marginBottom: '20px' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '13px', fontWeight: 600 }}>
                                                     <span style={{ color: 'var(--text-main)' }}>Speaking Speed</span>
-                                                    <span style={{ color: 'var(--primary)', fontSize: '12px', fontWeight: 700, background: '#eef2ff', padding: '2px 10px', borderRadius: '20px' }}>Normal (1x)</span>
+                                                    <span style={{ color: '#4f7716', fontSize: '12px', fontWeight: 700, background: '#ebf8d1', padding: '2px 10px', borderRadius: '20px' }}>Normal (1x)</span>
                                                 </div>
                                                 <div style={{ position: 'relative', height: '6px', background: '#e2e8f0', borderRadius: '100px', overflow: 'hidden' }}>
-                                                    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '50%', background: 'linear-gradient(90deg, var(--primary), #818cf8)', borderRadius: '100px' }} />
+                                                    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '50%', background: '#79a925', borderRadius: '0' }} />
                                                 </div>
                                             </div>
 
                                             <div style={{ marginBottom: '28px' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', fontSize: '13px', fontWeight: 600 }}>
                                                     <span style={{ color: 'var(--text-main)' }}>Explanation Depth</span>
-                                                    <span style={{ color: 'var(--primary)', fontSize: '12px', fontWeight: 700, background: '#eef2ff', padding: '2px 10px', borderRadius: '20px' }}>Detailed</span>
+                                                    <span style={{ color: '#4f7716', fontSize: '12px', fontWeight: 700, background: '#ebf8d1', padding: '2px 10px', borderRadius: '20px' }}>Detailed</span>
                                                 </div>
                                                 <div style={{ position: 'relative', height: '6px', background: '#e2e8f0', borderRadius: '100px', overflow: 'hidden' }}>
-                                                    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '100%', background: 'linear-gradient(90deg, var(--primary), #818cf8)', borderRadius: '100px' }} />
+                                                    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '100%', background: '#79a925', borderRadius: '0' }} />
                                                 </div>
                                             </div>
 
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                                <Link href={`/board?tutor=${selectedTutor.id}`} onClick={() => setSelectedTutor(null)} style={{ background: 'linear-gradient(135deg, var(--primary), #6366f1)', color: 'white', padding: '14px 24px', borderRadius: '14px', fontSize: '15px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%', textDecoration: 'none', transition: 'all 0.2s', boxShadow: '0 4px 16px rgba(79, 70, 229, 0.35)' }} className="hover:-translate-y-1 hover:shadow-lg">
+                                                <Link href={`/board?tutor=${selectedTutor.id}`} onClick={() => setSelectedTutor(null)} style={{ background: '#b7ec52', color: '#26320f', padding: '14px 24px', borderRadius: '6px', fontSize: '15px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%', textDecoration: 'none', transition: 'background .2s' }}>
                                                     Start Learning Session <ArrowRight size={18} />
                                                 </Link>
                                                 <button onClick={() => handleDeleteTutor(selectedTutor.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', padding: '10px 24px', borderRadius: '12px', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', width: '100%', cursor: 'pointer', transition: 'all 0.2s' }}
@@ -637,17 +642,17 @@ export default function TutorsPage() {
             <AnimatePresence>
                 {showCreateModal && (
                     <>
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(8px)', zIndex: 1000 }} onClick={() => { setShowCreateModal(false); resetCreateForm(); }} />
-                        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001, pointerEvents: 'none', padding: '24px' }}>
-                            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 10 }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} style={{ background: 'var(--bg-card)', borderRadius: '24px', padding: '0', width: '100%', maxWidth: '720px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 50px rgba(0,0,0,0.15)', pointerEvents: 'auto', border: '1px solid var(--border-color)' }}>
+                        <motion.div className="tutor-modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(8px)', zIndex: 1000 }} onClick={() => { setShowCreateModal(false); resetCreateForm(); }} />
+                        <div className="tutor-modal-frame" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001, pointerEvents: 'none', padding: '24px' }}>
+                            <motion.div className="tutor-modal tutor-create-modal" role="dialog" aria-modal="true" aria-labelledby="create-tutor-title" initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 10 }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} style={{ background: 'var(--bg-card)', borderRadius: '24px', padding: '0', width: '100%', maxWidth: '720px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 50px rgba(0,0,0,0.15)', pointerEvents: 'auto', border: '1px solid var(--border-color)' }}>
 
                                 {/* Header */}
-                                <div style={{ position: 'sticky', top: 0, background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', padding: '24px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: '24px 24px 0 0', zIndex: 10 }}>
+                                <div className="tutor-modal-header" style={{ position: 'sticky', top: 0, background: 'var(--bg-card)', borderBottom: '1px solid var(--border-color)', padding: '24px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: '24px 24px 0 0', zIndex: 10 }}>
                                     <div>
-                                        <h2 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '4px' }}>Create New Tutor</h2>
+                                        <h2 id="create-tutor-title" style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-main)', marginBottom: '4px' }}>Create New Tutor</h2>
                                         <p style={{ fontSize: '14px', color: 'var(--text-muted)', fontWeight: 500, margin: 0 }}>Design a fully personalized AI learning companion.</p>
                                     </div>
-                                    <button onClick={() => { setShowCreateModal(false); resetCreateForm(); }} style={{ background: 'var(--bg-main)', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s', flexShrink: 0 }}>
+                                    <button className="tutor-modal-close" aria-label="Close tutor form" onClick={() => { setShowCreateModal(false); resetCreateForm(); }} style={{ background: 'var(--bg-main)', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s', flexShrink: 0 }}>
                                         <X size={18} />
                                     </button>
                                 </div>
@@ -664,16 +669,18 @@ export default function TutorsPage() {
                                                     whileHover={{ scale: 1.08 }}
                                                     whileTap={{ scale: 0.95 }}
                                                     onClick={() => setFormAvatar(opt.src)}
+                                                    aria-label={`Use ${opt.label} persona icon`}
+                                                    aria-pressed={formAvatar === opt.src}
                                                     style={{
                                                         width: '72px', height: '72px', borderRadius: '50%', border: formAvatar === opt.src ? '3px solid var(--primary)' : '2px solid var(--border-color)',
-                                                        background: formAvatar === opt.src ? '#e0e7ff' : 'var(--bg-main)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        background: formAvatar === opt.src ? '#ebf8d1' : 'var(--bg-main)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                         cursor: 'pointer', position: 'relative', overflow: 'visible', padding: 0, transition: 'border 0.2s, background 0.2s',
-                                                        boxShadow: formAvatar === opt.src ? '0 0 0 4px rgba(79,70,229,0.15)' : 'none'
+                                                        boxShadow: formAvatar === opt.src ? '0 0 0 4px rgba(121,169,37,0.14)' : 'none'
                                                     }}
                                                 >
                                                     <Image src={opt.src} alt={opt.label} width={56} height={56} style={{ objectFit: 'contain' }} />
                                                     {formAvatar === opt.src && (
-                                                        <div style={{ position: 'absolute', bottom: '-4px', right: '-4px', width: '24px', height: '24px', borderRadius: '50%', background: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2.5px solid white', zIndex: 2, boxShadow: '0 2px 6px rgba(79,70,229,0.3)' }}>
+                                                        <div style={{ position: 'absolute', bottom: '-4px', right: '-4px', width: '24px', height: '24px', borderRadius: '50%', background: '#79a925', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2.5px solid white', zIndex: 2, boxShadow: '0 2px 6px rgba(121,169,37,0.22)' }}>
                                                             <Check size={12} color="white" strokeWidth={3} />
                                                         </div>
                                                     )}
@@ -684,11 +691,13 @@ export default function TutorsPage() {
                                                 whileHover={{ scale: 1.08 }}
                                                 whileTap={{ scale: 0.95 }}
                                                 onClick={() => setFormAvatar("")}
+                                                aria-label="Use tutor initials"
+                                                aria-pressed={formAvatar === ""}
                                                 style={{
                                                     width: '72px', height: '72px', borderRadius: '50%', border: formAvatar === "" ? '3px solid var(--primary)' : '2px dashed var(--border-color)',
-                                                    background: formAvatar === "" ? '#e0e7ff' : 'var(--bg-main)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                                    background: formAvatar === "" ? '#ebf8d1' : 'var(--bg-main)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
                                                     cursor: 'pointer', padding: 0, transition: 'border 0.2s, background 0.2s',
-                                                    boxShadow: formAvatar === "" ? '0 0 0 4px rgba(79,70,229,0.15)' : 'none'
+                                                    boxShadow: formAvatar === "" ? '0 0 0 4px rgba(121,169,37,0.14)' : 'none'
                                                 }}
                                             >
                                                 <span style={{ fontSize: '18px', fontWeight: 800, color: formAvatar === "" ? 'var(--primary)' : 'var(--text-muted)' }}>
@@ -700,25 +709,25 @@ export default function TutorsPage() {
                                     </div>
 
                                     {/* ── Name & Title Row ────────────────────── */}
-                                    <div style={{ display: 'flex', gap: '16px' }}>
+                                    <div className="tutor-form-row" style={{ display: 'flex', gap: '16px' }}>
                                         <div style={{ flex: 1 }}>
-                                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>Name Your Tutor *</label>
-                                            <input type="text" placeholder="e.g. Sir Isaac Newton" value={formName} onChange={e => setFormName(e.target.value)}
+                                            <label htmlFor="tutor-name" style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>Name Your Tutor *</label>
+                                            <input id="tutor-name" type="text" placeholder="e.g. Sir Isaac Newton" value={formName} onChange={e => setFormName(e.target.value)}
                                                 style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '15px', background: 'var(--bg-main)', color: 'var(--text-main)', fontWeight: 500 }} />
                                         </div>
                                         <div style={{ flex: 1 }}>
-                                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>Tagline / Title</label>
-                                            <input type="text" placeholder="e.g. Your fun physics guru" value={formTitle} onChange={e => setFormTitle(e.target.value)}
+                                            <label htmlFor="tutor-title" style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>Tagline / Title</label>
+                                            <input id="tutor-title" type="text" placeholder="e.g. Your fun physics guru" value={formTitle} onChange={e => setFormTitle(e.target.value)}
                                                 style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '15px', background: 'var(--bg-main)', color: 'var(--text-main)', fontWeight: 500 }} />
                                         </div>
                                     </div>
 
                                     {/* ── Subject & Personality Row ──────────── */}
-                                    <div style={{ display: 'flex', gap: '16px' }}>
+                                    <div className="tutor-form-row" style={{ display: 'flex', gap: '16px' }}>
                                         <div style={{ flex: 1, position: 'relative' }}>
-                                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>Subject Expertise *</label>
-                                            <button type="button" onClick={() => setOpenDropdown(openDropdown === 'subject' ? null : 'subject')}
-                                                style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: openDropdown === 'subject' ? '1.5px solid var(--primary)' : '1px solid var(--border-color)', outline: 'none', fontSize: '15px', background: 'var(--bg-main)', color: formSubject ? 'var(--text-main)' : 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', transition: 'border 0.2s, box-shadow 0.2s', boxShadow: openDropdown === 'subject' ? '0 0 0 3px rgba(79,70,229,0.1)' : 'none' }}>
+                                            <label id="tutor-subject-label" style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>Subject Expertise *</label>
+                                            <button type="button" aria-labelledby="tutor-subject-label" aria-haspopup="listbox" aria-expanded={openDropdown === 'subject'} onClick={() => setOpenDropdown(openDropdown === 'subject' ? null : 'subject')}
+                                                style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: openDropdown === 'subject' ? '1.5px solid #79a925' : '1px solid var(--border-color)', outline: 'none', fontSize: '15px', background: 'var(--bg-main)', color: formSubject ? 'var(--text-main)' : 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', transition: 'border 0.2s, box-shadow 0.2s', boxShadow: openDropdown === 'subject' ? '0 0 0 3px rgba(121,169,37,0.12)' : 'none' }}>
                                                 <span>{formSubject || 'Select subject'}</span>
                                                 <motion.span animate={{ rotate: openDropdown === 'subject' ? 180 : 0 }} transition={{ duration: 0.2 }}><ChevronDown size={16} color="var(--text-muted)" /></motion.span>
                                             </button>
@@ -728,7 +737,7 @@ export default function TutorsPage() {
                                                         style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '12px', boxShadow: '0 12px 32px rgba(0,0,0,0.12)', zIndex: 50, overflow: 'hidden', padding: '4px' }}>
                                                         {SUBJECT_OPTIONS.map(opt => (
                                                             <button key={opt} type="button" onClick={() => { setFormSubject(opt); setOpenDropdown(null); }}
-                                                                style={{ width: '100%', padding: '11px 14px', border: 'none', background: formSubject === opt ? '#eef2ff' : 'transparent', color: formSubject === opt ? 'var(--primary)' : 'var(--text-main)', fontSize: '14px', fontWeight: formSubject === opt ? 600 : 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '8px', transition: 'background 0.15s' }}
+                                                                style={{ width: '100%', padding: '11px 14px', border: 'none', background: formSubject === opt ? '#ebf8d1' : 'transparent', color: formSubject === opt ? '#4f7716' : 'var(--text-main)', fontSize: '14px', fontWeight: formSubject === opt ? 600 : 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '8px', transition: 'background 0.15s' }}
                                                                 onMouseEnter={e => { if (formSubject !== opt) (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-main)'; }}
                                                                 onMouseLeave={e => { if (formSubject !== opt) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
                                                                 <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>{getSubjectIcon(opt)} {opt}</span>
@@ -740,9 +749,9 @@ export default function TutorsPage() {
                                             </AnimatePresence>
                                         </div>
                                         <div style={{ flex: 1, position: 'relative' }}>
-                                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>Personality Style *</label>
-                                            <button type="button" onClick={() => setOpenDropdown(openDropdown === 'personality' ? null : 'personality')}
-                                                style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: openDropdown === 'personality' ? '1.5px solid var(--primary)' : '1px solid var(--border-color)', outline: 'none', fontSize: '15px', background: 'var(--bg-main)', color: formPersonality ? 'var(--text-main)' : 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', transition: 'border 0.2s, box-shadow 0.2s', boxShadow: openDropdown === 'personality' ? '0 0 0 3px rgba(79,70,229,0.1)' : 'none' }}>
+                                            <label id="tutor-personality-label" style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>Personality Style *</label>
+                                            <button type="button" aria-labelledby="tutor-personality-label" aria-haspopup="listbox" aria-expanded={openDropdown === 'personality'} onClick={() => setOpenDropdown(openDropdown === 'personality' ? null : 'personality')}
+                                                style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: openDropdown === 'personality' ? '1.5px solid #79a925' : '1px solid var(--border-color)', outline: 'none', fontSize: '15px', background: 'var(--bg-main)', color: formPersonality ? 'var(--text-main)' : 'var(--text-muted)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', transition: 'border 0.2s, box-shadow 0.2s', boxShadow: openDropdown === 'personality' ? '0 0 0 3px rgba(121,169,37,0.12)' : 'none' }}>
                                                 <span>{formPersonality || 'Select style'}</span>
                                                 <motion.span animate={{ rotate: openDropdown === 'personality' ? 180 : 0 }} transition={{ duration: 0.2 }}><ChevronDown size={16} color="var(--text-muted)" /></motion.span>
                                             </button>
@@ -754,7 +763,7 @@ export default function TutorsPage() {
                                                             const icons: Record<string, React.ReactNode> = { Encouraging: <Heart size={16} className="text-rose-500" />, Strict: <GraduationCap size={16} className="text-blue-500" />, Socratic: <Lightbulb size={16} className="text-amber-500" />, Humorous: <Sparkles size={16} className="text-purple-500" /> };
                                                             return (
                                                                 <button key={opt} type="button" onClick={() => { setFormPersonality(opt); setOpenDropdown(null); }}
-                                                                    style={{ width: '100%', padding: '11px 14px', border: 'none', background: formPersonality === opt ? '#eef2ff' : 'transparent', color: formPersonality === opt ? 'var(--primary)' : 'var(--text-main)', fontSize: '14px', fontWeight: formPersonality === opt ? 600 : 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '8px', transition: 'background 0.15s' }}
+                                                                    style={{ width: '100%', padding: '11px 14px', border: 'none', background: formPersonality === opt ? '#ebf8d1' : 'transparent', color: formPersonality === opt ? '#4f7716' : 'var(--text-main)', fontSize: '14px', fontWeight: formPersonality === opt ? 600 : 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '8px', transition: 'background 0.15s' }}
                                                                     onMouseEnter={e => { if (formPersonality !== opt) (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-main)'; }}
                                                                     onMouseLeave={e => { if (formPersonality !== opt) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
                                                                     <span style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>{icons[opt]} {opt}</span>
@@ -772,7 +781,7 @@ export default function TutorsPage() {
                                     <div>
                                         <label style={{ display: 'block', fontSize: '14px', fontWeight: 700, marginBottom: '4px', color: 'var(--text-main)' }}>Teaching Styles</label>
                                         <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 12px' }}>Select one or more approaches your tutor should use.</p>
-                                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
+                                        <div className="tutor-teaching-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
                                             {TEACHING_STYLE_OPTIONS.map(ts => {
                                                 const active = formStyles.includes(ts.key);
                                                 return (
@@ -781,8 +790,9 @@ export default function TutorsPage() {
                                                         whileHover={{ scale: 1.03 }}
                                                         whileTap={{ scale: 0.97 }}
                                                         onClick={() => toggleFormStyle(ts.key)}
+                                                        aria-pressed={active}
                                                         style={{
-                                                            background: active ? '#eef2ff' : 'var(--bg-main)',
+                                                            background: active ? '#ebf8d1' : 'var(--bg-main)',
                                                             border: active ? '2px solid var(--primary)' : '1px solid var(--border-color)',
                                                             borderRadius: '14px', padding: '14px 12px', cursor: 'pointer',
                                                             display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '8px',
@@ -808,11 +818,12 @@ export default function TutorsPage() {
                                     {/* ── Difficulty Level ────────────────────── */}
                                     <div>
                                         <label style={{ display: 'block', fontSize: '14px', fontWeight: 700, marginBottom: '10px', color: 'var(--text-main)' }}>Difficulty Level</label>
-                                        <div style={{ display: 'flex', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+                                        <div className="tutor-level-control" style={{ display: 'flex', borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
                                             {LEVEL_OPTIONS.map((lvl, idx) => (
                                                 <button
                                                     key={lvl}
                                                     onClick={() => setFormLevel(lvl)}
+                                                    aria-pressed={formLevel === lvl}
                                                     style={{
                                                         flex: 1, padding: '12px', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
                                                         background: formLevel === lvl ? 'var(--primary)' : 'var(--bg-main)',
@@ -828,14 +839,14 @@ export default function TutorsPage() {
                                     </div>
 
                                     {/* ── Voice & Tags Row ────────────────────── */}
-                                    <div style={{ display: 'flex', gap: '16px' }}>
+                                    <div className="tutor-form-row" style={{ display: 'flex', gap: '16px' }}>
                                         <div style={{ flex: 1 }}>
-                                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>
+                                            <label id="tutor-voice-label" style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>
                                                 <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><Volume2 size={14} /> Voice</span>
                                             </label>
                                             <div style={{ position: 'relative' }}>
-                                                <button type="button" onClick={() => setOpenDropdown(openDropdown === 'voice' ? null : 'voice')}
-                                                    style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: openDropdown === 'voice' ? '1.5px solid var(--primary)' : '1px solid var(--border-color)', outline: 'none', fontSize: '15px', background: 'var(--bg-main)', color: 'var(--text-main)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', transition: 'border 0.2s, box-shadow 0.2s', boxShadow: openDropdown === 'voice' ? '0 0 0 3px rgba(79,70,229,0.1)' : 'none' }}>
+                                                <button type="button" aria-labelledby="tutor-voice-label" aria-haspopup="listbox" aria-expanded={openDropdown === 'voice'} onClick={() => setOpenDropdown(openDropdown === 'voice' ? null : 'voice')}
+                                                    style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: openDropdown === 'voice' ? '1.5px solid #79a925' : '1px solid var(--border-color)', outline: 'none', fontSize: '15px', background: 'var(--bg-main)', color: 'var(--text-main)', fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', transition: 'border 0.2s, box-shadow 0.2s', boxShadow: openDropdown === 'voice' ? '0 0 0 3px rgba(121,169,37,0.12)' : 'none' }}>
                                                     <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                         {formVoice}
                                                         {playingVoice === formVoice && (
@@ -851,7 +862,7 @@ export default function TutorsPage() {
                                                             {VOICE_OPTIONS.map(opt => (
                                                                 <div key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                                     <button type="button" onClick={() => { setFormVoice(opt.value); setOpenDropdown(null); }}
-                                                                        style={{ flex: 1, padding: '9px 12px', border: 'none', background: formVoice === opt.value ? '#eef2ff' : 'transparent', color: formVoice === opt.value ? 'var(--primary)' : 'var(--text-main)', fontSize: '14px', fontWeight: formVoice === opt.value ? 600 : 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '8px', transition: 'background 0.15s' }}
+                                                                        style={{ flex: 1, padding: '9px 12px', border: 'none', background: formVoice === opt.value ? '#ebf8d1' : 'transparent', color: formVoice === opt.value ? '#4f7716' : 'var(--text-main)', fontSize: '14px', fontWeight: formVoice === opt.value ? 600 : 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '8px', transition: 'background 0.15s' }}
                                                                         onMouseEnter={e => { if (formVoice !== opt.value) e.currentTarget.style.background = 'var(--bg-main)'; }}
                                                                         onMouseLeave={e => { if (formVoice !== opt.value) e.currentTarget.style.background = 'transparent'; }}>
                                                                         <span>{opt.label}</span>
@@ -873,7 +884,7 @@ export default function TutorsPage() {
                                                                                 setPlayingVoice(opt.value);
                                                                             }
                                                                         }}
-                                                                        style={{ width: '32px', height: '32px', borderRadius: '8px', border: 'none', background: playingVoice === opt.value ? '#eef2ff' : 'transparent', color: playingVoice === opt.value ? 'var(--primary)' : 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s' }}
+                                                                        style={{ width: '32px', height: '32px', borderRadius: '8px', border: 'none', background: playingVoice === opt.value ? '#ebf8d1' : 'transparent', color: playingVoice === opt.value ? '#4f7716' : 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s' }}
                                                                         onMouseEnter={e => { if (playingVoice !== opt.value) e.currentTarget.style.background = 'var(--bg-main)'; }}
                                                                         onMouseLeave={e => { if (playingVoice !== opt.value) e.currentTarget.style.background = 'transparent'; }}>
                                                                         {playingVoice === opt.value ? <Square size={12} fill="currentColor" /> : <Play size={12} fill="currentColor" />}
@@ -886,8 +897,8 @@ export default function TutorsPage() {
                                             </div>
                                         </div>
                                         <div style={{ flex: 1 }}>
-                                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>Topic Tags</label>
-                                            <input type="text" placeholder="e.g. Calculus, Geometry" value={formTags} onChange={e => setFormTags(e.target.value)}
+                                            <label htmlFor="tutor-tags" style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>Topic Tags</label>
+                                            <input id="tutor-tags" type="text" placeholder="e.g. Calculus, Geometry" value={formTags} onChange={e => setFormTags(e.target.value)}
                                                 style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '15px', background: 'var(--bg-main)', color: 'var(--text-main)', fontWeight: 500 }} />
                                             <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>Comma-separated tags</span>
                                         </div>
@@ -895,8 +906,9 @@ export default function TutorsPage() {
 
                                     {/* ── Description ──────────────────────────── */}
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>Description</label>
+                                        <label htmlFor="tutor-description" style={{ display: 'block', fontSize: '14px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-main)' }}>Description</label>
                                         <textarea
+                                            id="tutor-description"
                                             placeholder="Describe what this tutor specializes in, how they should teach, or any custom instructions…"
                                             value={formDesc} onChange={e => setFormDesc(e.target.value)}
                                             rows={3}
@@ -906,7 +918,7 @@ export default function TutorsPage() {
 
                                     {/* ── Live Preview ─────────────────────────── */}
                                     {formName && (
-                                        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} style={{ background: 'linear-gradient(135deg, #f8faff 0%, #eef2ff 100%)', border: '1px solid var(--primary-light)', borderRadius: '16px', padding: '20px', display: 'flex', gap: '16px', alignItems: 'center' }}>
+                                        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} style={{ background: '#ebf8d1', border: '1px solid #cfe7a0', borderRadius: '8px', padding: '20px', display: 'flex', gap: '16px', alignItems: 'center' }}>
                                             <div style={{ width: '52px', height: '52px', borderRadius: '50%', overflow: 'hidden', background: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid white', boxShadow: '0 2px 6px rgba(0,0,0,0.06)', flexShrink: 0 }}>
                                                 {formAvatar ? (
                                                     <Image src={formAvatar} alt={formName} width={52} height={52} style={{ objectFit: 'contain' }} />
@@ -929,7 +941,7 @@ export default function TutorsPage() {
                                     )}
 
                                     {/* ── Actions ─────────────────────────────── */}
-                                    <div style={{ display: 'flex', gap: '12px', paddingTop: '4px' }}>
+                                    <div className="tutor-modal-actions" style={{ display: 'flex', gap: '12px', paddingTop: '4px' }}>
                                         <button className="btn-resume" style={{ flex: 1, justifyContent: 'center', border: 'none', padding: '16px', cursor: 'pointer', fontSize: '15px', fontWeight: 700, opacity: creating ? 0.6 : 1, pointerEvents: creating ? 'none' : 'auto' }} onClick={handleCreateTutor}>
                                             {creating ? <><Loader2 size={18} className="animate-spin" /> Creating...</> : <><Sparkles size={18} /> Generate Tutor</>}
                                         </button>

@@ -282,9 +282,7 @@ def _seed_users() -> None:
     users = settings.seeded_users
     if not users:
         return
-    from passlib.context import CryptContext
-
-    pwd = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+    from app.auth.passwords import hash_password
     with SessionLocal() as db:
         for u in users:
             username = (u.get("username") or "").strip()
@@ -297,7 +295,7 @@ def _seed_users() -> None:
             db.add(
                 User(
                     username=username,
-                    password_hash=pwd.hash(password),
+                    password_hash=hash_password(password),
                     email=u.get("email"),
                     name=u.get("name") or username,
                 )

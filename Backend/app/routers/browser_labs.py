@@ -1,4 +1,4 @@
-"""Browser lab attempts verified from Clicky extension evidence."""
+"""Browser lab attempts verified from Tars extension evidence."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 
 from app.auth.dependencies import get_current_user
-from app.auth.extension_tokens import verify_clicky_extension_token
+from app.auth.extension_tokens import verify_tars_extension_token
 from app.services import browser_labs
 
 router = APIRouter(prefix="/api/browser-labs", tags=["browser-labs"])
@@ -24,12 +24,12 @@ class BrowserLabEvidenceRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
-def get_clicky_extension_user(authorization: Optional[str] = Header(default=None)) -> dict[str, Any]:
-    user = verify_clicky_extension_token(authorization)
+def get_tars_extension_user(authorization: Optional[str] = Header(default=None)) -> dict[str, Any]:
+    user = verify_tars_extension_token(authorization)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Clicky extension token",
+            detail="Invalid Tars extension token",
         )
     return user
 
@@ -59,7 +59,7 @@ async def get_browser_lab_attempt(
 async def submit_browser_lab_evidence(
     attempt_id: str,
     request: BrowserLabEvidenceRequest,
-    user: dict[str, Any] = Depends(get_clicky_extension_user),
+    user: dict[str, Any] = Depends(get_tars_extension_user),
 ) -> BrowserLabAttemptResponse:
     return BrowserLabAttemptResponse(
         attempt=browser_labs.record_evidence(attempt_id, user, request.model_dump())

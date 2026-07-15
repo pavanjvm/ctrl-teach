@@ -1,4 +1,4 @@
-"""Teaching mode for the unified Clicky companion.
+"""Teaching mode for the unified Tars companion.
 
 Migrated to the OpenAI Agents SDK realtime layer.  The model is configured
 at the session level (RealtimeRunner) — per-agent model fields are not
@@ -19,7 +19,7 @@ from agents.realtime import RealtimeAgent, realtime_handoff
 from app.agents.companion_identity import COMPANION_AGENT_NAME, with_companion_identity
 from app.agents.planner_agent import build_planner_agent
 from app.agents.progress_agent import build_progress_agent
-from app.agents.clicky_agent import draw_on_screen, clear_screen_drawings
+from app.agents.tars_agent import draw_on_screen, clear_screen_drawings
 from app.tools.canvas_tools import canvas_tools as _canvas_tool_fns
 from app.tools.canvas_tools import (
     add_image_to_canvas,
@@ -84,7 +84,7 @@ You also have specialised assistant agents.  **Hand off** to them when needed:
 - `save_session_notes` — save notes at the end of a session.
 - `upload_canvas_snapshot` — save a snapshot of the current canvas state.
 - `generate_and_show_image` — generate an educational image and show it on the whiteboard.
-- `point_at_whiteboard` — move Clicky's cursor to a specific point in the latest whiteboard screenshot.
+- `point_at_whiteboard` — move Tars's cursor to a specific point in the latest whiteboard screenshot.
 
 ## Plotting mathematical functions
 When a student asks to see a graph or plot of a function, use `plot_function`.
@@ -146,7 +146,7 @@ The student has an Excalidraw whiteboard in front of them.  You can:
 - Draw explanations, corrections, or annotations directly using your
   canvas tools (write_text_on_canvas, draw_diagram, etc.).
 
-## Clicky pointing on the whiteboard
+## Tars pointing on the whiteboard
 If you receive a current whiteboard image and pointing would genuinely help,
 call `point_at_whiteboard(x, y, label)`.
 - Use the latest whiteboard image's pixel dimensions as the coordinate space.
@@ -223,10 +223,10 @@ This data feeds the student's dashboard — it powers "Suggested Topics" and
   NOT for transcribing what you are saying out loud.
 """
 
-BOARD_CLICKY_DRAWING_INSTRUCTION = """\
+BOARD_TARS_DRAWING_INSTRUCTION = """\
 
-## Clicky transient explanation layer
-Clicky's cursor is the visible tutor companion on the whiteboard. In addition
+## Tars transient explanation layer
+Tars's cursor is the visible tutor companion on the whiteboard. In addition
 to persistent Excalidraw canvas tools, you can draw temporary explanations over
 the current whiteboard viewport:
 - `draw_on_screen` supports circle, rectangle, highlight, underline, arrow, and line.
@@ -269,7 +269,7 @@ def build_tutor_agent(
     instruction = with_companion_identity(
         custom_instruction if custom_instruction else TUTOR_INSTRUCTION
     )
-    instruction += BOARD_CLICKY_DRAWING_INSTRUCTION
+    instruction += BOARD_TARS_DRAWING_INSTRUCTION
 
     # Direct function tools on the tutor
     excluded = excluded_canvas_tools or set()

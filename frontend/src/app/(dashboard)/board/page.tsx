@@ -20,7 +20,7 @@ import { useAuth } from "@/components/AuthProvider";
 import type { WhiteboardCanvasRef } from "@/components/WhiteboardCanvas";
 import { WS_URL, API_URL } from "@/lib/constants";
 import { generateId, base64ToArrayBuffer } from "@/lib/utils";
-import { dispatchBoardClickyDraw } from "@/lib/clickyBoardBridge";
+import { dispatchBoardTarsDraw } from "@/lib/tarsBoardBridge";
 
 // Dynamic import — Excalidraw cannot be SSR'd
 const WhiteboardCanvas = dynamic(
@@ -59,7 +59,7 @@ export default function Page() {
 
   const canvasRef = useRef<WhiteboardCanvasRef>(null);
   const [isRecording, setIsRecording] = useState(false);
-  const [clickyPointTarget, setClickyPointTarget] = useState<{
+  const [tarsPointTarget, setTarsPointTarget] = useState<{
     x: number;
     y: number;
     label?: string;
@@ -90,8 +90,8 @@ export default function Page() {
     status,
     messages,
     canvasCommands,
-    clickyPoint,
-    clickyAgentDraws,
+    tarsPoint,
+    tarsAgentDraws,
     isGeneratingImage,
     isSavingProgress,
     connect,
@@ -156,10 +156,11 @@ export default function Page() {
       }
 
       // Build WS URL — include tutor_id so backend builds a dynamic prompt
-      let url = `${WS_URL}/ws/${user.uid}/${sessionId}?mode=whiteboard&token=${encodeURIComponent(token)}`;
+      let url = `${WS_URL}/ws/${user.uid}/${sessionId}?mode=whiteboard`;
       if (tutorId) url += `&tutor_id=${tutorId}`;
 
       connect(url, {
+        authToken: token,
         onAudio: (audioData: ArrayBuffer) => {
           playAudioChunk(audioData);
         },
@@ -350,22 +351,22 @@ export default function Page() {
   // Accurate path: structured point_at_whiteboard tool response.
   useEffect(() => {
     const meta = lastCanvasSnapshotMetaRef.current;
-    if (!meta || !clickyPoint) return;
-    const x = Math.max(0, Math.min(meta.viewWidth, (clickyPoint.x / meta.imageWidth) * meta.viewWidth));
-    const y = Math.max(0, Math.min(meta.viewHeight, (clickyPoint.y / meta.imageHeight) * meta.viewHeight));
-    setClickyPointTarget({ x, y, label: clickyPoint.label, id: clickyPoint.id });
-  }, [clickyPoint]);
+    if (!meta || !tarsPoint) return;
+    const x = Math.max(0, Math.min(meta.viewWidth, (tarsPoint.x / meta.imageWidth) * meta.viewWidth));
+    const y = Math.max(0, Math.min(meta.viewHeight, (tarsPoint.y / meta.imageHeight) * meta.viewHeight));
+    setTarsPointTarget({ x, y, label: tarsPoint.label, id: tarsPoint.id });
+  }, [tarsPoint]);
 
   // The board owns the only active Realtime session. Forward its temporary
-  // drawing tools to Global Clicky's visual overlay after converting the
+  // drawing tools to Global Tars's visual overlay after converting the
   // whiteboard screenshot coordinates into browser viewport coordinates.
   useEffect(() => {
-    for (const draw of clickyAgentDraws) {
+    for (const draw of tarsAgentDraws) {
       if (bridgedDrawIdsRef.current.has(draw.id)) continue;
 
       if (draw.tool === "clear_screen_drawings") {
         bridgedDrawIdsRef.current.add(draw.id);
-        dispatchBoardClickyDraw({ ...draw, coordinateSpace: "viewport" });
+        dispatchBoardTarsDraw({ ...draw, coordinateSpace: "viewport" });
         continue;
       }
 
@@ -383,7 +384,7 @@ export default function Page() {
       const end = convertPoint(draw.endX, draw.endY);
       if (!start) continue;
       bridgedDrawIdsRef.current.add(draw.id);
-      dispatchBoardClickyDraw({
+      dispatchBoardTarsDraw({
         ...draw,
         x: start.x,
         y: start.y,
@@ -392,7 +393,7 @@ export default function Page() {
         coordinateSpace: "viewport",
       });
     }
-  }, [clickyAgentDraws]);
+  }, [tarsAgentDraws]);
 
   // ── Cleanup on unmount ──────────────────────────────────────────────────
 
@@ -508,8 +509,8 @@ export default function Page() {
             ref={canvasRef}
             canvasCommands={canvasCommands}
             isGeneratingImage={isGeneratingImage}
-            clickyActive={connected}
-            clickyPointTarget={clickyPointTarget}
+            tarsActive={connected}
+            tarsPointTarget={tarsPointTarget}
           />
         </div>
 

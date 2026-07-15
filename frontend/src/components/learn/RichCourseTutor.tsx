@@ -51,12 +51,12 @@ export default function RichCourseTutor({
       const token = await getToken();
       if (!token) throw new Error("Sign in again to start the tutor.");
       const query = new URLSearchParams({
-        token,
         course_id: courseId,
         lesson_id: lessonId,
         mode: "course_reader",
       });
       connect(`${WS_URL}/ws/${user.uid}/${sessionId}?${query.toString()}`, {
+        authToken: token,
         onAudio: (audio) => playAudioChunk(audio),
         onInterrupt: clearPlayback,
         onToolAudio: (encoded) => playAudioChunk(base64ToArrayBuffer(encoded)),

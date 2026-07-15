@@ -946,11 +946,11 @@ def point_at_whiteboard(
     label: str = "right here",
     target_area: str = "board",
 ) -> Dict[str, Any]:
-    """Move Clicky's cursor to a point in the latest whiteboard screenshot.
+    """Move Tars's cursor to a point in the latest whiteboard screenshot.
 
     Coordinates are a rough hint in the latest whiteboard screenshot. A
     dedicated GPT-5.6 Sol visual grounding pass corrects the final pixel before the
-    frontend animates Clicky. Set target_area to ``course_image`` when the
+    frontend animates Tars. Set target_area to ``course_image`` when the
     target is inside the generated lesson image; Excalidraw then supplies its
     exact visible bounds and localization runs only inside that crop. Always
     use a concrete label such as ``Docker image blueprint box`` rather than
@@ -959,7 +959,7 @@ def point_at_whiteboard(
     return {
         "status": "ok",
         "tool": "point_at_whiteboard",
-        "clickyPoint": {
+        "tarsPoint": {
             "x": x,
             "y": y,
             "label": label or "right here",

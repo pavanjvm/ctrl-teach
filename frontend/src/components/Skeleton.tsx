@@ -106,33 +106,6 @@ export function DashboardSkeleton() {
   );
 }
 
-/* ── Schedule skeleton ───────────────────────────────────────────── */
-
-export function ScheduleSkeleton() {
-  return (
-    <div className="dash-content fade-in" style={{ padding: "32px 40px" }}>
-      <Skeleton width="30%" height={28} style={{ marginBottom: 8 }} />
-      <Skeleton width="50%" height={16} style={{ marginBottom: 32 }} />
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 32 }}>
-        <SkeletonCard height={400} />
-        <div>
-          <Skeleton width="40%" height={20} style={{ marginBottom: 16 }} />
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} style={{ display: "flex", gap: 12, marginBottom: 14 }}>
-              <Skeleton width={60} height={60} borderRadius={12} />
-              <div style={{ flex: 1 }}>
-                <Skeleton width="60%" height={14} style={{ marginBottom: 6 }} />
-                <Skeleton width="40%" height={12} />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ── Profile skeleton ────────────────────────────────────────────── */
 
 export function ProfileSkeleton() {

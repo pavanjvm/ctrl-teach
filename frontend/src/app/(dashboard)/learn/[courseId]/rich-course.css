@@ -16,7 +16,7 @@
 /* Overview */
 .rich-overview { width: min(1320px, calc(100% - 56px)); margin: 0 auto; padding: 38px 0 100px; color: var(--fg); }
 .rich-overview-hero { display: grid; grid-template-columns: minmax(0, .95fr) minmax(460px, 1.05fr); gap: clamp(38px, 6vw, 84px); align-items: center; padding: 36px 0 64px; }
-.rich-overview-copy h1 { max-width: 720px; margin: 14px 0 18px; font-size: clamp(45px, 5.8vw, 78px); font-weight: 300; letter-spacing: -.055em; line-height: .98; }
+.rich-overview-copy h1 { max-width: 720px; margin: 14px 0 18px; font-size: clamp(38px, 4.6vw, 64px); font-weight: 300; letter-spacing: -.055em; line-height: .98; }
 .rich-overview-copy h1 span { color: var(--accent); }
 .rich-overview-copy > p { max-width: 650px; color: var(--muted); font-size: 15px; font-weight: 300; line-height: 1.7; }
 .rich-overview-meta { display: flex; flex-wrap: wrap; gap: 18px; margin: 27px 0; color: var(--muted); font-size: 11px; }
@@ -73,7 +73,7 @@
 .rich-lesson-actions { width: min(790px, calc(100% - 64px)); margin-right: auto; margin-left: auto; }
 .rich-lesson-head { padding: 68px 0 26px; }
 .rich-lesson-head > span { color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
-.rich-lesson-head h1 { max-width: 730px; margin: 13px 0 15px; font-size: clamp(38px, 5vw, 62px); font-weight: 300; letter-spacing: -.045em; line-height: 1.02; }
+.rich-lesson-head h1 { max-width: 730px; margin: 13px 0 15px; font-size: clamp(36px, 4vw, 54px); font-weight: 300; letter-spacing: -.045em; line-height: 1.02; }
 .rich-lesson-head p { max-width: 670px; color: var(--muted); font-size: 14px; line-height: 1.65; }
 .rich-lesson-rule { width: 74px; height: 2px; margin-top: 30px; background: var(--accent); }
 .rich-blocks { padding-bottom: 25px; }
@@ -195,6 +195,103 @@
 .rich-tutor-compose input { min-width: 0; border: 1px solid var(--border); padding: 8px; background: #fff; color: var(--fg); font: inherit; font-size: 10px; outline: none; }
 .rich-tutor-compose button { display: grid; place-items: center; border: 1px solid var(--border); background: transparent; color: var(--fg); cursor: pointer; }
 .rich-tutor-error { padding: 8px 10px; border-top: 1px solid #e7c7c0; background: #fff4f1; color: #8b3d32; font-size: 9px; line-height: 1.4; }
+
+/* Readability pass: course content should remain comfortable at normal zoom. */
+.rich-kicker,
+.rich-section-label,
+.rich-reader-course > span,
+.rich-reader-nav nav section > span,
+.rich-lesson-head > span,
+.rich-grid-cards article > span,
+.rich-flip-front small,
+.rich-flip-back small,
+.rich-browser-lab-head > span,
+.rich-browser-lab-list > span,
+.rich-quiz-head > span,
+.rich-sources > span,
+.rich-tutor-head > span,
+.rich-tutor-message > span {
+  font-size: 11.5px;
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+
+.rich-primary,
+.rich-secondary {
+  min-height: 42px;
+  font-size: 12.5px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.rich-text-link,
+.rich-reader-back { font-size: 13px; }
+
+.rich-overview-copy h1 {
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.08;
+}
+
+.rich-overview-copy > p { font-size: 16px; font-weight: 400; line-height: 1.72; }
+.rich-overview-meta { font-size: 13px; line-height: 1.45; }
+.rich-cover span,
+.rich-resume-line span { font-size: 11px; letter-spacing: 0; }
+.rich-overview-main > h2 { font-weight: 650; letter-spacing: 0; line-height: 1.2; }
+.rich-module-list h3 { font-weight: 600; line-height: 1.35; }
+.rich-module-list li button { font-size: 14.5px; line-height: 1.45; }
+.rich-module-list li small { font-size: 12px; }
+.rich-overview-side li,
+.rich-overview-side p { font-size: 14px; line-height: 1.65; }
+
+.rich-reader-course > strong { font-size: 18px; font-weight: 650; line-height: 1.4; }
+.rich-reader-nav nav button { min-height: 43px; }
+.rich-reader-nav nav button b { font-size: 13.5px; font-weight: 450; line-height: 1.45; }
+.rich-reader-nav nav button small { font-size: 11px; }
+.rich-lesson-head h1 { font-weight: 650; letter-spacing: 0; line-height: 1.1; }
+.rich-lesson-head p { font-size: 16px; line-height: 1.7; }
+.rich-block > h2,
+.rich-content-block h2 { font-weight: 650; letter-spacing: 0; line-height: 1.3; }
+.rich-content-block p,
+.rich-tab-panel p { color: #363a34; font-size: 16.5px; font-weight: 400; line-height: 1.75; }
+.rich-grid-cards h3,
+.rich-numbered-list h3 { font-size: 17px; font-weight: 650; line-height: 1.4; }
+.rich-numbered-list li > span { font-size: 12px; letter-spacing: 0; }
+.rich-grid-cards p,
+.rich-numbered-list p { font-size: 14px; line-height: 1.65; }
+.rich-tab-list button { font-size: 13px; }
+.rich-flip-front strong,
+.rich-flip-back strong { font-size: 16px; line-height: 1.55; }
+.rich-image-block figcaption,
+.rich-accessibility { font-size: 12.5px; line-height: 1.55; }
+.rich-block-sources a,
+.rich-sources a { font-size: 11.5px; }
+
+.rich-browser-lab-head p { font-size: 14px; line-height: 1.65; }
+.rich-browser-lab-status strong,
+.rich-browser-lab-list li strong { font-size: 14px; }
+.rich-browser-lab-status span,
+.rich-browser-lab-list li small,
+.rich-browser-lab-actions small,
+.rich-browser-lab-error { font-size: 12px; line-height: 1.5; }
+.rich-browser-lab-status a { font-size: 12px; letter-spacing: 0; text-transform: none; }
+
+.rich-quiz-numbers button { width: 32px; height: 32px; font-size: 12px; }
+.rich-quiz-question > div > button { min-height: 54px; font-size: 14px; line-height: 1.45; }
+.rich-quiz-question > div > button > span { font-size: 11px; }
+.rich-quiz-feedback strong { font-size: 13px; }
+.rich-quiz-feedback p { font-size: 13px; line-height: 1.6; }
+.rich-quiz-feedback button { font-size: 12px; text-transform: none; }
+.rich-lesson-actions small { font-size: 12px; }
+
+.rich-tutor-head > strong { font-size: 15px; }
+.rich-tutor-intro p,
+.rich-tutor-empty { font-size: 13px; line-height: 1.65; }
+.rich-tutor-intro button { min-height: 40px; font-size: 12px; letter-spacing: 0; text-transform: none; }
+.rich-tutor-status { font-size: 12px; }
+.rich-tutor-message p { font-size: 13.5px; line-height: 1.6; }
+.rich-tutor-compose input { font-size: 14px; }
+.rich-tutor-error { font-size: 12px; line-height: 1.5; }
 
 @media (max-width: 1160px) {
   .rich-reader-shell { grid-template-columns: 220px minmax(520px, 1fr); }

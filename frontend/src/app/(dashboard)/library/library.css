@@ -11,7 +11,9 @@
 .library-card:hover { border-color: var(--fg); }
 .library-card > button { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .library-cover { position: relative; display: grid; height: 205px; place-items: center; overflow: hidden; border-bottom: 1px solid var(--border); background: linear-gradient(135deg, #efe8d7, #c39b48 120%); background-position: center; background-size: cover; color: rgba(30,30,30,.45); }
-.library-cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,.3)); pointer-events: none; }
+.library-cover > img { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.library-cover-fallback { position: relative; z-index: 0; }
+.library-cover::after { content: ""; position: absolute; z-index: 1; inset: 0; background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,.3)); pointer-events: none; }
 .library-status { position: absolute; z-index: 2; top: 13px; left: 13px; padding: 5px 8px; border: 1px solid rgba(255,255,255,.6); background: rgba(20,20,20,.62); color: #fff; font-size: 8px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; backdrop-filter: blur(5px); }
 .library-status.failed { background: #8b3d32; }
 .library-progress { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; height: 3px; background: rgba(255,255,255,.3); }

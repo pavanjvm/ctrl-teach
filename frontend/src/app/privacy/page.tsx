@@ -1,34 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 
 export default function PrivacyPolicyPage() {
   return (
-    <div style={{
+    <div className="legal-page" style={{
       minHeight: "100vh",
       background: "#f8fafc",
       color: "#0f172a",
       fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     }}>
       {/* Header */}
-      <header style={{
+      <header className="legal-header" style={{
         borderBottom: "1px solid #e2e8f0",
         padding: "16px 28px",
         background: "#ffffff",
       }}>
-        <div style={{ maxWidth: 800, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
-          <Link href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit" }}>
-            <Image src="/Logo.png" alt="Ctrl+Teach" width={32} height={32} style={{ borderRadius: 8 }} />
-            <span style={{ fontSize: 12, fontWeight: 500, letterSpacing: "0.18em", textTransform: "uppercase" }}>Ctrl<span style={{ color: "#D4A574" }}>+</span>Teach</span>
+        <div className="legal-header-inner" style={{ maxWidth: 800, margin: "0 auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <Link className="legal-brand" href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none", color: "inherit" }}>
+            <span>Ctrl<span>+</span>Teach</span>
           </Link>
         </div>
       </header>
 
       {/* Content */}
-      <main style={{ maxWidth: 800, margin: "0 auto", padding: "48px 24px 80px" }}>
-        <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Privacy Policy</h1>
-        <p style={{ color: "#64748b", marginBottom: 32 }}>Last updated: March 9, 2026</p>
+      <main className="legal-main" style={{ maxWidth: 800, margin: "0 auto", padding: "48px 24px 80px" }}>
+        <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Privacy Policy<span>.</span></h1>
+        <p className="legal-updated" style={{ color: "#64748b", marginBottom: 32 }}>Last updated: July 14, 2026</p>
 
         <section style={{ marginBottom: 32 }}>
           <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>1. Introduction</h2>
@@ -42,9 +40,9 @@ export default function PrivacyPolicyPage() {
           <p style={{ lineHeight: 1.7, color: "#334155", marginBottom: 12 }}>We may collect the following types of information:</p>
           <ul style={{ lineHeight: 1.8, color: "#334155", paddingLeft: 24 }}>
             <li><strong>Account Information:</strong> When you sign up locally, we store the username and profile information you provide.</li>
-            <li><strong>Google Calendar Data:</strong> If you connect your Google Calendar, we access your calendar events solely to help you manage your study schedule. We do not store calendar data on our servers beyond what is needed for the session.</li>
-            <li><strong>Usage Data:</strong> We collect information about how you interact with the platform, including questions asked, whiteboard sessions, and learning progress.</li>
-            <li><strong>Audio Data:</strong> When you use voice features, audio is processed in real time for transcription and AI responses. We do not permanently store raw audio recordings.</li>
+            <li><strong>Learning Profile Data:</strong> We store the preferences, course progress, practice results, reflections, and skill evidence used to build your learner profile.</li>
+            <li><strong>Session Data:</strong> We collect information about whiteboard and tutoring sessions, including prompts, transcripts, and generated visuals.</li>
+            <li><strong>Audio Data:</strong> When you use voice features, audio is sent to our AI service provider for real-time transcription and responses. Ctrl+Teach does not permanently store raw audio recordings.</li>
           </ul>
         </section>
 
@@ -53,7 +51,6 @@ export default function PrivacyPolicyPage() {
           <ul style={{ lineHeight: 1.8, color: "#334155", paddingLeft: 24 }}>
             <li>To provide, operate, and maintain the Ctrl+Teach tutoring platform.</li>
             <li>To personalize your learning experience and track academic progress.</li>
-            <li>To integrate with Google Calendar for study scheduling (when authorized by you).</li>
             <li>To improve our AI models and platform features.</li>
             <li>To communicate with you about updates or changes to our service.</li>
           </ul>
@@ -65,9 +62,8 @@ export default function PrivacyPolicyPage() {
             We do not sell your personal information. We may share data with third-party service providers only as necessary to operate the platform, including:
           </p>
           <ul style={{ lineHeight: 1.8, color: "#334155", paddingLeft: 24 }}>
-            <li><strong>Google:</strong> For authentication and Calendar integration (via OAuth 2.0).</li>
-            <li><strong>Firebase / Google Cloud:</strong> For data storage and hosting infrastructure.</li>
-            <li><strong>AI Service Providers:</strong> For processing tutoring interactions (e.g., Google Gemini).</li>
+            <li><strong>OpenAI:</strong> For real-time tutoring, transcription, course generation, and generated visual assets.</li>
+            <li><strong>Infrastructure Providers:</strong> Hosting and network providers may process data only as needed to operate the service.</li>
           </ul>
         </section>
 
@@ -81,7 +77,7 @@ export default function PrivacyPolicyPage() {
         <section style={{ marginBottom: 32 }}>
           <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>6. Data Retention</h2>
           <p style={{ lineHeight: 1.7, color: "#334155" }}>
-            We retain your account information and learning data for as long as your account is active. You may request deletion of your data at any time by contacting us. Google Calendar data is only accessed during active sessions and is not permanently stored.
+            We retain your account information and learning data for as long as your account is active. You can clear learner memories from your profile, and you may request deletion of your remaining account data by contacting us.
           </p>
         </section>
 
@@ -91,18 +87,15 @@ export default function PrivacyPolicyPage() {
           <ul style={{ lineHeight: 1.8, color: "#334155", paddingLeft: 24 }}>
             <li>Access the personal data we hold about you.</li>
             <li>Request correction or deletion of your personal data.</li>
-            <li>Revoke Google Calendar access at any time through your Google Account settings.</li>
+            <li>Clear the learning memories used to build your skill profile.</li>
             <li>Opt out of non-essential data collection.</li>
           </ul>
         </section>
 
         <section style={{ marginBottom: 32 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>8. Google API Services</h2>
+          <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>8. AI Processing</h2>
           <p style={{ lineHeight: 1.7, color: "#334155" }}>
-            Ctrl+Teach&apos;s use and transfer of information received from Google APIs adheres to the{" "}
-            <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer" style={{ color: "#D4A574" }}>
-              Google API Services User Data Policy
-            </a>, including the Limited Use requirements.
+            Voice, text prompts, and course-generation requests may be sent to OpenAI to provide the feature you requested. We limit those requests to the context needed for the tutoring interaction.
           </p>
         </section>
 
@@ -121,7 +114,7 @@ export default function PrivacyPolicyPage() {
           </p>
         </section>
 
-        <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 24, marginTop: 48, display: "flex", gap: 24 }}>
+        <div className="legal-footer" style={{ borderTop: "1px solid #e2e8f0", paddingTop: 24, marginTop: 48, display: "flex", gap: 24 }}>
           <Link href="/" style={{ color: "#D4A574", textDecoration: "none" }}>&larr; Back to Home</Link>
           <Link href="/terms" style={{ color: "#D4A574", textDecoration: "none" }}>Terms of Service</Link>
         </div>

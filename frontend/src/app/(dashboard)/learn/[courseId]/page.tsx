@@ -28,7 +28,7 @@ export default function RichCourseOverviewPage() {
   const params = useParams<{ courseId: string }>();
   const router = useRouter();
   const { getToken } = useAuth();
-  const { addCourse, setActiveCourse, progress } = useLearner();
+  const { addCourse, setActiveCourse, isLessonComplete } = useLearner();
   const [course, setCourse] = useState<Course | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,14 +55,19 @@ export default function RichCourseOverviewPage() {
   useEffect(() => { void load(); }, [load]);
 
   const lessons = useMemo(() => course?.modules.flatMap((module) => module.lessons) ?? [], [course]);
-  const completed = lessons.filter((lesson) => progress.completedLessons.includes(lesson.id)).length;
-  const firstIncomplete = lessons.find((lesson) => !progress.completedLessons.includes(lesson.id)) ?? lessons[0];
+  const completed = course
+    ? lessons.filter((lesson) => isLessonComplete(course.id, lesson.id)).length
+    : 0;
+  const firstIncomplete = course
+    ? lessons.find((lesson) => !isLessonComplete(course.id, lesson.id)) ?? lessons[0]
+    : lessons[0];
+  const allComplete = lessons.length > 0 && completed === lessons.length;
 
   function start() {
     if (!course || !firstIncomplete) return;
     addCourse(course);
     setActiveCourse(course.id, firstIncomplete.id);
-    router.push(`/learn/${course.id}/${firstIncomplete.id}`);
+    router.push(allComplete ? "/learn/completion" : `/learn/${course.id}/${firstIncomplete.id}`);
   }
 
   if (loading) return <div className="rich-load"><Loader2 className="rich-spin" size={25} /> Loading your course…</div>;
@@ -91,7 +96,7 @@ export default function RichCourseOverviewPage() {
             <span><BookOpen size={14} /> {course.modules.length} modules · {lessons.length} lessons</span>
           </div>
           <button type="button" className="rich-primary" onClick={start}>
-            {completed ? "Resume course" : "Start course"} <ArrowRight size={15} />
+            {allComplete ? "View certificate" : completed ? "Resume course" : "Start course"} <ArrowRight size={15} />
           </button>
         </motion.div>
         <motion.div
@@ -126,7 +131,7 @@ export default function RichCourseOverviewPage() {
                   <ol>
                     {module.lessons.map((lesson) => (
                       <li key={lesson.id}>
-                        <span>{progress.completedLessons.includes(lesson.id) ? <Check size={12} /> : null}</span>
+                        <span>{isLessonComplete(course.id, lesson.id) ? <Check size={12} /> : null}</span>
                         <button type="button" onClick={() => router.push(`/learn/${course.id}/${lesson.id}`)}>{lesson.title}</button>
                         <small>{lesson.duration}</small>
                       </li>

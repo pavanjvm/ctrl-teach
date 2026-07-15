@@ -155,7 +155,7 @@ export function useAudio() {
 
   // Browser autoplay policies can leave contexts created from an async effect
   // suspended. Call this directly from a keyboard/click handler to unlock both
-  // Clicky's microphone processing and speaker output.
+  // Tars's microphone processing and speaker output.
   const resumeContexts = useCallback(() => {
     if (recorderCtxRef.current?.state === "suspended") {
       void recorderCtxRef.current.resume();

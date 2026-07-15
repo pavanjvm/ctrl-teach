@@ -211,7 +211,7 @@ ChipRow.displayName = "ChipRow";
 export default function OnboardingPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
-  const { prefs, isOnboarded, setPrefs } = useLearner();
+  const { prefs, isOnboarded, learnerReady, setPrefs } = useLearner();
 
   const [answers, setAnswers] = useState<Answers>(() => {
     const base: Answers = {};
@@ -240,7 +240,7 @@ export default function OnboardingPage() {
 
   // ── Guards ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (loading) return;
+    if (loading || (user && !learnerReady)) return;
     if (!user) {
       router.push("/login");
       return;
@@ -248,7 +248,7 @@ export default function OnboardingPage() {
     if (isOnboarded) {
       router.push("/dashboard");
     }
-  }, [user, loading, isOnboarded, router]);
+  }, [user, loading, isOnboarded, learnerReady, router]);
 
   // ── Pre-fill name from the auth profile once it's available ─────────────────
   useEffect(() => {
@@ -352,7 +352,7 @@ export default function OnboardingPage() {
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
-  if (loading) {
+  if (loading || (user && !learnerReady)) {
     return (
       <div className="ob-page ob-loading">
         <p>Loading…</p>
@@ -509,8 +509,8 @@ export default function OnboardingPage() {
                   {step.id === "review" && (
                     <div className="ob-review">
                       <div className="ob-review-greeting">
-                        Hi {answers.name?.trim() || "there"}! I'm Clicky, your
-                        AI coach. Say "Clicky" anytime you need me.
+                        Hi {answers.name?.trim() || "there"}! I'm Tars, your
+                        AI coach. Say "Tars" anytime you need me.
                       </div>
                       <ul className="ob-review-list">
                         <li className="ob-review-row">

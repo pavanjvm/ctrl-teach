@@ -69,7 +69,7 @@ async def create_draft(
         raise HTTPException(status_code=400, detail="Use one source at a time.")
 
     if syllabus is not None:
-        contents = await syllabus.read()
+        contents = await syllabus.read(20 * 1024 * 1024 + 1)
         if len(contents) > 20 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="Syllabus files must be 20 MB or smaller.")
         try:
@@ -201,4 +201,3 @@ async def publish_course(
         db.commit()
         db.refresh(row)
         return {"published": _response(row)}
-

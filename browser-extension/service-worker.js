@@ -1,5 +1,7 @@
-const LOCAL_STATE_KEY = "ctrlteach_clicky_extension_state";
-const SESSION_TOKEN_KEY = "ctrlteach_clicky_extension_token";
+importScripts("extension-assets.js");
+
+const LOCAL_STATE_KEY = "ctrlteach_tars_extension_state";
+const SESSION_TOKEN_KEY = "ctrlteach_tars_extension_token";
 const CTRLTEACH_ORIGINS = new Set([
   "http://localhost:3000",
   "http://127.0.0.1:3000",
@@ -69,7 +71,7 @@ async function ensureOffscreen() {
   await chrome.offscreen.createDocument({
     url: "offscreen.html",
     reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
-    justification: "Clicky needs persistent microphone capture and response audio across tab changes.",
+    justification: "Tars needs persistent microphone capture and response audio across tab changes.",
   });
 }
 
@@ -91,24 +93,26 @@ async function ensureContentScript(tabId) {
   if (typeof tabId !== "number") return false;
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab || !isNormalPage(tab.url || "")) return false;
-  const ready = await sendToTab(tabId, { type: "CLICKY_EXTENSION_PING" });
+  const ready = await sendToTab(tabId, { type: "TARS_EXTENSION_PING" });
   if (ready?.ok) return true;
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
       func: () => {
-        delete window.__ctrlTeachClickyExtensionLoaded;
-        document.getElementById("ctrlteach-clicky-extension")?.remove();
+        delete window.__ctrlTeachTarsExtensionLoaded;
+        document.getElementById("ctrlteach-tars-extension")?.remove();
       },
     });
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ["content.js"],
+      // Recovery injection must match manifest order. content.js depends on
+      // both helpers and must never be injected by itself on an existing tab.
+      files: [...TarsExtensionAssets.CONTENT_SCRIPT_FILES],
     });
-    const injected = await sendToTab(tabId, { type: "CLICKY_EXTENSION_PING" });
+    const injected = await sendToTab(tabId, { type: "TARS_EXTENSION_PING" });
     return Boolean(injected?.ok);
   } catch (error) {
-    console.warn("[Clicky] could not inject content script", tab.url, error);
+    console.warn("[Tars] could not inject content script", tab.url, error);
     return false;
   }
 }
@@ -207,7 +211,7 @@ async function postLabEvidence(kind, payload = {}) {
     }
     return data;
   } catch (error) {
-    console.warn("[Clicky] browser lab evidence failed", error);
+    console.warn("[Tars] browser lab evidence failed", error);
     return null;
   }
 }
@@ -251,7 +255,7 @@ async function recordLabEvent(kind, payload = {}) {
 async function publishState(tabId = activeTabId) {
   if (typeof tabId !== "number") return;
   if (!await ensureContentScript(tabId)) return;
-  await sendToTab(tabId, { type: "CLICKY_STATE", state: publicState(tabId) });
+  await sendToTab(tabId, { type: "TARS_STATE", state: publicState(tabId) });
 }
 
 async function configureFromApp(config, sender) {
@@ -276,7 +280,7 @@ async function configureFromApp(config, sender) {
 
   await ensureOffscreen();
   await sendToOffscreen({
-    type: "CLICKY_CONFIG",
+    type: "TARS_CONFIG",
     config: { ...state, accessToken },
   });
   return {
@@ -289,7 +293,7 @@ async function configureFromApp(config, sender) {
 async function startBrowserLab(message, sender) {
   if (!isTrustedBridgeSender(sender)) return { ok: false, error: "untrusted_origin" };
   await loadState();
-  if (!state.enabled || !accessToken) return { ok: false, error: "clicky_disabled" };
+  if (!state.enabled || !accessToken) return { ok: false, error: "tars_disabled" };
   const lab = message.lab || {};
   const attemptId = String(message.attemptId || "");
   const launchUrl = String(message.launchUrl || lab.launchUrl || "");
@@ -345,17 +349,17 @@ async function beginPushToTalk(tabId, trigger = "keyboard") {
   if (!tab || !isNormalPage(tab.url || "")) return;
   const contextId = crypto.randomUUID();
   currentTurn = { contextId, tabId, windowId: tab.windowId };
-  await sendToTab(tabId, { type: "CLICKY_PREPARE_PTT", contextId, trigger });
-  await sendToOffscreen({ type: "CLICKY_PTT_START", contextId, tabId });
-  await sendToTab(tabId, { type: "CLICKY_MODE", mode: "listening", trigger });
+  await sendToTab(tabId, { type: "TARS_PREPARE_PTT", contextId, trigger });
+  await sendToOffscreen({ type: "TARS_PTT_START", contextId, tabId });
+  await sendToTab(tabId, { type: "TARS_MODE", mode: "listening", trigger });
 }
 
 async function cancelPushToTalk(reason = "cancelled") {
   const turn = currentTurn;
   currentTurn = null;
   if (!turn) return;
-  await sendToOffscreen({ type: "CLICKY_PTT_CANCEL", reason });
-  await sendToTab(turn.tabId, { type: "CLICKY_MODE", mode: "idle" });
+  await sendToOffscreen({ type: "TARS_PTT_CANCEL", reason });
+  await sendToTab(turn.tabId, { type: "TARS_MODE", mode: "idle" });
 }
 
 function safeTabInventory(tabs) {
@@ -375,45 +379,46 @@ async function finishPushToTalk(tabId) {
   currentTurn = null;
   if (!turn || turn.tabId !== tabId || tabId !== activeTabId) {
     if (turn) {
-      await sendToOffscreen({ type: "CLICKY_PTT_CANCEL", reason: "tab_changed" });
-      await sendToTab(turn.tabId, { type: "CLICKY_MODE", mode: "idle" });
+      await sendToOffscreen({ type: "TARS_PTT_CANCEL", reason: "tab_changed" });
+      await sendToTab(turn.tabId, { type: "TARS_MODE", mode: "idle" });
     }
     return;
   }
   const speech = await sendToOffscreen({
-    type: "CLICKY_PTT_END",
+    type: "TARS_PTT_END",
     contextId: turn.contextId,
   });
   if (!speech?.hasSpeech) {
-    await sendToTab(tabId, { type: "CLICKY_MODE", mode: "idle" });
+    await sendToTab(tabId, { type: "TARS_MODE", mode: "idle" });
     return;
   }
   const context = await sendToTab(tabId, {
-    type: "CLICKY_COLLECT_CONTEXT",
+    type: "TARS_COLLECT_CONTEXT",
     contextId: turn.contextId,
   });
   if (!context?.ok) {
-    await sendToOffscreen({ type: "CLICKY_PTT_CANCEL", reason: "context_unavailable" });
-    await sendToTab(tabId, { type: "CLICKY_MODE", mode: "idle" });
+    await sendToOffscreen({ type: "TARS_PTT_CANCEL", reason: "context_unavailable" });
+    await sendToTab(tabId, { type: "TARS_MODE", mode: "idle" });
     return;
   }
   let screenshotDataUrl = "";
   try {
+    // Keep the exact visible-tab pixels for GPT computer-use grounding. JPEG
+    // artifacts are especially damaging around tiny text, icons, and edges.
     screenshotDataUrl = await chrome.tabs.captureVisibleTab(turn.windowId, {
-      format: "jpeg",
-      quality: 94,
+      format: "png",
     });
   } catch (error) {
-    console.warn("[Clicky] visible-tab capture failed", error);
+    console.warn("[Tars] visible-tab capture failed", error);
   }
   if (!screenshotDataUrl) {
-    await sendToOffscreen({ type: "CLICKY_PTT_CANCEL", reason: "capture_failed" });
-    await sendToTab(tabId, { type: "CLICKY_MODE", mode: "idle" });
+    await sendToOffscreen({ type: "TARS_PTT_CANCEL", reason: "capture_failed" });
+    await sendToTab(tabId, { type: "TARS_MODE", mode: "idle" });
     return;
   }
   const tabs = await chrome.tabs.query({ windowId: turn.windowId });
   await sendToOffscreen({
-    type: "CLICKY_PTT_CONTEXT",
+    type: "TARS_PTT_CONTEXT",
     turn: {
       ...turn,
       screenshotDataUrl,
@@ -421,41 +426,41 @@ async function finishPushToTalk(tabId) {
       tabs: safeTabInventory(tabs),
     },
   });
-  await sendToTab(tabId, { type: "CLICKY_MODE", mode: "thinking" });
+  await sendToTab(tabId, { type: "TARS_MODE", mode: "thinking" });
 }
 
 async function routeOffscreenEvent(message) {
-  if (message.type === "CLICKY_CONTEXT_BOUND") {
+  if (message.type === "TARS_CONTEXT_BOUND") {
     activeContext = message.context;
     return;
   }
-  if (message.type === "CLICKY_MIC_REQUIRED") {
+  if (message.type === "TARS_MIC_REQUIRED") {
     if (!micSetupOpened) {
       micSetupOpened = true;
       await chrome.tabs.create({ url: chrome.runtime.getURL("setup.html") });
     }
     return;
   }
-  if (message.type === "CLICKY_STATUS") {
-    await sendToTab(activeTabId, { type: "CLICKY_STATUS", ...message });
+  if (message.type === "TARS_STATUS") {
+    await sendToTab(activeTabId, { type: "TARS_STATUS", ...message });
     return;
   }
   const context = activeContext;
   if (!context || context.tabId !== activeTabId) return;
-  if (message.type === "CLICKY_POINT") {
-    await sendToTab(context.tabId, { type: "CLICKY_POINT", context, response: message.response });
-  } else if (message.type === "CLICKY_DRAW") {
-    await sendToTab(context.tabId, { type: "CLICKY_DRAW", context, tool: message.tool, response: message.response });
-  } else if (message.type === "CLICKY_DRAW_BATCH") {
-    await sendToTab(context.tabId, { type: "CLICKY_DRAW_BATCH", context, tool: message.tool, responses: message.responses });
-  } else if (message.type === "CLICKY_ACTION") {
+  if (message.type === "TARS_POINT") {
+    await sendToTab(context.tabId, { type: "TARS_POINT", context, response: message.response });
+  } else if (message.type === "TARS_DRAW") {
+    await sendToTab(context.tabId, { type: "TARS_DRAW", context, tool: message.tool, response: message.response });
+  } else if (message.type === "TARS_DRAW_BATCH") {
+    await sendToTab(context.tabId, { type: "TARS_DRAW_BATCH", context, tool: message.tool, responses: message.responses });
+  } else if (message.type === "TARS_ACTION") {
     const action = message.response?.action;
     if (action === "activate_tab") {
       const raw = String(message.response?.targetId || "").replace(/^tab-/, "");
       const targetTabId = Number(raw);
       if (Number.isInteger(targetTabId)) await chrome.tabs.update(targetTabId, { active: true }).catch(() => undefined);
     } else {
-      await sendToTab(context.tabId, { type: "CLICKY_ACTION", context, response: message.response });
+      await sendToTab(context.tabId, { type: "TARS_ACTION", context, response: message.response });
     }
   }
 }
@@ -465,7 +470,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   void (async () => {
     await loadState();
     switch (message?.type) {
-      case "CTRLTEACH_CLICKY_CONFIG":
+      case "CTRLTEACH_TARS_CONFIG":
         sendResponse(await configureFromApp(message.config || {}, sender));
         return;
       case "CTRLTEACH_BROWSER_LAB_START":
@@ -477,18 +482,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case "CTRLTEACH_BROWSER_LAB_CLEANUP_READY":
         sendResponse(await markBrowserLabCleanupReady(message, sender));
         return;
-      case "CLICKY_PAGE_READY":
+      case "TARS_PAGE_READY":
         if (sender.tab?.active) activeTabId = sender.tab.id;
         sendResponse({ ok: true, state: publicState(sender.tab?.id) });
         return;
-      case "CLICKY_EXTENSION_PING":
+      case "TARS_EXTENSION_PING":
         sendResponse({ ok: true });
         return;
-      case "CLICKY_CURSOR_POSITION":
+      case "TARS_CURSOR_POSITION":
         if (sender.tab?.id === activeTabId) latestCursor = { x: Number(message.x) || 0, y: Number(message.y) || 0 };
         sendResponse({ ok: true });
         return;
-      case "CLICKY_LAB_INTERACTION":
+      case "TARS_LAB_INTERACTION":
         await recordLabEvent(message.kind || "event", {
           ...(message.payload || {}),
           url: sender.tab?.url || message.payload?.url || "",
@@ -496,20 +501,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
         sendResponse({ ok: true });
         return;
-      case "CLICKY_PTT_START":
+      case "TARS_PTT_START":
         await beginPushToTalk(sender.tab?.id, "keyboard");
         sendResponse({ ok: true });
         return;
-      case "CLICKY_PTT_STOP":
+      case "TARS_PTT_STOP":
         await finishPushToTalk(sender.tab?.id);
         sendResponse({ ok: true });
         return;
-      case "CLICKY_MIC_GRANTED":
+      case "TARS_MIC_GRANTED":
         micSetupOpened = false;
-        await sendToOffscreen({ type: "CLICKY_RETRY_MIC" });
+        await sendToOffscreen({ type: "TARS_RETRY_MIC" });
         sendResponse({ ok: true });
         return;
-      case "CLICKY_OFFSCREEN_EVENT":
+      case "TARS_OFFSCREEN_EVENT":
         await routeOffscreenEvent(message.event || {});
         sendResponse({ ok: true });
         return;
@@ -550,7 +555,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 void loadState().then(async () => {
   if (state.enabled && accessToken) {
-    await sendToOffscreen({ type: "CLICKY_CONFIG", config: { ...state, accessToken } });
+    await sendToOffscreen({ type: "TARS_CONFIG", config: { ...state, accessToken } });
   }
   const appTabs = await chrome.tabs.query({
     url: ["http://localhost:3000/*", "http://127.0.0.1:3000/*"],
