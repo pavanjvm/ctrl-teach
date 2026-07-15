@@ -26,7 +26,6 @@ import { Skeleton } from "@/components/Skeleton";
 import { API_URL } from "@/lib/constants";
 import { assetUrl, isGenerationActive, type GeneratedCourseJob } from "@/lib/generatedCourses";
 import {
-  cprimeDiscoverUrl,
   rankCourseRecommendations,
   rankCprimeRecommendations,
 } from "@/lib/homeRecommendations";
@@ -433,8 +432,8 @@ export default function HomePage() {
                 <div className="home-cprime-action">
                   <span><Sparkles size={12} /> {reason}</span>
                   <small>{course.duration}</small>
-                  <Link href={cprimeDiscoverUrl(course)}>
-                    Create this course <ArrowRight size={14} />
+                  <Link href={course.url} target="_blank" rel="noopener noreferrer">
+                    Join the bootcamp <ArrowRight size={14} />
                   </Link>
                 </div>
               </article>

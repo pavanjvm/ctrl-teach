@@ -12,7 +12,7 @@ export interface CprimeCourseRecommendation {
   difficulty: "Beginner" | "Intermediate" | "Advanced";
   duration: string;
   tags: string[];
-  prompt: string;
+  url: string;
 }
 
 export interface RankedCourseRecommendation {
@@ -55,33 +55,33 @@ const MEANINGFUL_SHORT_WORDS = new Set(["ai", "ba", "bi", "ux"]);
 export const CPRIME_COURSES: CprimeCourseRecommendation[] = [
   {
     id: "cprime-effective-user-stories",
+    url: "https://www.cprime.com/learning/courses/user-story-workshop/",
     title: "Effective User Stories",
     summary: "Write focused stories, testable acceptance criteria, and clearer requirements with your team.",
     category: "Business analysis",
     difficulty: "Intermediate",
     duration: "1 day",
     tags: ["User Stories", "Acceptance Criteria", "Product Ownership", "Agile", "Requirements"],
-    prompt: "Create a Cprime-style Effective User Stories course that teaches practical story writing, acceptance criteria, splitting techniques, and coached team exercises.",
   },
   {
     id: "cprime-agentic-openai",
+    url: "https://www.cprime.com/learning/courses/building-agentic-apps-with-the-openai-sdk/",
     title: "Building Agentic Apps with the OpenAI SDK",
     summary: "Design reliable tool-using agents, structured workflows, guardrails, and production evaluations.",
     category: "Data and AI",
     difficulty: "Advanced",
     duration: "2 days",
     tags: ["AI", "Agents", "OpenAI", "LLM Tooling", "Structured Outputs", "Evals"],
-    prompt: "Create a Cprime-style Building Agentic Apps with the OpenAI SDK course covering tool use, structured outputs, multi-step workflows, guardrails, evaluation, and a production capstone.",
   },
   {
     id: "cprime-jira-agile",
+    url: "https://www.cprime.com/learning/courses/jira-and-agile-projects/",
     title: "Jira and Agile Projects",
     summary: "Build practical Jira workflows that support backlogs, sprint delivery, reporting, and team collaboration.",
     category: "Atlassian",
     difficulty: "Beginner",
     duration: "1 day",
     tags: ["Jira", "Agile", "Scrum", "Backlog Grooming", "Sprint Planning", "Product Management"],
-    prompt: "Create a Cprime-style Jira and Agile Projects course with guided practice for backlogs, boards, sprint workflows, issue types, filters, and reporting.",
   },
 ];
 
@@ -172,6 +172,3 @@ export function rankCprimeRecommendations(
     .sort((left, right) => right.score - left.score || left.course.title.localeCompare(right.course.title));
 }
 
-export function cprimeDiscoverUrl(course: CprimeCourseRecommendation): string {
-  return `/discover?prompt=${encodeURIComponent(course.prompt)}&source=cprime`;
-}
