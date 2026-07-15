@@ -180,6 +180,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { name: "Create", href: "/discover" },
         { name: "My Library", href: "/library" },
         { name: "Workspace", href: "/learn" },
+        { name: "Role Playing", href: "/role-playing" },
         { name: "Tutors", href: "/tutors" },
         { name: "Whiteboard", href: "/board" },
         { name: "Achievements", href: "/profile?tab=achievements" },

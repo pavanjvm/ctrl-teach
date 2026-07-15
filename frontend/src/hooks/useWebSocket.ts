@@ -338,6 +338,16 @@ export function useWebSocket() {
     }
   }, [beginAssistantTurn]);
 
+  const sendRoleplayStart = useCallback((instruction: string) => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      // Start the actor without showing the configuration packet as a learner
+      // transcript message.
+      beginAssistantTurn();
+      ws.send(JSON.stringify({ type: "roleplay_start", instruction }));
+    }
+  }, [beginAssistantTurn]);
+
   const sendCompanionContext = useCallback((page: {
     route: string;
     url?: string;
@@ -893,6 +903,7 @@ export function useWebSocket() {
     acknowledgeVisualSync,
     sendText,
     sendClassroomStart,
+    sendRoleplayStart,
     sendCompanionContext,
     sendAudio,
     sendImage,

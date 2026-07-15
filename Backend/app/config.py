@@ -28,6 +28,17 @@ class Settings(BaseSettings):
     transcription_model: str = "gpt-4o-mini-transcribe"
     course_generation_model: str = "gpt-5.4-mini"
     image_model: str = "gpt-image-2"
+
+    # Tavus is used only as the realtime face renderer for Role Playing.
+    # The API key stays on the backend; the browser receives a short-lived
+    # Daily meeting token for the conversation it starts.
+    tavus_api_key: str = ""
+    tavus_face_id: str = ""
+    tavus_pal_id: str = ""
+    # Backward-compatible aliases for deployments configured before Tavus
+    # renamed Replicas/Personas to Faces/PALs.
+    tavus_replica_id: str = ""
+    tavus_persona_id: str = ""
     tars_visual_locator_enabled: bool = True
     tars_visual_locator_model: str = "gpt-5.6-sol"
     tars_visual_locator_trial_models: str = "gpt-5.6-sol"

@@ -51,6 +51,7 @@ from app.agents.tutor_agent import TUTOR_INSTRUCTION, build_tutor_agent
 from app.agents.companion_identity import COMPANION_AGENT_NAME
 from app.agents.prompt_builder import build_tutor_instruction
 from app.agents.tars_agent import build_tars_agent
+from app.agents.roleplay_agent import build_roleplay_agent
 from app.auth.extension_tokens import verify_tars_extension_token
 from app.auth.session_tokens import verify_app_session_token
 from app.config import settings
@@ -63,6 +64,7 @@ from app.routers import discover as discover_router
 from app.routers import tars as tars_router
 from app.routers import generated_courses as generated_courses_router
 from app.routers import browser_labs as browser_labs_router
+from app.routers import roleplay as roleplay_router
 from app.utils.errors import (
     ErrorCategory,
     ErrorPayload,
@@ -236,6 +238,7 @@ app.include_router(discover_router.router)
 app.include_router(tars_router.router)
 app.include_router(generated_courses_router.router)
 app.include_router(browser_labs_router.router)
+app.include_router(roleplay_router.router)
 
 # Only generated course media is public. Private learner snapshots remain on
 # disk for agent workflows and are never exposed through StaticFiles.
@@ -361,7 +364,12 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
     # where reverse proxies and access logs would otherwise retain them.
     legacy_agent = websocket.query_params.get("agent") or ""
     requested_mode = websocket.query_params.get("mode") or ""
-    agent_kind = "tars" if requested_mode == "page" or legacy_agent == "tars" else "tutor"
+    if requested_mode == "roleplay":
+        agent_kind = "roleplay"
+    elif requested_mode == "page" or legacy_agent == "tars":
+        agent_kind = "tars"
+    else:
+        agent_kind = "tutor"
     protocol_header = websocket.headers.get("sec-websocket-protocol") or ""
     requested_protocols = [item.strip() for item in protocol_header.split(",") if item.strip()]
     app_protocol_prefix = "ctrlteach-auth."
@@ -426,7 +434,12 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
     root_agent: Optional[RealtimeAgent] = default_root_agent
     custom_tutor_instruction: Optional[str] = None
 
-    if agent_kind == "tars":
+    if agent_kind == "roleplay":
+        root_agent = build_roleplay_agent()
+        tutor_voice = settings.realtime_voice
+        logger.info("Roleplay mode selected for user=%s session=%s", user_id, session_id)
+
+    elif agent_kind == "tars":
         # Tars owns its own agent tree and never depends on tutor config.
         root_agent = build_tars_agent()
         tutor_voice = settings.realtime_voice
@@ -1069,7 +1082,12 @@ whiteboard, so do not call canvas, image-generation, or screen-drawing tools.
                     continue
 
                 try:
-                    if msg_type == "classroom_start":
+                    if msg_type == "roleplay_start":
+                        instruction = (json_msg.get("instruction") or "").strip()
+                        if requested_mode == "roleplay" and instruction:
+                            await session.send_message(instruction[:6000])
+
+                    elif msg_type == "classroom_start":
                         instruction = (json_msg.get("instruction") or "").strip()
                         if classroom_mode and instruction:
                             _cancel_auto_continue()

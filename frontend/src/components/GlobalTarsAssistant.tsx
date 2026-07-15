@@ -580,6 +580,7 @@ export default function GlobalTarsAssistant() {
   const isLanding = pathname === "/";
   const isWhiteboardSession = pathname === "/board"
     || pathname === "/learn"
+    || pathname === "/role-playing"
     || /^\/learn\/generated-[^/]+\/classroom$/.test(pathname);
   const globalTarsActive = enabled && !isWhiteboardSession && extensionAvailable === false;
   const showCursor = globalTarsActive;
