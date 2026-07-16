@@ -55,7 +55,7 @@ class Settings(BaseSettings):
 
     # ── Database (SQLite) ───────────────────────────────────────────────────
     # A local file path. Use "sqlite:///:memory:" for an ephemeral DB.
-    database_url: str = "sqlite:///./boardyboo.db"
+    database_url: str = "sqlite:///./ctrlteach.db"
 
     # ── Auth ────────────────────────────────────────────────────────────────
     # JSON list of {"username":"x","password":"y"} seeded into the users

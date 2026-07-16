@@ -1,6 +1,6 @@
 # Virtual environment
 venv/
-.venv/
+.venv
 
 # Python
 __pycache__/
@@ -24,4 +24,4 @@ all_env.yaml
 Thumbs.db
 
 # Firebase
-boardyboo-firebase-adminsdk-fbsvc-93f523d8d4.json
+*-firebase-adminsdk-*.json

@@ -26,6 +26,8 @@ import type {
   Course,
   CourseCitation,
   CourseContentBlock,
+  BrowserLabAttempt,
+  BrowserLabRecoveryMemory,
   FlipCardsContentBlock,
   InfoTabsContentBlock,
   QuizContentBlock,
@@ -39,6 +41,25 @@ type QuizProgress = {
   total: number;
 };
 
+function recoveryMemory(attempt: BrowserLabAttempt): BrowserLabRecoveryMemory | undefined {
+  const cycles = (attempt.recoveryHistory ?? []).map((recovery) => ({
+    recoveryId: recovery.id,
+    gapKey: recovery.gapKey,
+    failedStepId: recovery.failedStep.id,
+    failedStepInstruction: recovery.failedStep.instruction,
+    misconception: recovery.misconception.title,
+    practiceAttempts: recovery.practiceAttempts.length,
+    finalOutcome: recovery.finalOutcome || recovery.status,
+  }));
+  if (!cycles.length) return undefined;
+  return {
+    type: "browser_lab",
+    attemptId: attempt.id,
+    finalOutcome: attempt.status,
+    cycles,
+  };
+}
+
 export default function RichLessonPage() {
   const params = useParams<{ courseId: string; lessonId: string }>();
   const router = useRouter();
@@ -50,6 +71,7 @@ export default function RichLessonPage() {
     completeLesson,
     isLessonComplete,
     recordAssessmentResult,
+    recordPracticeResult,
   } = useLearner();
   const [course, setCourse] = useState<Course | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,7 +120,7 @@ export default function RichLessonPage() {
   const quizBlocks = lesson?.contentBlocks?.filter((block) => block.type === "quiz") ?? [];
   const lessonAlreadyComplete = Boolean(lesson && course && isLessonComplete(course.id, lesson.id));
   const quizzesDone = isBrowserLab
-    ? lessonAlreadyComplete || browserLabVerified
+    ? browserLabVerified
     : lessonAlreadyComplete || quizBlocks.every((block) => (
         block.questions.length > 0
         && quizProgress[block.id]?.answered === block.questions.length
@@ -187,9 +209,26 @@ export default function RichLessonPage() {
                 courseId={params.courseId}
                 lessonId={lesson.id}
                 browserLab={lesson.browserLab}
-                completed={lessonAlreadyComplete || browserLabVerified}
                 getToken={getToken}
-                onVerified={() => {
+                onVerified={(attempt) => {
+                  const recovery = recoveryMemory(attempt);
+                  const recoveryCount = recovery?.cycles.length ?? 0;
+                  const evidenceCount = attempt.evidenceCount ?? attempt.verification?.evidenceCount ?? 0;
+                  recordPracticeResult({
+                    courseId: course.id,
+                    lessonId: lesson.id,
+                    kind: "lab",
+                    activityId: attempt.id,
+                    summary: recoveryCount
+                      ? `Recovered from ${recoveryCount} browser-lab gap${recoveryCount === 1 ? "" : "s"}, then passed the original task and cleanup.`
+                      : "Completed the original browser task and required cleanup after backend verification.",
+                    evidence: [
+                      `${evidenceCount} browser evidence events verified`,
+                      ...(recoveryCount ? [`${recoveryCount} targeted recover${recoveryCount === 1 ? "y" : "ies"} completed`] : []),
+                      "Original success criteria and cleanup verified",
+                    ],
+                    recovery,
+                  });
                   setBrowserLabVerified(true);
                   completeLesson(lesson.id);
                 }}

@@ -26,6 +26,7 @@ import type {
   Course,
   ProgressState,
   Badge,
+  BrowserLabRecoveryMemory,
   LearnerSkillProfile,
   LearningMemory,
 } from "@/lib/types";
@@ -272,6 +273,8 @@ interface LearnerContextValue {
     kind: "lab" | "roleplay";
     summary: string;
     evidence: string[];
+    activityId?: string;
+    recovery?: BrowserLabRecoveryMemory;
   }) => void;
   recordLessonFeedback: (result: {
     courseId?: string;
@@ -634,7 +637,10 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
           ...s,
           learningMemories: appendLearningMemory(
             s.learningMemories,
-            createPracticeMemory(context, result.kind, result.summary, result.evidence),
+            createPracticeMemory(context, result.kind, result.summary, result.evidence, {
+              activityId: result.activityId,
+              recovery: result.recovery,
+            }),
           ),
         };
       }),

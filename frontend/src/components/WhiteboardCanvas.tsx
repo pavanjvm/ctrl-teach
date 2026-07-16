@@ -13,6 +13,11 @@ import { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardR
 import "@excalidraw/excalidraw/index.css";
 import html2canvas from "html2canvas";
 import type { CanvasCommand, AnimationGroup } from "@/hooks/useWebSocket";
+import {
+  compileStructuredDiagrams,
+  isStructuredDiagramElement,
+} from "@/lib/diagramLayout";
+import { layoutClassroomViewportText } from "@/lib/classroomTextLayout";
 
 // Corner radius applied to AI-generated images (px)
 const IMAGE_CORNER_RADIUS = 20;
@@ -180,6 +185,9 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
     const tarsSpringVelocity = useRef({ x: 0, y: 0 });
     const tarsSpringTimestamp = useRef<number | null>(null);
     const [tarsBubbleText, setTarsBubbleText] = useState("");
+    const animFrameRef = useRef<number>(0);
+    const animTracksRef = useRef<AnimTrack[]>([]);
+    const animFrameCountRef = useRef<number>(0);
 
     const setTarsTransform = useCallback((x: number, y: number, rot: number, scale: number, opacity = 1) => {
       const el = tarsElRef.current;
@@ -187,8 +195,12 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
       el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${rot}deg) scale(${scale})`;
       el.style.opacity = String(opacity);
       tarsRotationRef.current = rot;
-      if (tarsBubbleAnchorRef.current) {
-        tarsBubbleAnchorRef.current.style.transform = `rotate(${-rot}deg)`;
+      const bubbleAnchor = tarsBubbleAnchorRef.current;
+      if (bubbleAnchor) {
+        const opensLeft = x > (containerRef.current?.clientWidth ?? 0) - 260;
+        bubbleAnchor.style.left = opensLeft ? "-16px" : "16px";
+        bubbleAnchor.style.transform = `${opensLeft ? "translateX(-100%) " : ""}rotate(${-rot}deg)`;
+        bubbleAnchor.style.transformOrigin = opensLeft ? "100% 0" : "0 0";
       }
     }, []);
 
@@ -358,12 +370,27 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
 
     const toExcalidrawElements = useCallback((aiElements: any[]) => {
       const convert = convertRef.current;
+      const availableDiagramWidth = Math.max(
+        340,
+        (containerRef.current?.clientWidth || 900) - 144,
+      );
+      const expandedElements = compileStructuredDiagrams(aiElements, {
+        maxWidth: availableDiagramWidth,
+      });
+      const appState = appStateRef.current;
+      const zoom = Math.max(0.1, Number(appState?.zoom?.value) || 1);
+      const scrollX = Number(appState?.scrollX) || 0;
+      const visibleSceneRight = (containerRef.current?.clientWidth || 900) / zoom - scrollX;
+      const viewportElements = layoutClassroomViewportText(expandedElements, {
+        rightBoundary: visibleSceneRight,
+        rightMargin: 48 / zoom,
+      });
 
       // Separate image elements (handled manually) from standard elements
       const imageElements: any[] = [];
       const standardElements: any[] = [];
 
-      for (const el of aiElements) {
+      for (const el of viewportElements) {
         if (el.type === "image") {
           imageElements.push(el);
         } else {
@@ -401,6 +428,11 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           opacity: el.opacity ?? 100,
         };
 
+        if (el.id) base.id = el.id;
+        if (el.strokeWidth != null) base.strokeWidth = el.strokeWidth;
+        if (el.roughness != null) base.roughness = el.roughness;
+        if (el.label) base.label = el.label;
+
         if (el.width != null) base.width = el.width;
         if (el.height != null) base.height = el.height;
 
@@ -409,15 +441,15 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           base.text = el.text ?? "";
           base.fontSize = el.fontSize ?? 20;
           base.fontFamily = el.fontFamily ?? 1;
-          // Don't set width/height on text — let Excalidraw auto-size.
-          // If the AI provided explicit width (e.g. for flowchart labels),
-          // keep it; otherwise remove any width that was set above so
-          // convertToExcalidrawElements doesn't clip the text.
-          if (el.width == null) delete base.width;
-          if (el.height == null) delete base.height;
           // Diagram labels provide a measured box and must stay bounded while
-          // animating. Free-standing text can continue to auto-size.
-          base.autoResize = el.autoResize ?? el.width == null;
+          // animating. Free-standing classroom text must be measured by the
+          // browser because the backend cannot know Excalidraw's font metrics.
+          const autoResize = el.autoResize ?? el.width == null;
+          base.autoResize = autoResize;
+          if (autoResize) {
+            delete base.width;
+            delete base.height;
+          }
           if (el.textAlign != null) base.textAlign = el.textAlign;
           if (el.verticalAlign != null) base.verticalAlign = el.verticalAlign;
         }
@@ -429,6 +461,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
             [0, 0],
             [el.width ?? 100, el.height ?? 50],
           ];
+          if (el.start) base.start = el.start;
+          if (el.end) base.end = el.end;
         }
 
         // Freedraw
@@ -465,12 +499,20 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
         // The converter may supply its own autoResize default. Restore the
         // source sizing mode so measured diagram labels do not expand into
         // adjacent nodes.
-        convertedStandard = convertedStandard.map((el, idx) => {
+        const freeTextModes = standardElements
+          .filter((source) => source.type === "text")
+          .map((source) => source.autoResize ?? source.width == null);
+        let freeTextIndex = 0;
+        convertedStandard = convertedStandard.map((el) => {
           if (el.type === "text") {
-            const source = standardElements[idx];
+            if (el.containerId) {
+              return { ...el, autoResize: false };
+            }
+            const autoResize = freeTextModes[freeTextIndex] ?? el.autoResize ?? true;
+            freeTextIndex += 1;
             return {
               ...el,
-              autoResize: source?.autoResize ?? source?.width == null,
+              autoResize,
             };
           }
           return el;
@@ -518,7 +560,8 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
     //    Used to push new tutor content below student drawings.
 
     const getContentBottomY = useCallback((api: any): number => {
-      const elements = api.getSceneElements();
+      const activeAnimationElements = animTracksRef.current.flatMap((track) => track.allConverted);
+      const elements = [...api.getSceneElements(), ...activeAnimationElements];
       let maxBottom = 0;
       for (const el of elements) {
         if (el.isDeleted) continue;
@@ -599,10 +642,6 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
       startTs: number;
       elementIds: Set<string>;
     }
-
-    const animFrameRef = useRef<number>(0);
-    const animTracksRef = useRef<AnimTrack[]>([]);
-    const animFrameCountRef = useRef<number>(0);
 
     useEffect(() => {
       const api = apiRef.current;
@@ -904,15 +943,28 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
           }
         }
 
+        const containsStructuredDiagram = cmd.elements.some(isStructuredDiagramElement);
+        const convertedCommandElements = toExcalidrawElements(cmd.elements);
+        const effectiveAnimation = cmd.animation && cmd.animation.length > 0
+          ? cmd.animation
+          : containsStructuredDiagram
+            ? [{
+                start: 0,
+                end: convertedCommandElements.length,
+                delay: 0,
+                duration: 650,
+              }]
+            : undefined;
+
         // ── Animated rendering path ──────────────────────────────────
         // Create a new animation track — runs concurrently with any
         // existing tracks (no finalization / cancellation).
-        if (cmd.animation && cmd.animation.length > 0) {
-          const groups = cmd.animation;
+        if (effectiveAnimation && effectiveAnimation.length > 0) {
+          const groups = effectiveAnimation;
           const allConverted =
             cmd.action === "add"
-              ? shiftElementsBelowContent(api, toExcalidrawElements(cmd.elements))
-              : toExcalidrawElements(cmd.elements);
+              ? shiftElementsBelowContent(api, convertedCommandElements)
+              : convertedCommandElements;
 
           // Scroll to show the incoming content
           try {
@@ -979,7 +1031,7 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
         }
 
         // ── Standard (non-animated) rendering path ───────────────────
-        const rawElements = toExcalidrawElements(cmd.elements);
+        const rawElements = convertedCommandElements;
         const newElements =
           cmd.action === "add"
             ? shiftElementsBelowContent(api, rawElements)
@@ -1211,6 +1263,9 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
       );
     }
 
+    const tarsBubbleOpensLeft =
+      (tarsCurPos.current?.x ?? 0) > (containerRef.current?.clientWidth ?? 0) - 260;
+
     return (
       <div
         ref={containerRef}
@@ -1350,15 +1405,16 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
               ref={tarsBubbleAnchorRef}
               style={{
                 position: "absolute",
-                left: 16,
+                left: tarsBubbleOpensLeft ? -16 : 16,
                 top: -6,
-                transform: `rotate(${-tarsRotationRef.current}deg)`,
-                transformOrigin: "0 0",
+                transform: `${tarsBubbleOpensLeft ? "translateX(-100%) " : ""}rotate(${-tarsRotationRef.current}deg)`,
+                transformOrigin: tarsBubbleOpensLeft ? "100% 0" : "0 0",
               }}
             >
               <div
                 style={{
-                  maxWidth: 150,
+                  width: "max-content",
+                  maxWidth: "min(240px, calc(100vw - 32px))",
                   padding: "6px 9px",
                   borderRadius: 8,
                   background: "rgba(99,102,241,0.94)",
@@ -1368,7 +1424,9 @@ const WhiteboardCanvas = forwardRef<WhiteboardCanvasRef, WhiteboardCanvasProps>(
                   fontWeight: 600,
                   letterSpacing: 0,
                   textAlign: "left",
-                  whiteSpace: "nowrap",
+                  lineHeight: 1.35,
+                  overflowWrap: "anywhere",
+                  whiteSpace: "normal",
                 }}
               >
                 {tarsBubbleText}

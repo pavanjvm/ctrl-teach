@@ -12,9 +12,16 @@ interface Props {
   onSendText: (text: string) => void;
   /** Google profile photo URL for the signed-in user. */
   userPhotoURL?: string;
+  /** Render the agent's current transcript while speech is still streaming. */
+  showStreamingAgentMessages?: boolean;
 }
 
-export default function TranscriptPanel({ messages, onSendText, userPhotoURL }: Props) {
+export default function TranscriptPanel({
+  messages,
+  onSendText,
+  userPhotoURL,
+  showStreamingAgentMessages = false,
+}: Props) {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState(false);
@@ -65,7 +72,9 @@ export default function TranscriptPanel({ messages, onSendText, userPhotoURL }: 
             <p>Draw on the whiteboard or start talking to your tutor</p>
           </div>
         )}
-        {messages.filter((m) => m.role === "user" || !m.partial).map((m) => (
+        {messages
+          .filter((m) => showStreamingAgentMessages || m.role === "user" || !m.partial)
+          .map((m) => (
           <div key={m.id} className={`activity-item ${m.role} ${m.partial ? "partial" : ""}`}>
             <div className="activity-avatar">
               {m.role === "user" ? (
@@ -91,7 +100,7 @@ export default function TranscriptPanel({ messages, onSendText, userPhotoURL }: 
               </div>
             </div>
           </div>
-        ))}
+          ))}
       </div>
 
       <form className="panel-input" onSubmit={handleSubmit}>

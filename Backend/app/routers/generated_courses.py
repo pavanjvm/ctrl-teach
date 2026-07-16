@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
@@ -23,9 +24,11 @@ from app.services.generated_courses import (
     generate_next_intake_question,
     _partial_course,
     run_generation_job,
+    sanitize_adaptive_recovery_summary,
 )
 
 router = APIRouter(prefix="/api/generated-courses", tags=["generated-courses"])
+logger = logging.getLogger(__name__)
 
 _tasks: Dict[str, asyncio.Task[None]] = {}
 
@@ -132,6 +135,27 @@ async def shutdown_generation_jobs() -> None:
 def _prompt_title(text: str) -> str:
     clean = re.sub(r"\s+", " ", text).strip()
     return clean[:120] or "New course"
+
+
+def _load_adaptive_recovery_summary(db: Any, owner_user_id: int) -> Dict[str, Any]:
+    """Load a bounded snapshot without making course generation depend on it."""
+
+    try:
+        # Import only after generated_courses has finished loading. The browser
+        # lab service imports the platform catalog from that module.
+        from app.services.browser_labs import adaptive_recovery_summary
+
+        return sanitize_adaptive_recovery_summary(
+            adaptive_recovery_summary(db, owner_user_id)
+        )
+    except (ImportError, AttributeError):
+        return {}
+    except Exception:
+        logger.exception(
+            "Could not snapshot adaptive recovery signals for user=%s",
+            owner_user_id,
+        )
+        return {}
 
 
 @router.post("/intake", status_code=status.HTTP_201_CREATED)
@@ -359,8 +383,13 @@ async def start_generation(
     }
     with SessionLocal() as db:
         stored = db.get(GeneratedCourse, course_id)
-        if stored is None:
+        if stored is None or stored.owner_user_id != int(user["uid"]):
             raise HTTPException(status_code=404, detail="Generated course not found")
+        if "adaptiveRecovery" not in payload:
+            payload["adaptiveRecovery"] = _load_adaptive_recovery_summary(
+                db,
+                stored.owner_user_id,
+            )
         stored.payload = payload
         stored.status = "researching"
         stored.updated_at = datetime.now(timezone.utc)

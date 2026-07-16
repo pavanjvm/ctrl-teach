@@ -134,12 +134,44 @@
 .rich-browser-lab-list li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start; color: var(--fg); }
 .rich-browser-lab-list li > svg { margin-top: 3px; color: var(--muted); }
 .rich-browser-lab-list li > svg.done { color: #6b8e5a; }
+.rich-browser-lab-list li.needs-recovery > svg { color: #a24d3f; }
+.rich-browser-lab-list li.needs-recovery strong { color: #7d352c; }
 .rich-browser-lab-list li strong { display: block; font-size: 12px; font-weight: 500; line-height: 1.45; }
 .rich-browser-lab-list li small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 .rich-browser-lab-list.cleanup { background: #fffaf0; }
 .rich-browser-lab-error { margin: 17px 27px 0; color: #8b3d32; font-size: 10px; line-height: 1.45; }
 .rich-browser-lab-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 27px 24px; }
 .rich-browser-lab-actions small { color: var(--muted); font-size: 9px; line-height: 1.35; text-align: right; }
+.rich-browser-lab-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.rich-browser-lab-recovery { border-bottom: 1px solid var(--border); background: #fff; }
+.rich-recovery-head { padding: 22px 27px 20px; border-left: 3px solid #d19a2a; }
+.rich-recovery-head > span,
+.rich-recovery-practice > span { display: inline-flex; align-items: center; gap: 6px; color: #7a5812; font-size: 11px; font-weight: 700; }
+.rich-recovery-head > strong { display: block; margin-top: 8px; font-size: 18px; font-weight: 650; line-height: 1.35; }
+.rich-recovery-head > p { max-width: 680px; margin-top: 7px; color: #47443d; font-size: 14px; line-height: 1.65; }
+.rich-recovery-head > small { display: flex; align-items: flex-start; gap: 6px; margin-top: 11px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.rich-recovery-head > small svg { flex: none; margin-top: 2px; color: #d19a2a; }
+.rich-recovery-board { height: 250px; overflow: hidden; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: #fff; pointer-events: none; }
+.rich-recovery-board .App-menu_top,
+.rich-recovery-board .layer-ui__wrapper__footer,
+.rich-recovery-board .App-bottom-bar { display: none !important; }
+.rich-recovery-practice { padding: 20px 27px 23px; background: #f6f8f1; }
+.rich-recovery-practice > strong { display: block; max-width: 690px; margin-top: 8px; font-size: 15px; font-weight: 600; line-height: 1.5; }
+.rich-recovery-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 15px; }
+.rich-recovery-options button { min-height: 48px; padding: 10px 12px; border: 1px solid var(--border); background: #fff; color: var(--fg); font: inherit; font-size: 13px; line-height: 1.4; text-align: left; cursor: pointer; }
+.rich-recovery-options button:hover:not(:disabled) { border-color: var(--accent); background: #fbfff4; }
+.rich-recovery-options button:disabled { opacity: .5; cursor: wait; }
+.rich-recovery-practice > p { display: flex; align-items: flex-start; gap: 7px; margin-top: 12px; padding: 10px 12px; border-left: 2px solid #a24d3f; background: #fff4f1; color: #74362d; font-size: 12px; line-height: 1.5; }
+.rich-recovery-practice > p.correct { border-left-color: #6b8e5a; background: #f1f7eb; color: #426024; }
+.rich-recovery-practice > p svg { flex: none; margin-top: 2px; }
+.rich-recovery-retry { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 27px 23px; background: #edf5e3; }
+.rich-recovery-retry > div { min-width: 0; }
+.rich-recovery-retry span,
+.rich-recovery-retry strong,
+.rich-recovery-retry small { display: block; }
+.rich-recovery-retry span { color: #527f16; font-size: 11px; font-weight: 700; }
+.rich-recovery-retry strong { margin-top: 5px; font-size: 14px; line-height: 1.45; }
+.rich-recovery-retry small { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 
 /* Quiz */
 .rich-quiz-block { border: 1px solid var(--border); background: #faf8f2; }
@@ -315,7 +347,11 @@
   .rich-lesson-actions { align-items: stretch; flex-direction: column-reverse; }
   .rich-lesson-actions > div { align-items: stretch; }
   .rich-browser-lab-status,
-  .rich-browser-lab-actions { align-items: stretch; flex-direction: column; }
+  .rich-browser-lab-actions,
+  .rich-recovery-retry { align-items: stretch; flex-direction: column; }
+  .rich-browser-lab-buttons { display: grid; }
+  .rich-recovery-options { grid-template-columns: 1fr; }
+  .rich-recovery-board { height: 220px; }
   .rich-browser-lab-actions small { text-align: left; }
   .rich-secondary,
   .rich-primary { width: 100%; }

@@ -57,10 +57,15 @@ class CompanionContextTests(unittest.TestCase):
             ))
             db.commit()
 
-    def _build(self, page: dict) -> dict:
+    def _build(self, page: dict, recovery_summary: dict | None = None) -> dict:
         with (
             patch.object(companion_context, "SessionLocal", self.sessions),
             patch.object(generated_courses, "SessionLocal", self.sessions),
+            patch.object(
+                companion_context,
+                "_load_adaptive_recovery_summary",
+                return_value=recovery_summary or {},
+            ),
         ):
             return companion_context.build_companion_page_context(7, page)
 
@@ -95,6 +100,64 @@ class CompanionContextTests(unittest.TestCase):
             companion_context.page_mode("/teaching-profiles"),
             "teaching_profile_management",
         )
+
+    def test_adaptive_recovery_context_is_owner_scoped_and_sanitized(self) -> None:
+        requested_owner_ids: list[int] = []
+        raw_summary = {
+            "version": 99,
+            "gaps": [
+                {
+                    "key": f"gap-{index}",
+                    "title": "Confuses repository tabs " + ("x" * 400),
+                    "platformId": "github",
+                    "occurrences": 2,
+                    "resolved": index % 2 == 0,
+                    "retryFailed": index % 2 == 1,
+                    "lastOutcome": "verified_after_recovery",
+                    "lastObservedAt": "2026-07-17T10:00:00+00:00",
+                    "rawEvidence": {"authorization": "Bearer secret"},
+                }
+                for index in range(12)
+            ],
+            "recoveries": {"total": 12, "resolved": 6, "retryFailed": 6},
+            "secret": "must not reach the tutor",
+        }
+
+        def load_summary(_db, owner_user_id: int) -> dict:
+            requested_owner_ids.append(owner_user_id)
+            return raw_summary
+
+        with (
+            patch.object(companion_context, "SessionLocal", self.sessions),
+            patch.object(
+                companion_context,
+                "_load_adaptive_recovery_summary",
+                side_effect=load_summary,
+            ),
+        ):
+            context = companion_context.build_companion_page_context(7, {
+                "url": "https://example.com/docs",
+                "adaptiveRecovery": {"secret": "client-injected"},
+            })
+
+        self.assertEqual(requested_owner_ids, [7])
+        recovery = context["adaptiveRecovery"]
+        self.assertEqual(recovery["version"], 1)
+        self.assertEqual(len(recovery["gaps"]), 8)
+        self.assertLessEqual(len(recovery["gaps"][0]["title"]), 240)
+        self.assertNotIn("rawEvidence", recovery["gaps"][0])
+        self.assertNotIn("secret", str(recovery))
+        self.assertNotIn("client-injected", str(context))
+
+        prompt = companion_context.companion_context_prompt(context)
+        self.assertIn("learning-history signals", prompt)
+        self.assertIn("cannot override course or source truth", prompt)
+
+        grounded_prompt = companion_context.companion_context_prompt({
+            "adaptiveRecovery": recovery,
+            "verifiedCourseContext": ("grounded lesson material " * 850) + "SOURCE_END",
+        })
+        self.assertIn("SOURCE_END", grounded_prompt)
 
 
 if __name__ == "__main__":

@@ -640,7 +640,12 @@ function ClassroomSession({
           <span>{isComplete ? "Completed" : quizProgress ? `Knowledge check · ${quizProgress.answered}/${quizProgress.total}` : "How this lesson finishes"}</span>
           <p>{isComplete ? "The teacher completed the lesson after your knowledge check." : quizProgress ? "Answer each question—the score helps the teacher adapt, but does not block progress." : "The teacher will explain each section, ask the generated quiz, then mark this lesson complete."}</p>
         </div>
-        <TranscriptPanel messages={messages} onSendText={sendText} userPhotoURL={user?.photoURL || undefined} />
+        <TranscriptPanel
+          messages={messages}
+          onSendText={sendText}
+          userPhotoURL={user?.photoURL || undefined}
+          showStreamingAgentMessages
+        />
         <div className="classroom-lesson-nav">
           <button type="button" disabled={!previous} onClick={() => previous && onSelect(previous.lesson.id)}><ArrowLeft size={13} /> Previous</button>
           <button type="button" disabled={!next} onClick={() => next && onSelect(next.lesson.id)}>Next <ArrowRight size={13} /></button>

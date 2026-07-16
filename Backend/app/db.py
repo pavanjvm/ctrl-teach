@@ -3,7 +3,7 @@
 Replaces Firebase / Firestore entirely.  Exposes:
   - engine, SessionLocal, Base
   - ORM models: User, Profile, Session, Progress, Quiz, StudyPlan, Tutor,
-    ScheduledSession, GeneratedCourse, BrowserLabRun
+    ScheduledSession, GeneratedCourse, BrowserLabRun, BrowserLabRecovery
   - get_session() generator (FastAPI dependency)
   - init_db() called at import time: creates tables + seeds users from
     settings.app_users (bcrypt-hashed).
@@ -266,6 +266,46 @@ class BrowserLabRun(Base):
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
     verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class BrowserLabRecovery(Base):
+    """A persisted recovery cycle for one failed browser-lab step."""
+
+    __tablename__ = "browser_lab_recoveries"
+    __table_args__ = (
+        UniqueConstraint(
+            "browser_lab_run_id",
+            "sequence",
+            name="uq_browser_lab_recovery_run_sequence",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    browser_lab_run_id: Mapped[str] = mapped_column(String(128), index=True)
+    owner_user_id: Mapped[int] = mapped_column(Integer, index=True)
+    course_id: Mapped[str] = mapped_column(String(128), index=True)
+    lesson_id: Mapped[str] = mapped_column(String(192), index=True)
+    platform_id: Mapped[str] = mapped_column(String(128), default="")
+    sequence: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32), default="practicing", index=True)
+    failed_step_id: Mapped[str] = mapped_column(String(128), default="")
+    gap_key: Mapped[str] = mapped_column(String(255), default="", index=True)
+    missing_assertion_ids: Mapped[list] = mapped_column(JSON, default=list)
+    target_assertion_ids: Mapped[list] = mapped_column(JSON, default=list)
+    mistake_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    micro_lesson: Mapped[dict] = mapped_column(JSON, default=dict)
+    practice_task: Mapped[dict] = mapped_column(JSON, default=dict)
+    practice_attempts: Mapped[list] = mapped_column(JSON, default=list)
+    retry_boundary_sequence: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    retry_verification: Mapped[dict] = mapped_column(JSON, default=dict)
+    final_outcome: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────

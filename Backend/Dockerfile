@@ -1,4 +1,4 @@
-# ── BoardyBoo Backend — Cloud Run Container ──────────────────────────────────
+# ── Ctrl+Teach Backend — Cloud Run Container ─────────────────────────────────
 # Multi-stage build for a lean production image.
 
 FROM python:3.12-slim AS base

@@ -447,7 +447,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
 
             {/* ── Main Content Area ──────────────────────────────── */}
-            <main className={`dash-main ${pathname === "/teaching-profiles" || isBoard || isWorkspace || isGeneratedCourse ? "no-padding" : ""} ${isBoard || isWorkspace ? "board-mode" : ""} ${isGeneratedOverview ? "course-overview-mode" : ""}`}>
+            <main className={`dash-main ${isBoard || isWorkspace || isGeneratedCourse ? "no-padding" : ""} ${isBoard || isWorkspace ? "board-mode" : ""} ${isGeneratedOverview ? "course-overview-mode" : ""}`}>
                 {children}
             </main>
         </div>

@@ -1,4 +1,5 @@
 import type {
+  BrowserLabRecoveryMemory,
   Course,
   LearnerSkillProfile,
   LearningMemory,
@@ -44,8 +45,14 @@ function uniqueStrings(value: unknown, maxItems = 8): string[] {
   return Array.from(new Set(value.map((item) => cleanText(item, 120)).filter(Boolean))).slice(0, maxItems);
 }
 
-function memoryId(kind: LearningMemoryKind, courseId: string, lessonId: string, unique = false) {
+function memoryId(
+  kind: LearningMemoryKind,
+  courseId: string,
+  lessonId: string,
+  unique: boolean | string = false,
+) {
   const base = `${kind}:${courseId || "course"}:${lessonId || "activity"}`;
+  if (typeof unique === "string" && unique) return `${kind}:activity:${unique}`.slice(0, 220);
   return unique ? `${base}:${Date.now()}:${Math.random().toString(36).slice(2, 7)}` : base;
 }
 
@@ -183,11 +190,17 @@ export function createPracticeMemory(
   kind: "lab" | "roleplay",
   summary: string,
   evidence: string[],
+  options?: {
+    activityId?: string;
+    recovery?: BrowserLabRecoveryMemory;
+  },
 ): LearningMemory | null {
   if (!context.course || !context.lesson) return null;
   const { course, lesson, skills } = context;
+  const activityId = cleanText(options?.activityId, 220) || undefined;
   return {
-    id: memoryId(kind, course.id, lesson.id, true),
+    id: memoryId(kind, course.id, lesson.id, activityId || true),
+    activityId,
     kind,
     signal: "progress",
     title: kind === "lab" ? `Applied ${lesson.title}` : `Practiced ${lesson.title}`,
@@ -199,6 +212,7 @@ export function createPracticeMemory(
     lessonTitle: lesson.title,
     skills,
     evidence: uniqueStrings(evidence, 5),
+    recovery: options?.recovery,
   };
 }
 
@@ -234,6 +248,38 @@ export function appendLearningMemory(memories: LearningMemory[], memory: Learnin
     .slice(0, MAX_LEARNING_MEMORIES);
 }
 
+function sanitizeBrowserLabRecovery(value: unknown): BrowserLabRecoveryMemory | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  if (raw.type !== "browser_lab") return undefined;
+  const attemptId = cleanText(raw.attemptId, 220);
+  const finalOutcome = cleanText(raw.finalOutcome, 80);
+  if (!attemptId || !finalOutcome || !Array.isArray(raw.cycles)) return undefined;
+  const cycles = raw.cycles.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const cycle = item as Record<string, unknown>;
+    const recoveryId = cleanText(cycle.recoveryId, 220);
+    const gapKey = cleanText(cycle.gapKey, 180);
+    const failedStepId = cleanText(cycle.failedStepId, 180);
+    const failedStepInstruction = cleanText(cycle.failedStepInstruction, 320);
+    const misconception = cleanText(cycle.misconception, 320);
+    const cycleOutcome = cleanText(cycle.finalOutcome, 80);
+    if (!recoveryId || !gapKey || !failedStepId || !misconception || !cycleOutcome) return [];
+    const attempts = Number(cycle.practiceAttempts);
+    return [{
+      recoveryId,
+      gapKey,
+      failedStepId,
+      failedStepInstruction,
+      misconception,
+      practiceAttempts: Number.isFinite(attempts) ? clamp(Math.round(attempts), 0, 100) : 0,
+      finalOutcome: cycleOutcome,
+    }];
+  }).slice(0, 12);
+  if (!cycles.length) return undefined;
+  return { type: "browser_lab", attemptId, finalOutcome, cycles };
+}
+
 export function sanitizeLearningMemories(value: unknown): LearningMemory[] {
   if (!Array.isArray(value)) return [];
   const memories: LearningMemory[] = [];
@@ -251,6 +297,7 @@ export function sanitizeLearningMemories(value: unknown): LearningMemory[] {
     const confidence = Number(raw.confidence);
     memories.push({
       id,
+      activityId: cleanText(raw.activityId, 220) || undefined,
       kind,
       signal,
       title,
@@ -264,6 +311,7 @@ export function sanitizeLearningMemories(value: unknown): LearningMemory[] {
       score: Number.isFinite(score) ? clamp(Math.round(score), 0, 100) : undefined,
       confidence: Number.isFinite(confidence) ? clamp(Math.round(confidence), 1, 5) : undefined,
       evidence: uniqueStrings(raw.evidence, 5),
+      recovery: sanitizeBrowserLabRecovery(raw.recovery),
     });
   }
   return mergeLearningMemories([], memories);
@@ -289,6 +337,9 @@ export function deriveSkillProfile(
     count: number;
     weight: number;
     practical: number;
+    gapCount: number;
+    recoveredGapCount: number;
+    unresolvedGapCount: number;
     scores: number[];
     lastObservedAt: number;
   }>();
@@ -301,12 +352,23 @@ export function deriveSkillProfile(
         count: 0,
         weight: 0,
         practical: 0,
+        gapCount: 0,
+        recoveredGapCount: 0,
+        unresolvedGapCount: 0,
         scores: [],
         lastObservedAt: 0,
       };
       aggregate.count += 1;
       aggregate.weight += memory.kind === "assessment" ? 3 : memory.kind === "lab" || memory.kind === "roleplay" ? 2 : 1;
       aggregate.practical += memory.kind === "lab" || memory.kind === "roleplay" ? 1 : 0;
+      const recoveryCycles = memory.recovery?.cycles ?? [];
+      aggregate.gapCount += recoveryCycles.length;
+      aggregate.recoveredGapCount += recoveryCycles.filter((cycle) => (
+        ["resolved", "verified", "recovered", "success"].includes(cycle.finalOutcome.toLowerCase())
+      )).length;
+      aggregate.unresolvedGapCount += recoveryCycles.filter((cycle) => (
+        !["resolved", "verified", "recovered", "success"].includes(cycle.finalOutcome.toLowerCase())
+      )).length;
       if (typeof memory.score === "number") aggregate.scores.push(memory.score);
       aggregate.lastObservedAt = Math.max(aggregate.lastObservedAt, memory.createdAt);
       aggregates.set(key, aggregate);
@@ -319,14 +381,26 @@ export function deriveSkillProfile(
       : undefined;
     const hasRepeatedAssessmentEvidence = aggregate.scores.length >= 2;
     const hasBlendedEvidence = aggregate.scores.length >= 1 && aggregate.practical >= 1;
-    const status = typeof averageScore === "number" && averageScore < 65
+    const hasRepeatedGap = aggregate.gapCount >= 2;
+    const status = aggregate.unresolvedGapCount > 0 || hasRepeatedGap
+      ? "focus" as const
+      : typeof averageScore === "number" && averageScore < 65
       ? "focus" as const
       : (typeof averageScore === "number" && averageScore >= 80 && (hasRepeatedAssessmentEvidence || hasBlendedEvidence))
-          || (aggregate.practical >= 2 && aggregate.count >= 3)
+          || (aggregate.gapCount === 0 && aggregate.practical >= 2 && aggregate.count >= 3)
         ? "strength" as const
         : "building" as const;
-    const profileConfidence = Math.min(95, 20 + aggregate.weight * 12 + (aggregate.scores.length ? 10 : 0));
-    const reason = status === "focus"
+    const profileConfidence = Math.min(
+      95,
+      20 + aggregate.weight * 12 + aggregate.gapCount * 8 + (aggregate.scores.length ? 10 : 0),
+    );
+    const reason = aggregate.unresolvedGapCount > 0
+      ? `${aggregate.unresolvedGapCount} browser-lab gap${aggregate.unresolvedGapCount === 1 ? "" : "s"} still needs a verified retry.`
+      : hasRepeatedGap
+        ? `${aggregate.gapCount} browser-lab recoveries exposed a repeated gap; targeted review is recommended.`
+        : aggregate.recoveredGapCount > 0
+          ? `Recovered from a browser-lab mistake with targeted practice and a verified retry.`
+          : status === "focus"
       ? `Assessment evidence averages ${averageScore}%. A focused review is recommended.`
       : status === "strength" && typeof averageScore === "number"
         ? `Assessment evidence averages ${averageScore}% across ${aggregate.scores.length} attempt${aggregate.scores.length === 1 ? "" : "s"}.`

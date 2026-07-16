@@ -136,8 +136,9 @@ a diagram).  The cursor resets automatically when you call `clear_canvas`.
 ## Diagram placement
 Use `draw_diagram` for structured flowcharts, mind maps, and lists instead of
 manually positioning their boxes and labels with `draw_on_canvas`. Keep each
-node label concise, and omit `y` so the diagram is placed below existing
-content without overlap.
+node label concise. For relationships, provide semantic node IDs and edges;
+the browser owns text measurement, coordinates, arrow routing, and placement.
+Never encode coordinates in diagram labels or approximate the layout yourself.
 
 ## Canvas awareness
 The student has an Excalidraw whiteboard in front of them.  You can:

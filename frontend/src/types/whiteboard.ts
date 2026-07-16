@@ -1,5 +1,5 @@
 /**
- * Shared TypeScript types for the BoardyBoo whiteboard application.
+ * Shared TypeScript types for the Ctrl+Teach whiteboard application.
  * Import these instead of importing from individual hooks.
  */
 
@@ -60,6 +60,39 @@ export interface CanvasElement {
     // Image-specific fields
     fileId?: string;
     status?: "pending" | "saved" | "error";
+    id?: string;
+    autoResize?: boolean;
+    /** Browser-measured wrapping for standalone Live Classroom tutor notes. */
+    viewportWrap?: boolean;
+    strokeWidth?: number;
+    roughness?: number;
+    textAlign?: "left" | "center" | "right";
+    verticalAlign?: "top" | "middle" | "bottom";
+    label?: Record<string, unknown>;
+    start?: { id: string };
+    end?: { id: string };
+}
+
+export interface StructuredDiagramNode {
+    id: string;
+    label: string;
+    shape?: "rectangle" | "ellipse" | "diamond";
+}
+
+export interface StructuredDiagramEdge {
+    from: string;
+    to: string;
+    label?: string;
+}
+
+export interface StructuredDiagramElement extends CanvasElement {
+    type: "structured-diagram";
+    id: string;
+    diagramType: "flowchart" | "mindmap" | "timeline" | "comparison_table" | "equation" | "list";
+    title?: string;
+    direction: "TB" | "LR";
+    nodes: StructuredDiagramNode[];
+    edges: StructuredDiagramEdge[];
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────

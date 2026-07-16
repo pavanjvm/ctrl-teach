@@ -6,9 +6,12 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:diagram": "node --experimental-strip-types --test src/lib/diagramLayout.test.mjs",
+    "test:classroom-text": "node --experimental-strip-types --test src/lib/classroomTextLayout.test.mjs"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@daily-co/daily-js": "^0.91.0",
     "@daily-co/daily-react": "^0.26.0",
     "@excalidraw/excalidraw": "^0.18.0",

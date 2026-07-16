@@ -80,7 +80,7 @@ This is strong because it:
 ## TL;DR — what this project already is
 A monorepo that fuses two products:
 
-1. **A BoardyBoo-style AI voice tutor** ("Magic Whiteboard Tutor") — a real-time,
+1. **A Ctrl+Teach AI voice tutor** ("Magic Whiteboard Tutor") — a real-time,
    voice-interactive AI teacher that **talks to you and draws on an Excalidraw
    whiteboard** while explaining. This is the original base (package name is
    literally `magic-whiteboard-tutor-frontend`).

@@ -4,13 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Check,
+  ChevronRight,
   CircleAlert,
   Headphones,
   LoaderCircle,
   Pause,
   Play,
   RotateCcw,
-  Sparkles,
 } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
@@ -44,6 +44,7 @@ export default function TeachingProfilesPage() {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const detailRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,11 +124,21 @@ export default function TeachingProfilesPage() {
     void audio.play().catch(() => setPlayingId(null));
   }, [playingId]);
 
+  const focusProfile = useCallback((profileId: string, keyboardInitiated: boolean) => {
+    setFocusedId(profileId);
+    if (!window.matchMedia("(max-width: 900px)").matches) return;
+    window.requestAnimationFrame(() => {
+      const detail = detailRef.current;
+      detail?.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (keyboardInitiated) detail?.focus({ preventScroll: true });
+    });
+  }, []);
+
   if (loading) {
     return (
       <div className="profiles-loading" role="status">
         <LoaderCircle size={22} className="profiles-spin" />
-        Curating the profile library…
+        Loading profiles…
       </div>
     );
   }
@@ -143,168 +154,152 @@ export default function TeachingProfilesPage() {
 
   return (
     <div className="profiles-page">
-      <header className="profiles-hero">
-        <div className="profiles-kicker"><span>Curated library</span><i />Historical teaching approaches</div>
-        <div className="profiles-hero-grid">
+      <header className="profiles-header">
+        <div className="profiles-header-copy">
+          <span className="profiles-eyebrow">Teaching profiles</span>
+          <h1>Choose how Tars teaches<span>.</span></h1>
+          <p>Pick the approach that fits how you learn.</p>
+        </div>
+
+        <div className="profiles-current" aria-live="polite">
+          <div className="profiles-current-mark"><Check size={16} /></div>
           <div>
-            <h1>Choose how Tars teaches.</h1>
-            <p>
-              A Teaching Profile changes the way Tars explains, questions, encourages,
-              and gives feedback—across the whiteboard, courses, and Live Classroom.
-            </p>
-          </div>
-          <div className="profiles-active" aria-live="polite">
-            <span className="profiles-active-label"><i /> Active everywhere</span>
+            <span>Active profile</span>
             <strong>{selectedProfile?.name ?? "Original Tars"}</strong>
-            <small>
-              {selectedProfile
-                ? `Inspired by ${selectedProfile.educator} · ${selectedProfile.voiceNote}`
-                : "Tars's balanced, supportive default teaching style"}
-            </small>
-            {selectedProfile && (
-              <button
-                type="button"
-                onClick={() => void selectProfile(null)}
-                disabled={savingId !== undefined}
-              >
-                <RotateCcw size={13} /> Restore original
-              </button>
-            )}
           </div>
+          {selectedProfile && (
+            <button
+              type="button"
+              onClick={() => void selectProfile(null)}
+              disabled={savingId !== undefined}
+              title="Restore the original Tars teaching style"
+            >
+              <RotateCcw size={14} /> Use original
+            </button>
+          )}
         </div>
       </header>
 
       {error && <div className="profiles-alert" role="alert"><CircleAlert size={15} />{error}</div>}
 
-      <section className="profiles-foundation" aria-labelledby="sticky-foundation-title">
-        <div className="profiles-foundation-mark"><Sparkles size={18} /></div>
-        <div>
-          <span>Shared teaching craft</span>
-          <h2 id="sticky-foundation-title">{catalog.foundation.title}</h2>
-          <p>{catalog.foundation.description}</p>
-        </div>
-        <div className="profiles-principles" aria-label="Made to Stick principles">
-          {catalog.foundation.principles.map((principle, index) => (
-            <span key={principle}><b>{String(index + 1).padStart(2, "0")}</b>{principle}</span>
-          ))}
-        </div>
-      </section>
-
-      <div className="profiles-library-heading">
-        <div>
-          <span>01 / The collection</span>
-          <h2>Nine approaches. One Tars.</h2>
-        </div>
-        <p>Select a card to inspect its teaching behavior, strengths, voice, and research basis.</p>
-      </div>
-
       <div className="profiles-workspace">
-        <section className="profiles-grid" aria-label="Curated teaching profiles">
-          {catalog.profiles.map((profile, index) => {
-            const isSelected = selectedId === profile.id;
-            const isFocused = focusedId === profile.id;
-            return (
-              <article
-                className={`profile-card ${isSelected ? "selected" : ""} ${isFocused ? "focused" : ""}`}
-                key={profile.id}
-                style={{ "--profile-color": profile.color, "--profile-accent": profile.accent } as React.CSSProperties}
-              >
-                <button
-                  type="button"
-                  className="profile-card-main"
-                  onClick={() => setFocusedId(profile.id)}
-                  aria-pressed={isFocused}
+        <section className="profiles-collection" aria-labelledby="profiles-list-title">
+          <div className="profiles-section-heading">
+            <h2 id="profiles-list-title">Profiles</h2>
+            <span>{catalog.profiles.length} approaches</span>
+          </div>
+
+          <div className="profiles-grid" aria-label="Teaching profiles">
+            {catalog.profiles.map((profile) => {
+              const isSelected = selectedId === profile.id;
+              const isFocused = focusedId === profile.id;
+              return (
+                <article
+                  className={`profile-card ${isSelected ? "selected" : ""} ${isFocused ? "focused" : ""}`}
+                  key={profile.id}
+                  style={{ "--profile-color": profile.color, "--profile-accent": profile.accent } as React.CSSProperties}
                 >
-                  <div className="profile-card-topline">
-                    <span>{String(index + 1).padStart(2, "0")}</span>
-                    {isSelected && <em><Check size={12} /> Active</em>}
-                  </div>
-                  <div className="profile-monogram" aria-hidden="true">{initials(profile.educator)}</div>
-                  <div className="profile-card-copy">
-                    <span>{profile.educator}</span>
+                  <button
+                    type="button"
+                    className="profile-card-main"
+                    onClick={(event) => focusProfile(profile.id, event.detail === 0)}
+                    aria-pressed={isFocused}
+                  >
+                    <div className="profile-card-topline">
+                      <div className="profile-card-educator">
+                        <span className="profile-monogram" aria-hidden="true">{initials(profile.educator)}</span>
+                        <span>{profile.educator}</span>
+                      </div>
+                      {isSelected && <em><Check size={12} /> Active</em>}
+                    </div>
                     <h3>{profile.name}</h3>
                     <p>{profile.tagline}</p>
-                  </div>
-                  <div className="profile-card-methods">
-                    {profile.methods.slice(0, 2).map((method) => <span key={method}>{method}</span>)}
-                  </div>
-                </button>
-              </article>
-            );
-          })}
+                    <ChevronRight className="profile-card-arrow" size={17} aria-hidden="true" />
+                  </button>
+                </article>
+              );
+            })}
+          </div>
         </section>
 
         {focusedProfile && (
           <aside
+            ref={detailRef}
             className="profile-detail"
+            tabIndex={-1}
+            aria-labelledby="profile-detail-title"
             style={{ "--profile-color": focusedProfile.color, "--profile-accent": focusedProfile.accent } as React.CSSProperties}
           >
-            <div className="profile-detail-portrait">
-              <span>{focusedProfile.years}</span>
-              <strong aria-hidden="true">{initials(focusedProfile.educator)}</strong>
-              <small>{focusedProfile.origin}</small>
+            <div className="profile-detail-header">
+              <div className="profile-detail-monogram" aria-hidden="true">{initials(focusedProfile.educator)}</div>
+              <div>
+                <span>{focusedProfile.educator}</span>
+                <h2 id="profile-detail-title">{focusedProfile.name}</h2>
+              </div>
             </div>
-            <div className="profile-detail-copy">
-              <span className="profile-detail-eyebrow">{focusedProfile.educator}</span>
-              <h2>{focusedProfile.name}</h2>
-              <p>{focusedProfile.description}</p>
-              <div className="profile-principle">
-                <small>Profile principle</small>
-                <p>{focusedProfile.signature}</p>
-              </div>
 
-              <div className="profile-detail-section">
-                <span>How Tars will teach</span>
-                <ul>{focusedProfile.methods.map((method) => <li key={method}>{method}</li>)}</ul>
-              </div>
+            <p className="profile-detail-tagline">{focusedProfile.tagline}</p>
 
-              <div className="profile-detail-section">
-                <span>Especially useful for</span>
-                <div className="profile-best-for">
-                  {focusedProfile.bestFor.map((item) => <span key={item}>{item}</span>)}
-                </div>
-              </div>
+            <button
+              type="button"
+              className={`profile-use-button ${selectedId === focusedProfile.id ? "active" : ""}`}
+              onClick={() => void selectProfile(focusedProfile.id)}
+              disabled={savingId !== undefined || selectedId === focusedProfile.id}
+            >
+              {savingId === focusedProfile.id
+                ? <><LoaderCircle size={15} className="profiles-spin" /> Applying…</>
+                : selectedId === focusedProfile.id
+                  ? <><Check size={15} /> Active profile</>
+                  : <><Check size={15} /> Use profile</>}
+            </button>
 
-              <div className="profile-voice">
-                <div><Headphones size={16} /><span><b>{focusedProfile.voiceNote}</b><small>Tars voice · {focusedProfile.voice}</small></span></div>
-                <button type="button" onClick={() => togglePreview(focusedProfile)} aria-label={`${playingId === focusedProfile.id ? "Pause" : "Preview"} ${focusedProfile.voice} voice`}>
-                  {playingId === focusedProfile.id ? <Pause size={14} /> : <Play size={14} />}
-                </button>
-              </div>
+            <section className="profile-detail-section" aria-labelledby="profile-methods-title">
+              <h3 id="profile-methods-title">How Tars teaches</h3>
+              <ul>
+                {focusedProfile.methods.map((method) => (
+                  <li key={method}><Check size={14} />{method}</li>
+                ))}
+              </ul>
+            </section>
 
+            <section className="profile-detail-section" aria-labelledby="profile-best-title">
+              <h3 id="profile-best-title">Works well for</h3>
+              <div className="profile-best-for">
+                {focusedProfile.bestFor.map((item) => <span key={item}>{item}</span>)}
+              </div>
+            </section>
+
+            <div className="profile-voice">
+              <Headphones size={17} />
+              <span><b>{focusedProfile.voiceNote}</b><small>Voice preview</small></span>
               <button
                 type="button"
-                className={`profile-use-button ${selectedId === focusedProfile.id ? "active" : ""}`}
-                onClick={() => void selectProfile(focusedProfile.id)}
-                disabled={savingId !== undefined || selectedId === focusedProfile.id}
+                onClick={() => togglePreview(focusedProfile)}
+                aria-label={`${playingId === focusedProfile.id ? "Pause" : "Preview"} ${focusedProfile.voice} voice`}
+                title={`${playingId === focusedProfile.id ? "Pause" : "Preview"} voice`}
               >
-                {savingId === focusedProfile.id
-                  ? <><LoaderCircle size={15} className="profiles-spin" /> Applying profile</>
-                  : selectedId === focusedProfile.id
-                    ? <><Check size={15} /> Active across Tars</>
-                    : <>Use this teaching profile <ArrowUpRight size={15} /></>}
+                {playingId === focusedProfile.id ? <Pause size={15} /> : <Play size={15} />}
               </button>
+            </div>
 
+            <details className="profile-research">
+              <summary>Research and approach</summary>
+              <p>{focusedProfile.description}</p>
+              <p>{catalog.disclaimer}</p>
               <div className="profile-sources">
-                <span>Research basis</span>
                 {focusedProfile.sources.map((source) => (
                   <a href={source.url} target="_blank" rel="noreferrer" key={source.url}>
                     {source.label}<ArrowUpRight size={12} />
                   </a>
                 ))}
+                <a href={catalog.foundation.source.url} target="_blank" rel="noreferrer">
+                  Teaching approach guide <ArrowUpRight size={12} />
+                </a>
               </div>
-            </div>
+            </details>
           </aside>
         )}
       </div>
-
-      <footer className="profiles-disclaimer">
-        <span>Editorial note</span>
-        <p>{catalog.disclaimer} Profiles adapt documented methods into modern AI behavior with explicit safety boundaries.</p>
-        <a href={catalog.foundation.source.url} target="_blank" rel="noreferrer">
-          View the Made to Stick teaching guide <ArrowUpRight size={12} />
-        </a>
-      </footer>
     </div>
   );
 }

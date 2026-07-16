@@ -1,5 +1,5 @@
 /**
- * Shared constants for the BoardyBoo application.
+ * Shared constants for the Ctrl+Teach application.
  */
 
 /** WebSocket backend URL — override via NEXT_PUBLIC_WS_URL env var */

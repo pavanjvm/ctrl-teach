@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
@@ -47,6 +48,21 @@ TIME_QUESTION = {
     "required": True,
 }
 
+ADAPTIVE_RECOVERY = {
+    "version": 1,
+    "gaps": [{
+        "key": "github:issues-tab",
+        "title": "Distinguishing repository tabs",
+        "platformId": "github",
+        "occurrences": 2,
+        "resolved": 0,
+        "retryFailed": 1,
+        "lastOutcome": "retry_failed",
+        "lastObservedAt": "2026-07-17T10:00:00+00:00",
+    }],
+    "recoveries": {"total": 2, "resolved": 1, "retryFailed": 1},
+}
+
 
 class GeneratedCourseRouterTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -75,6 +91,11 @@ class GeneratedCourseRouterTests(unittest.TestCase):
                 ]),
             ),
             patch.object(generated_router, "_schedule") as schedule,
+            patch.object(
+                generated_router,
+                "_load_adaptive_recovery_summary",
+                return_value=ADAPTIVE_RECOVERY,
+            ) as recovery_snapshot,
         ):
             intake = self.client.post(
                 "/api/generated-courses/intake",
@@ -117,6 +138,7 @@ class GeneratedCourseRouterTests(unittest.TestCase):
             with self.session_factory() as db:
                 stored = db.get(GeneratedCourse, course_id)
                 assert stored is not None
+                self.assertEqual(stored.payload["adaptiveRecovery"], ADAPTIVE_RECOVERY)
                 stored.status = "failed"
                 failed_payload = dict(stored.payload or {})
                 failed_payload["error"] = "transient image failure"
@@ -130,6 +152,8 @@ class GeneratedCourseRouterTests(unittest.TestCase):
             self.assertEqual(retried.status_code, 202)
             self.assertEqual(retried.json()["status"], "researching")
             self.assertEqual(schedule.call_count, 2)
+            recovery_snapshot.assert_called_once()
+            self.assertEqual(recovery_snapshot.call_args.args[1], 7)
 
             listed = self.client.get("/api/generated-courses")
             self.assertEqual(listed.status_code, 200)
@@ -157,6 +181,120 @@ class GeneratedCourseRouterTests(unittest.TestCase):
 
 
 class GeneratedCourseServiceTests(unittest.TestCase):
+    def test_adaptive_recovery_summary_is_bounded_and_drops_untrusted_fields(self) -> None:
+        raw = {
+            "version": 20,
+            "gaps": [
+                {
+                    "key": f"gap-{index}",
+                    "title": "A likely misconception " + ("x" * 400),
+                    "platformId": "github",
+                    "occurrences": 10_000,
+                    "resolved": False,
+                    "retryFailed": True,
+                    "lastOutcome": "retry_failed",
+                    "lastObservedAt": "2026-07-17T10:00:00+00:00",
+                    "rawEvidence": {"password": "secret"},
+                }
+                for index in range(12)
+            ],
+            "recoveries": {"total": 10_000, "resolved": 2, "retryFailed": 3},
+            "authorization": "Bearer secret",
+        }
+
+        summary = generated_service.sanitize_adaptive_recovery_summary(raw)
+        self.assertEqual(summary["version"], 1)
+        self.assertEqual(len(summary["gaps"]), 8)
+        self.assertEqual(summary["gaps"][0]["occurrences"], 999)
+        self.assertLessEqual(len(summary["gaps"][0]["title"]), 240)
+        self.assertNotIn("rawEvidence", summary["gaps"][0])
+        self.assertNotIn("secret", str(summary))
+        prompt = generated_service.adaptive_recovery_prompt(raw)
+        self.assertLessEqual(
+            len(prompt),
+            generated_service.MAX_ADAPTIVE_RECOVERY_PROMPT_CHARS,
+        )
+        self.assertTrue(prompt.endswith("required cleanup.\n"))
+
+    def test_outline_and_lesson_prompts_receive_the_same_recovery_snapshot(self) -> None:
+        outline = CourseOutline.model_validate({
+            "title": "GitHub Workflow",
+            "description": "A grounded course about navigating GitHub repositories safely.",
+            "difficulty": "Beginner",
+            "audience": "New software team members",
+            "outcomes": ["Navigate repositories", "Use repository tabs safely"],
+            "prerequisites": [],
+            "skills": ["GitHub navigation", "Repository workflows"],
+            "coverPrompt": "An editorial educational illustration of a repository workflow",
+            "modules": [
+                {"title": "Foundations", "lessons": [
+                    {"title": "Repository layout", "summary": "Learn how repository navigation areas are organized."},
+                    {"title": "Issues", "summary": "Practice distinguishing Issues from adjacent repository tabs."},
+                ]},
+                {"title": "Application", "lessons": [
+                    {"title": "Issue lists", "summary": "Apply navigation knowledge to inspect issue lists safely."},
+                    {"title": "Review", "summary": "Review the workflow and verify each navigation decision."},
+                ]},
+            ],
+        })
+        outline_parse = AsyncMock(
+            return_value=SimpleNamespace(output_parsed=outline)
+        )
+        outline_client = SimpleNamespace(
+            responses=SimpleNamespace(parse=outline_parse)
+        )
+        payload = {
+            "source": {
+                "text": "Grounded source text about GitHub repository navigation.",
+                "title": "GitHub navigation",
+            },
+            "intake": {**INTAKE, "topic": "GitHub navigation"},
+            "answers": {"time_budget": "Up to 1 hour"},
+            "research": {
+                "brief": "Authoritative research brief about repository navigation.",
+                "citations": [{"id": "src-1", "title": "GitHub Docs", "url": "https://docs.github.com"}],
+            },
+            "adaptiveRecovery": ADAPTIVE_RECOVERY,
+        }
+        with patch.object(generated_service, "_client", return_value=outline_client):
+            asyncio.run(generated_service.generate_outline(payload))
+        outline_prompt = outline_parse.await_args.kwargs["input"]
+
+        lesson_content = LessonContent.model_validate({
+            "summary": "A complete lesson about choosing the correct repository navigation area.",
+            "duration": "20m",
+            "blocks": [
+                {"type": "content", "heading": "Navigation model", "paragraphs": ["Repository tabs separate distinct kinds of work."], "citationIds": ["src-1"]},
+                {"type": "grid_cards", "heading": "Tab purposes", "cards": [{"title": "Issues", "body": "Tracks proposed and active work."}, {"title": "Pull requests", "body": "Reviews changes to code."}], "citationIds": ["src-1"]},
+                {"type": "numbered_list", "heading": "Decision steps", "items": [{"title": "Identify", "body": "Name the work item you need."}, {"title": "Choose", "body": "Select the tab that owns that work item."}], "citationIds": ["src-1"]},
+                {"type": "quiz", "heading": "Check", "questions": [{"question": "Where do you inspect tracked work?", "choices": ["Issues", "Pull requests"], "answerIndex": 0, "explanation": "Issues owns tracked work items."}, {"question": "Where are code changes reviewed?", "choices": ["Issues", "Pull requests"], "answerIndex": 1, "explanation": "Pull requests owns code review."}], "citationIds": ["src-1"]},
+            ],
+        })
+        lesson_parse = AsyncMock(
+            return_value=SimpleNamespace(output_parsed=lesson_content)
+        )
+        lesson_client = SimpleNamespace(
+            responses=SimpleNamespace(parse=lesson_parse)
+        )
+        with patch.object(generated_service, "_client", return_value=lesson_client):
+            asyncio.run(generated_service.generate_lesson(
+                course_title=outline.title,
+                module_title=outline.modules[0].title,
+                lesson=outline.modules[0].lessons[0],
+                research=payload["research"],
+                answers=payload["answers"],
+                adaptive_recovery=payload["adaptiveRecovery"],
+            ))
+        lesson_prompt = lesson_parse.await_args.kwargs["input"]
+
+        for prompt in (outline_prompt, lesson_prompt):
+            self.assertIn("ADAPTIVE RECOVERY SIGNALS", prompt)
+            self.assertIn("Distinguishing repository tabs", prompt)
+            self.assertIn("not subject-matter sources", prompt)
+            self.assertIn("required cleanup", prompt)
+        self.assertIn("Grounded source text about GitHub", outline_prompt)
+        self.assertIn("Authoritative research brief", lesson_prompt)
+
     def test_intake_normalization_keeps_one_beginner_safe_question(self) -> None:
         parsed = generated_service.IntakeResult.model_validate({
             **INTAKE,
@@ -479,10 +617,16 @@ class GeneratedCourseServiceTests(unittest.TestCase):
             "modules": [{"title": "Failure foundations", "lessons": [{"id": "lesson-1", "title": "Failures", "summary": "Partial failure", "contentBlocks": [{"type": "content", "heading": "Model", "paragraphs": ["Components fail independently."]}, {"type": "image", "asset": {"caption": "A resilient service topology", "alt": "Three services connected through a durable queue"}}, {"type": "quiz", "heading": "Check", "questions": [{"id": "quiz-1", "question": "What can fail?", "choices": ["One component", "Nothing"], "answerIndex": 0, "explanation": "Components fail independently."}]}, {"type": "html", "heading": "Diagram", "html": "<div>hidden</div>", "accessibilitySummary": "Request flows through a durable queue."}]}]}],
         }
         with sessions() as db:
-            db.add(GeneratedCourse(id="generated-test", owner_user_id=7, status="ready", source_type="prompt", source_label="prompt", payload={"course": course}, created_at=now, updated_at=now))
+            db.add(GeneratedCourse(id="generated-test", owner_user_id=7, status="ready", source_type="prompt", source_label="prompt", payload={"course": course, "adaptiveRecovery": ADAPTIVE_RECOVERY}, created_at=now, updated_at=now))
             db.commit()
         with patch.object(generated_service, "SessionLocal", sessions):
             context = generated_service.rich_lesson_context("generated-test", "lesson-1", 7)
+            context_without_recovery = generated_service.rich_lesson_context(
+                "generated-test",
+                "lesson-1",
+                7,
+                include_adaptive_recovery=False,
+            )
             denied = generated_service.rich_lesson_context("generated-test", "lesson-1", 8)
             quiz_ids = generated_service.rich_lesson_quiz_ids("generated-test", "lesson-1", 7)
             denied_quiz_ids = generated_service.rich_lesson_quiz_ids("generated-test", "lesson-1", 8)
@@ -495,6 +639,8 @@ class GeneratedCourseServiceTests(unittest.TestCase):
         self.assertEqual(quiz_ids, ["quiz-1"])
         self.assertEqual(denied_quiz_ids, [])
         self.assertIn("Request flows through a durable queue", context or "")
+        self.assertIn("Distinguishing repository tabs", context or "")
+        self.assertNotIn("Distinguishing repository tabs", context_without_recovery or "")
         self.assertNotIn("<div>", context or "")
         self.assertIsNone(denied)
 

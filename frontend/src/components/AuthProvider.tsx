@@ -33,8 +33,17 @@ const AuthContext = createContext<AuthContextType>({
 
 const AUTH_TOKEN_KEY = "ctrlteach_session_token";
 const AUTH_USER_KEY = "ctrlteach_session_user";
-const LEGACY_AUTH_TOKEN_KEY = "boardyboo_basic_auth";
-const LEGACY_AUTH_USER_KEY = "boardyboo_user";
+const LEGACY_BASIC_AUTH_SUFFIX = "_basic_auth";
+
+function clearLegacyBasicAuth() {
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const key = localStorage.key(index);
+    if (!key?.endsWith(LEGACY_BASIC_AUTH_SUFFIX)) continue;
+    const namespace = key.slice(0, -LEGACY_BASIC_AUTH_SUFFIX.length);
+    localStorage.removeItem(key);
+    localStorage.removeItem(`${namespace}_user`);
+  }
+}
 
 function saveAuth(token: string, user: AuthUser) {
   localStorage.setItem(AUTH_TOKEN_KEY, token);
@@ -44,10 +53,7 @@ function saveAuth(token: string, user: AuthUser) {
 function clearAuth() {
   localStorage.removeItem(AUTH_TOKEN_KEY);
   localStorage.removeItem(AUTH_USER_KEY);
-  // Older builds persisted reversible Basic credentials. Remove them whenever
-  // auth state is touched so an upgrade cannot leave a password in storage.
-  localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
-  localStorage.removeItem(LEGACY_AUTH_USER_KEY);
+  clearLegacyBasicAuth();
 }
 
 function loadStoredUser(): AuthUser | null {
@@ -65,8 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function bootstrap() {
-      localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
-      localStorage.removeItem(LEGACY_AUTH_USER_KEY);
+      clearLegacyBasicAuth();
       const token = localStorage.getItem(AUTH_TOKEN_KEY);
       const stored = loadStoredUser();
       if (!token || !stored) {
