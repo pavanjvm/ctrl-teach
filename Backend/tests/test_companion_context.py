@@ -90,6 +90,12 @@ class CompanionContextTests(unittest.TestCase):
         self.assertIn("point", context["capabilities"])
         self.assertNotIn("verifiedCourseContext", context)
 
+    def test_teaching_profiles_route_has_a_dedicated_page_mode(self) -> None:
+        self.assertEqual(
+            companion_context.page_mode("/teaching-profiles"),
+            "teaching_profile_management",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

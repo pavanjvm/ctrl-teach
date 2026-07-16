@@ -251,6 +251,7 @@ def _wrap(fn) -> "function_tool":  # type: ignore[name-defined]
 
 def build_tutor_agent(
     custom_instruction: str | None = None,
+    teaching_profile_instruction: str = "",
     extra_tool_functions: list[object] | None = None,
     include_image_generation: bool = True,
     include_handoffs: bool = True,
@@ -267,7 +268,8 @@ def build_tutor_agent(
     """
 
     instruction = with_companion_identity(
-        custom_instruction if custom_instruction else TUTOR_INSTRUCTION
+        custom_instruction if custom_instruction else TUTOR_INSTRUCTION,
+        teaching_profile_instruction,
     )
     instruction += BOARD_TARS_DRAWING_INSTRUCTION
 

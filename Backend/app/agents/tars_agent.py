@@ -274,11 +274,14 @@ def interact_with_page(
 # ── Builder ─────────────────────────────────────────────────────────────────
 
 
-def build_tars_agent() -> RealtimeAgent:
+def build_tars_agent(teaching_profile_instruction: str = "") -> RealtimeAgent:
     """Construct the Tars RealtimeAgent tree (no sub-agents)."""
     root = RealtimeAgent(
         name=COMPANION_AGENT_NAME,
-        instructions=with_companion_identity(TARS_INSTRUCTION),
+        instructions=with_companion_identity(
+            TARS_INSTRUCTION,
+            teaching_profile_instruction,
+        ),
         tools=[point_at, draw_on_screen, clear_screen_drawings, interact_with_page],
         handoffs=[],
     )

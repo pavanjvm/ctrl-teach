@@ -181,12 +181,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { name: "My Library", href: "/library" },
         { name: "Workspace", href: "/learn" },
         { name: "Role Playing", href: "/role-playing" },
-        { name: "Tutors", href: "/tutors" },
+        { name: "Teaching Profiles", href: "/teaching-profiles" },
         { name: "Whiteboard", href: "/board" },
         { name: "Achievements", href: "/profile?tab=achievements" },
     ];
 
-    const isWizard = pathname === "/tutors/create";
     const isBoard = pathname === "/board";
     const isWorkspace = pathname === "/learn";
     const generatedCourseMatch = pathname.match(/^\/learn\/(generated-[^/]+)/);
@@ -199,7 +198,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return (
         <div className={`dash-app ${isBoard ? "board-shell" : ""}`}>
             {/* ── Top Navbar ──────────────────────────────────────────── */}
-            {!isWizard && isGeneratedCourse && generatedCourseId && (
+            {isGeneratedCourse && generatedCourseId && (
                 <header className="course-mode-topbar">
                     <Link href="/library" className="course-mode-back" aria-label="Return to My Library">
                         <ArrowLeft size={15} />
@@ -227,7 +226,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </header>
             )}
 
-            {!isWizard && !isGeneratedCourse && (
+            {!isGeneratedCourse && (
                 <header className="dash-topbar">
                     {/* 1. Logo Zone */}
                     <div className="topbar-logo-zone">
@@ -448,7 +447,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
 
             {/* ── Main Content Area ──────────────────────────────── */}
-            <main className={`dash-main ${pathname === "/tutors" || isWizard || isBoard || isWorkspace || isGeneratedCourse ? "no-padding" : ""} ${isWizard ? "wizard-mode" : ""} ${isBoard || isWorkspace ? "board-mode" : ""} ${isGeneratedOverview ? "course-overview-mode" : ""}`}>
+            <main className={`dash-main ${pathname === "/teaching-profiles" || isBoard || isWorkspace || isGeneratedCourse ? "no-padding" : ""} ${isBoard || isWorkspace ? "board-mode" : ""} ${isGeneratedOverview ? "course-overview-mode" : ""}`}>
                 {children}
             </main>
         </div>

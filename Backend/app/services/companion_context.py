@@ -48,8 +48,8 @@ def page_mode(route: str) -> str:
         return "learner_dashboard"
     if route == "/schedule":
         return "learning_calendar"
-    if route == "/tutors" or route.startswith("/tutors/"):
-        return "tutor_management"
+    if route == "/teaching-profiles" or route == "/tutors" or route.startswith("/tutors/"):
+        return "teaching_profile_management"
     if route == "/board":
         return "whiteboard"
     if route == "/profile":

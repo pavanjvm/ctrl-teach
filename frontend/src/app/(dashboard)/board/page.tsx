@@ -11,14 +11,13 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import TranscriptPanel from "@/components/TranscriptPanel";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAudio } from "@/hooks/useAudio";
 import { useAuth } from "@/components/AuthProvider";
 import type { WhiteboardCanvasRef } from "@/components/WhiteboardCanvas";
-import { WS_URL, API_URL } from "@/lib/constants";
+import { WS_URL } from "@/lib/constants";
 import { generateId, base64ToArrayBuffer } from "@/lib/utils";
 import { dispatchBoardTarsDraw } from "@/lib/tarsBoardBridge";
 
@@ -75,10 +74,6 @@ export default function Page() {
   const bridgedDrawIdsRef = useRef<Set<string>>(new Set());
 
   // Tutor personalisation — read from ?tutor=<id> query param
-  const searchParams = useSearchParams();
-  const tutorId = searchParams.get("tutor");
-  const [tutorConfig, setTutorConfig] = useState<Record<string, any> | null>(null);
-
   // Camera state
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -141,23 +136,7 @@ export default function Page() {
         return;
       }
 
-      // Fetch tutor config for local display if a tutor ID is present
-      if (tutorId && !tutorConfig) {
-        try {
-          const res = await fetch(`${API_URL}/api/tutors/${tutorId}`, {
-            headers: { Authorization: token },
-          });
-          if (res.ok) {
-            setTutorConfig(await res.json());
-          }
-        } catch (err) {
-          console.warn("Could not fetch tutor config for display:", err);
-        }
-      }
-
-      // Build WS URL — include tutor_id so backend builds a dynamic prompt
-      let url = `${WS_URL}/ws/${user.uid}/${sessionId}?mode=whiteboard`;
-      if (tutorId) url += `&tutor_id=${tutorId}`;
+      const url = `${WS_URL}/ws/${user.uid}/${sessionId}?mode=whiteboard`;
 
       connect(url, {
         authToken: token,
@@ -175,7 +154,7 @@ export default function Page() {
     } catch (err) {
       console.error("Failed to acquire token or connect:", err);
     }
-  }, [connect, user, sessionId, getToken, initPlayer, playAudioChunk, waitForPlaybackComplete, clearPlayback, tutorId, tutorConfig]);
+  }, [connect, user, sessionId, getToken, initPlayer, playAudioChunk, waitForPlaybackComplete, clearPlayback]);
 
   // ── Camera handlers ─────────────────────────────────────────────────────
 
@@ -419,16 +398,6 @@ export default function Page() {
               : "No Session"}
           </span>
         </div>
-
-        {/* Tutor identity badge */}
-        {tutorConfig && (
-          <div className="tutor-badge" title={tutorConfig.desc || tutorConfig.title}>
-            <span className="tutor-badge-name">{tutorConfig.name}</span>
-            {tutorConfig.subjects?.[0] && (
-              <span className="tutor-badge-subject">{tutorConfig.subjects[0]}</span>
-            )}
-          </div>
-        )}
 
         {!connected ? (
           <button
