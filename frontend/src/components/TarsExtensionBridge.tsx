@@ -103,6 +103,7 @@ export default function TarsExtensionBridge() {
     const configure = async () => {
       const suspended = pathname === "/board"
         || pathname === "/learn"
+        || pathname.startsWith("/admin")
         || /^\/learn\/generated-[^/]+\/classroom$/.test(pathname);
       if (!enabled || !user) {
         sessionRef.current = null;

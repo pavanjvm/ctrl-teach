@@ -107,6 +107,7 @@ def verify_app_session_token(token: Optional[str]) -> Optional[dict[str, Any]]:
                 "email": user.email,
                 "name": user.name,
                 "picture": user.picture,
+                "isAdmin": bool(user.is_admin),
                 "scope": _TOKEN_SCOPE,
             }
     except Exception as exc:

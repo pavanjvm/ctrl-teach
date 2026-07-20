@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -45,8 +45,9 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-export default function DiscoverPage() {
+export default function CourseBuilder() {
   const router = useRouter();
+  const pathname = usePathname();
   const { getToken } = useAuth();
   const { addCourse } = useLearner();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -65,6 +66,7 @@ export default function DiscoverPage() {
 
   const questions = job?.questions ?? [];
   const question = questions[questionIndex] ?? null;
+  const adminContext = pathname.startsWith("/admin");
 
   const rememberJob = useCallback((id: string | null) => {
     const url = new URL(window.location.href);
@@ -106,12 +108,30 @@ export default function DiscoverPage() {
       // resume effect while the route transition is still in flight.
       if (openingCourse.current) return next;
       openingCourse.current = true;
-      rememberJob(null);
-      addCourse(next.course);
-      router.replace(`/learn/${next.id}`);
+      try {
+        if (adminContext) {
+          const token = await getToken();
+          if (!token) throw new Error("Your admin session has expired.");
+          const imported = await axios.post(
+            `${API_URL}/api/admin/courses/import-generated/${next.id}`,
+            {},
+            { headers: { Authorization: token } },
+          );
+          window.dispatchEvent(new CustomEvent("ctrlteach:admin-course-imported", {
+            detail: imported.data,
+          }));
+        } else {
+          addCourse(next.course);
+          router.replace(`/learn/${next.id}`);
+        }
+        rememberJob(null);
+      } catch (completionError) {
+        openingCourse.current = false;
+        throw completionError;
+      }
     } else setPhase("generating");
     return next;
-  }, [addCourse, getToken, rememberJob, router]);
+  }, [addCourse, adminContext, getToken, rememberJob, router]);
 
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("generation");
@@ -262,6 +282,7 @@ export default function DiscoverPage() {
     return (
       <GenerationView
         job={job}
+        context={adminContext ? "admin" : "learner"}
         busy={busy}
         error={error}
         onRetry={startGeneration}
@@ -497,12 +518,14 @@ function InterviewView({
 
 function GenerationView({
   job,
+  context,
   busy,
   error,
   onRetry,
   onReset,
 }: {
   job: GeneratedCourseJob;
+  context: "learner" | "admin";
   busy: boolean;
   error: string | null;
   onRetry: () => void;
@@ -588,7 +611,12 @@ function GenerationView({
           </button>
         </div>
       )}
-      <div className="gen-reassurance"><BookOpen size={14} /> You can safely leave this page and resume from My Library.</div>
+      <div className="gen-reassurance">
+        <BookOpen size={14} />
+        {context === "admin"
+          ? "You can safely leave this page and resume from Manage courses."
+          : "You can safely leave this page and resume from My Library."}
+      </div>
     </div>
   );
 }

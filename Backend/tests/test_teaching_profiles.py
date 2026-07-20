@@ -55,7 +55,7 @@ class TeachingProfileTests(unittest.TestCase):
         )
 
     def test_only_curated_profile_api_is_exposed(self) -> None:
-        paths = {route.path for route in app.routes}
+        paths = set(app.openapi()["paths"])
         self.assertIn("/api/teaching-profiles", paths)
         self.assertIn("/api/teaching-profiles/selection", paths)
         self.assertFalse(any(path.startswith("/api/tutors") for path in paths))

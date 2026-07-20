@@ -18,8 +18,7 @@ import {
 
 import { useAuth } from "@/components/AuthProvider";
 import { useLearner } from "@/lib/learner";
-import { API_URL } from "@/lib/constants";
-import { assetUrl, type GeneratedCourseJob } from "@/lib/generatedCourses";
+import { assetUrl, fetchAvailableCourse } from "@/lib/generatedCourses";
 import type { Course } from "@/lib/types";
 
 import "./rich-course.css";
@@ -36,15 +35,12 @@ export default function RichCourseOverviewPage() {
   const load = useCallback(async () => {
     try {
       const token = await getToken();
-      const response = await axios.get<GeneratedCourseJob>(
-        `${API_URL}/api/generated-courses/${params.courseId}`,
-        { headers: token ? { Authorization: token } : undefined }
-      );
-      if (response.data.status !== "ready" || !response.data.course) {
-        router.replace(`/discover?generation=${params.courseId}`);
+      const nextCourse = await fetchAvailableCourse(params.courseId, token);
+      if (!nextCourse) {
+        router.replace(`/library?generation=${params.courseId}`);
         return;
       }
-      setCourse(response.data.course);
+      setCourse(nextCourse);
     } catch (loadError) {
       setError(axios.isAxiosError(loadError) ? String(loadError.response?.data?.detail || "Course not found.") : "Course not found.");
     } finally {

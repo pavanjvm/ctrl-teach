@@ -9,16 +9,17 @@
 - Frontend build: `cd frontend && npm run build`
 - Frontend dev: `cd frontend && npm run dev`
 - Frontend lint: NOT configured (`next lint` requires `eslint` to be installed). Use `tsc --noEmit` for type checking.
-- Backend dev: `cd Backend && .venv/bin/uvicorn app.main:app --reload --port 8000`
-- Backend import smoke-test: `cd Backend && .venv/bin/python -c "from app.main import app"`
-- Backend roleplay tests: `cd Backend && .venv/bin/python -m unittest tests.test_roleplay`
+- Backend install/sync: `cd Backend && uv sync --locked`
+- Backend dev: `cd Backend && uv run uvicorn app.main:app --reload --port 8000`
+- Backend import smoke-test: `cd Backend && uv run python -c "from app.main import app"`
+- Backend roleplay tests: `cd Backend && uv run python -m unittest tests.test_roleplay`
 
 ## Env
 - Frontend: `frontend/.env.local` → `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL`.
 - Backend: `Backend/.env` → `OPENAI_API_KEY` for Realtime, course generation, images, and TARS visual location.
 - Tavus roleplay: `TAVUS_API_KEY`; optional defaults are `TAVUS_FACE_ID` and `TAVUS_PAL_ID`. Credit safeguards use `TAVUS_MAX_CALL_DURATION_SECONDS`, `TAVUS_PARTICIPANT_LEFT_TIMEOUT_SECONDS`, and `TAVUS_PARTICIPANT_ABSENT_TIMEOUT_SECONDS`.
 - Content discovery/extraction: `FIRECRAWL_API_KEY` is optional unless the requested workflow needs Firecrawl.
-- Model defaults live in `Backend/app/config.py`: `gpt-realtime-2`, `gpt-4o-mini-transcribe`, `gpt-5.4-mini` for course generation, and `gpt-image-2`. Prefer env overrides rather than hardcoding model names elsewhere.
+- Model defaults live in `Backend/app/config.py`: `gpt-realtime-2.1`, `gpt-4o-mini-transcribe`, `gpt-5.4-mini` for course generation, and `gpt-image-2`. Prefer env overrides rather than hardcoding model names elsewhere.
 - Auth/session secrets and CORS are also configured in `Backend/.env`; copy names from `Backend/.env.example` and never commit real credentials.
 
 ## Architecture highlights

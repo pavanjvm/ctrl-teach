@@ -19,8 +19,7 @@ import {
 
 import { useAuth } from "@/components/AuthProvider";
 import BrowserLabPanel from "@/components/learn/BrowserLabPanel";
-import { API_URL } from "@/lib/constants";
-import { assetUrl, type GeneratedCourseJob } from "@/lib/generatedCourses";
+import { assetUrl, fetchAvailableCourse } from "@/lib/generatedCourses";
 import { useLearner } from "@/lib/learner";
 import type {
   Course,
@@ -83,20 +82,17 @@ export default function RichLessonPage() {
   const load = useCallback(async () => {
     try {
       const token = await getToken();
-      const response = await axios.get<GeneratedCourseJob>(
-        `${API_URL}/api/generated-courses/${params.courseId}`,
-        { headers: token ? { Authorization: token } : undefined }
-      );
-      if (response.data.status !== "ready" || !response.data.course) {
-        router.replace(`/discover?generation=${params.courseId}`);
+      const nextCourse = await fetchAvailableCourse(params.courseId, token);
+      if (!nextCourse) {
+        router.replace(`/library?generation=${params.courseId}`);
         return;
       }
-      setCourse(response.data.course);
-      const hydrationKey = `${response.data.course.id}:${params.lessonId}`;
+      setCourse(nextCourse);
+      const hydrationKey = `${nextCourse.id}:${params.lessonId}`;
       if (hydratedRef.current !== hydrationKey) {
         hydratedRef.current = hydrationKey;
-        addCourse(response.data.course);
-        setActiveCourse(response.data.course.id, params.lessonId);
+        addCourse(nextCourse);
+        setActiveCourse(nextCourse.id, params.lessonId);
       }
     } catch (loadError) {
       setError(axios.isAxiosError(loadError) ? String(loadError.response?.data?.detail || "Lesson not found.") : "Lesson not found.");

@@ -161,7 +161,7 @@ envelopes rather than sent through the LLM conversation (avoids WS 1007/1008
 policy errors). Canvas tools are even "early-pushed" on `tool_start` for snappiness.
 
 ### Realtime session config
-- Model: `settings.realtime_model` (`gpt-realtime-2` as configured).
+- Model: `settings.realtime_model` (`gpt-realtime-2.1` as configured).
 - Input/output audio: pcm16; transcription model `gpt-4o-mini-transcribe`.
 - Tutor uses `semantic_vad` with `interrupt_response`; Tars disables VAD.
 - 30s WS handshake timeout for flaky links.
@@ -383,7 +383,7 @@ annotates.
   render on Excalidraw's handwriting font without a LaTeX engine.
 
 **Model IDs configured in code** (as written; several are ahead of common
-availability): `gpt-realtime-2` (Realtime), `gpt-5.5`/`gpt-5.4` (visual locator),
+availability): `gpt-realtime-2.1` (Realtime), `gpt-5.5`/`gpt-5.4` (visual locator),
 `gpt-image-1`, `gpt-4o-mini` (discover / HTTP-tars / course-gen),
 `gpt-4o-mini-transcribe`, `tts-1`.
 
@@ -481,12 +481,12 @@ shell around it.
 Do these in order; each phase is independently demoable.
 
 ### Phase 0 — Setup (30 min)
-- `cd Backend && python -m venv .venv && pip install -r requirements.txt`; create
+- `cd Backend && uv sync --locked`; create
   `.env` with `OPENAI_API_KEY` and
   `APP_USERS=[{"username":"admin","password":"admin"},{"username":"learner","password":"learner"}]`.
 - `cd frontend && npm install && npm run dev`. Backend:
-  `uvicorn app.main:app --reload --port 8000`.
-- `pip install stripe` if doing real payments.
+  `uv run uvicorn app.main:app --reload --port 8000`.
+- `uv add stripe` if doing real payments.
 
 ### Phase 1 — Persist courses server-side (the keystone) (2–3 hrs)
 - **`Backend/app/db.py`** — add models:

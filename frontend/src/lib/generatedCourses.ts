@@ -1,3 +1,4 @@
+import axios from "axios";
 import { API_URL } from "@/lib/constants";
 import type { Course } from "@/lib/types";
 
@@ -49,4 +50,27 @@ export function assetUrl(path?: string | null): string {
 
 export function isGenerationActive(status: GeneratedCourseStatus): boolean {
   return ["researching", "generating", "generating_images"].includes(status);
+}
+
+/** Load either a learner-owned generation or a published platform course. */
+export async function fetchAvailableCourse(
+  courseId: string,
+  authorization?: string | null,
+): Promise<Course | null> {
+  try {
+    const generated = await axios.get<GeneratedCourseJob>(
+      `${API_URL}/api/generated-courses/${courseId}`,
+      { headers: authorization ? { Authorization: authorization } : undefined },
+    );
+    if (generated.data.status !== "ready" || !generated.data.course) return null;
+    return generated.data.course;
+  } catch (error) {
+    const status = axios.isAxiosError(error) ? error.response?.status : null;
+    if (status !== 403 && status !== 404) throw error;
+  }
+
+  const published = await axios.get<{ course: Course }>(
+    `${API_URL}/api/platform-courses/${courseId}`,
+  );
+  return published.data.course ?? null;
 }

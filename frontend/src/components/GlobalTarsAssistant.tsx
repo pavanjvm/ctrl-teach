@@ -579,6 +579,7 @@ export default function GlobalTarsAssistant() {
   const { activeCourseId, activeLessonId } = useLearner();
   const pathname = usePathname();
   const isLanding = pathname === "/";
+  const isAdmin = pathname.startsWith("/admin");
   const isWhiteboardSession = pathname === "/board"
     || pathname === "/learn"
     || pathname === "/role-playing"
@@ -1415,7 +1416,7 @@ export default function GlobalTarsAssistant() {
 
   if (!mounted) return null;
 
-  if (!user || isLanding) return null;
+  if (!user || isLanding || isAdmin) return null;
 
   const renderCursor = showCursor;
 

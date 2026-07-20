@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 
 from app.auth.passwords import (
     hash_password,
@@ -31,6 +31,7 @@ def _user_dict(user) -> dict:
         "email": user.email,
         "name": user.name,
         "picture": user.picture,
+        "isAdmin": bool(user.is_admin),
     }
 
 
@@ -59,3 +60,17 @@ def get_current_user(authorization: Optional[str] = Header(default=None)) -> dic
         )
 
     return authenticated
+
+
+def get_current_admin(user: dict = Depends(get_current_user)) -> dict:
+    """Require the authenticated account to retain its database admin role."""
+
+    try:
+        uid = int(user["uid"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Bad user id")
+    with SessionLocal() as db:
+        stored = db.get(User, uid)
+        if stored is None or not stored.is_admin:
+            raise HTTPException(status_code=403, detail="Admin access required")
+    return {**user, "isAdmin": True}

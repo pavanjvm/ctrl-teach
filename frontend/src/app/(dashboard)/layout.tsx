@@ -9,11 +9,7 @@ import { useTars } from "@/lib/tars";
 import {
     ArrowLeft,
     BookOpen,
-    LayoutDashboard,
     Presentation,
-    Users,
-    PenTool,
-    Trophy,
     Settings,
     Bell,
     Menu,
@@ -49,6 +45,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     useEffect(() => {
         if (!loading && !user) {
             router.push("/login");
+        } else if (!loading && user?.isAdmin) {
+            router.replace("/admin/dashboard");
         } else if (!loading && user && learnerReady && !isOnboarded) {
             router.push("/onboarding");
         }
@@ -130,7 +128,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     };
 
     // Show skeleton while checking auth state instead of blank screen
-    if (loading || !user || !learnerReady || !isOnboarded) {
+    if (loading || !user || user.isAdmin || !learnerReady || !isOnboarded) {
         return (
             <div className="dash-app">
                 <header className="dash-topbar">
@@ -176,14 +174,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     };
 
     const navItems = [
-        { name: "Home", href: "/dashboard" },
-        { name: "Create", href: "/discover" },
-        { name: "My Library", href: "/library" },
-        { name: "Workspace", href: "/learn" },
-        { name: "Role Playing", href: "/role-playing" },
-        { name: "Teaching Profiles", href: "/teaching-profiles" },
-        { name: "Whiteboard", href: "/board" },
-        { name: "Achievements", href: "/profile?tab=achievements" },
+        { name: "Home", href: "/dashboard", active: pathname === "/dashboard" },
+        {
+            name: "Learn",
+            href: "/library",
+            active: pathname === "/library" || pathname === "/discover" || pathname.startsWith("/learn"),
+        },
     ];
 
     const isBoard = pathname === "/board";
@@ -251,13 +247,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     {/* 2. Navigation Links */}
                     <nav className="topbar-nav">
                         {navItems.map((item) => {
-                            const hrefPath = item.href.split("?")[0];
-                            const isActive = pathname === hrefPath || pathname === item.href;
                             return (
                                 <Link
                                     key={item.href}
                                     href={item.href}
-                                    className={`topbar-nav-item ${isActive ? "active" : ""}`}
+                                    className={`topbar-nav-item ${item.active ? "active" : ""}`}
+                                    aria-current={item.active ? "page" : undefined}
                                 >
                                     <span>{item.name}</span>
                                 </Link>
@@ -413,6 +408,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                     >
                                         My Profile
                                     </Link>
+                                    <Link
+                                        href="/profile?tab=achievements"
+                                        className="notif-item"
+                                        onClick={() => setShowProfileDropdown(false)}
+                                        style={{ padding: "10px", borderRadius: "4px" }}
+                                    >
+                                        Achievements
+                                    </Link>
+                                    <Link
+                                        href="/teaching-profiles"
+                                        className="notif-item"
+                                        onClick={() => setShowProfileDropdown(false)}
+                                        style={{ padding: "10px", borderRadius: "4px" }}
+                                    >
+                                        Teaching style
+                                    </Link>
                                     <button
                                         onClick={handleLogout}
                                         className="notif-item"
@@ -428,13 +439,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     {showMobileNav && (
                         <nav id="mobile-product-navigation" className="topbar-mobile-nav" aria-label="Product navigation">
                             {navItems.map((item, index) => {
-                                const hrefPath = item.href.split("?")[0];
-                                const isActive = pathname === hrefPath || pathname === item.href;
                                 return (
                                     <Link
                                         key={item.href}
                                         href={item.href}
-                                        className={`topbar-mobile-nav-item ${isActive ? "active" : ""}`}
+                                        className={`topbar-mobile-nav-item ${item.active ? "active" : ""}`}
+                                        aria-current={item.active ? "page" : undefined}
                                     >
                                         <span className="topbar-mobile-nav-index">{String(index + 1).padStart(2, "0")}</span>
                                         <span>{item.name}</span>

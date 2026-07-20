@@ -6,7 +6,7 @@ Teaching modes use the same identity with a narrower instructional tool set.
 Architecture:
 - Runs over the shared WebSocket in `mode=page`. The legacy `agent=tars`
   selector remains accepted for extension compatibility.
-- Backed by `gpt-realtime-2` (configured at the runner level in main.py).
+- Backed by `gpt-realtime-2.1` (configured at the runner level in main.py).
 - Single tool: `point_at` — the model emits this when pointing would help.
 
 Pointing strategy (two-tier, like the Swift macOS Tars):

@@ -290,6 +290,7 @@ const LearnerContext = createContext<LearnerContextValue | null>(null);
 export function LearnerProvider({ children }: { children: React.ReactNode }) {
   const { user, getToken } = useAuth();
   const [state, setState] = useState<PersistedState>(loadState);
+  const [platformCourses, setPlatformCourses] = useState<Course[]>([]);
   const [hydratedUserId, setHydratedUserId] = useState<string | null>(null);
   const lastSyncRef = useRef<string>("");
 
@@ -357,6 +358,23 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
     })();
     return () => { cancelled = true; };
   }, [user, getToken]);
+
+  // Public, admin-managed courses are deliberately kept outside local learner
+  // persistence. Unpublishing a course therefore removes it on the next load.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await axios.get(`${API_URL}/api/platform-courses`);
+        if (!cancelled && Array.isArray(res.data?.courses)) {
+          setPlatformCourses(res.data.courses);
+        }
+      } catch {
+        // The built-in catalog remains available if the backend is offline.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Pull this learner's completed generated courses into their local catalog.
   // Backend versions win by id so direct URLs and My Library stay in sync.
@@ -448,7 +466,24 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
   const exposedMemories = ownsCachedState ? state.learningMemories : [];
   const exposedProgress = ownsCachedState ? state.progress : defaultProgress();
   const exposedCoursePrefs = ownsCachedState ? state.coursePrefs : {};
-  const courses = [...SEED_COURSES, ...(ownsCachedState ? state.savedCourses : [])];
+  const courses = useMemo(() => {
+    const learnerCourses = ownsCachedState ? state.savedCourses : [];
+    const ordered = [
+      ...platformCourses,
+      ...SEED_COURSES.filter((course) => !platformCourses.some((item) => item.id === course.id)),
+    ];
+    const positions = new Map(ordered.map((course, index) => [course.id, index]));
+    for (const course of learnerCourses) {
+      const position = positions.get(course.id);
+      if (position === undefined) {
+        positions.set(course.id, ordered.length);
+        ordered.push(course);
+      } else {
+        ordered[position] = course;
+      }
+    }
+    return ordered;
+  }, [ownsCachedState, platformCourses, state.savedCourses]);
   const skillProfile = useMemo(
     () => deriveSkillProfile(exposedMemories, exposedPrefs),
     [exposedMemories, exposedPrefs],
@@ -518,7 +553,7 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
       }),
     completeLesson: (lessonId) =>
       setState((s) => {
-        const knownCourses = [...SEED_COURSES, ...s.savedCourses];
+        const knownCourses = [...platformCourses, ...SEED_COURSES, ...s.savedCourses];
         const context = resolveLearningContext(knownCourses, s.activeCourseId, lessonId);
         const courseId = context.course?.id ?? s.activeCourseId;
         if (!courseId) return s;
@@ -612,7 +647,7 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
     recordAssessmentResult: (result) =>
       setState((s) => {
         const context = resolveLearningContext(
-          [...SEED_COURSES, ...s.savedCourses],
+          [...platformCourses, ...SEED_COURSES, ...s.savedCourses],
           s.activeCourseId,
           result.lessonId,
           result.courseId,
@@ -628,7 +663,7 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
     recordPracticeResult: (result) =>
       setState((s) => {
         const context = resolveLearningContext(
-          [...SEED_COURSES, ...s.savedCourses],
+          [...platformCourses, ...SEED_COURSES, ...s.savedCourses],
           s.activeCourseId,
           result.lessonId,
           result.courseId,
@@ -647,7 +682,7 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
     recordLessonFeedback: (result) =>
       setState((s) => {
         const context = resolveLearningContext(
-          [...SEED_COURSES, ...s.savedCourses],
+          [...platformCourses, ...SEED_COURSES, ...s.savedCourses],
           s.activeCourseId,
           result.lessonId,
           result.courseId,

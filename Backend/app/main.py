@@ -1,5 +1,5 @@
 """FastAPI application with a WebSocket endpoint bridging the browser to the
-OpenAI Realtime API (gpt-realtime-2) via the OpenAI Agents SDK realtime layer.
+OpenAI Realtime API (gpt-realtime-2.1) via the OpenAI Agents SDK realtime layer.
 
 Architecture (migrated from Google ADK / Gemini Live):
 - Per-connection RealtimeRunner + RealtimeSession (server-side WebSocket).
@@ -32,6 +32,8 @@ from app.utils.ssl_trust import configure_ca_bundle
 
 # Load .env BEFORE importing modules that read env vars at import time.
 load_dotenv()
+# Local-only overrides are ignored by git and intentionally take precedence.
+load_dotenv(".env.local", override=True)
 configured_ca_bundle = configure_ca_bundle()
 
 import numpy as np
@@ -68,6 +70,7 @@ from app.routers import tars as tars_router
 from app.routers import generated_courses as generated_courses_router
 from app.routers import browser_labs as browser_labs_router
 from app.routers import roleplay as roleplay_router
+from app.routers import platform_courses as platform_courses_router
 from app.utils.errors import (
     ErrorCategory,
     ErrorPayload,
@@ -211,6 +214,8 @@ async def lifespan(_app: FastAPI):
     # Ensure SQLite tables exist (idempotent — also runs at db import time).
     from app.db import init_db
     init_db()
+    from app.services.platform_courses import seed_platform_courses
+    seed_platform_courses()
 
     # Ensure local uploads directory exists for storage_tools.
     import os
@@ -246,6 +251,8 @@ app.include_router(tars_router.router)
 app.include_router(generated_courses_router.router)
 app.include_router(browser_labs_router.router)
 app.include_router(roleplay_router.router)
+app.include_router(platform_courses_router.public_router)
+app.include_router(platform_courses_router.admin_router)
 
 # Only generated course media is public. Private learner snapshots remain on
 # disk for agent workflows and are never exposed through StaticFiles.

@@ -79,7 +79,7 @@ export default function CompletionPage() {
             of your journey.
           </p>
           <div className="ctas">
-            <Link href="/discover" className="cta cta-primary">
+            <Link href="/library" className="cta cta-primary">
               <ArrowRight size={14} /> Find a course
             </Link>
             <Link href="/dashboard" className="cta cta-secondary">
@@ -307,7 +307,7 @@ export default function CompletionPage() {
           <Link href="/dashboard" className="cta cta-primary">
             Back to dashboard
           </Link>
-          <Link href="/discover" className="cta cta-secondary">
+          <Link href="/library" className="cta cta-secondary">
             Find another course <ArrowRight size={14} />
           </Link>
         </div>

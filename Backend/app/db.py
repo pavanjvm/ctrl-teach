@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional
 
 from sqlalchemy import (
+    Boolean,
     JSON,
     Column,
     DateTime,
@@ -25,6 +26,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     create_engine,
+    inspect,
     select,
 )
 from sqlalchemy.orm import (
@@ -72,6 +74,7 @@ class User(Base):
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     picture: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
     timezone: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
@@ -229,6 +232,24 @@ class GeneratedCourse(Base):
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
+class PlatformCourse(Base):
+    """Admin-managed course shown in the shared learner catalog."""
+
+    __tablename__ = "platform_courses"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
+    course: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
 class BrowserLabRun(Base):
     """A learner-owned, server-verified run of one generated browser lab.
 
@@ -314,7 +335,22 @@ class BrowserLabRecovery(Base):
 def init_db() -> None:
     """Create all tables and seed configured users."""
     Base.metadata.create_all(bind=engine)
+    _ensure_compatibility_columns()
     _seed_users()
+
+
+def _ensure_compatibility_columns() -> None:
+    """Apply small additive SQLite migrations without a migration framework."""
+
+    if engine.dialect.name != "sqlite":
+        return
+    columns = {column["name"] for column in inspect(engine).get_columns("users")}
+    if "is_admin" not in columns:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0"
+            )
+        logger.info("Added users.is_admin compatibility column")
 
 
 def _seed_users() -> None:
@@ -322,7 +358,7 @@ def _seed_users() -> None:
     users = settings.seeded_users
     if not users:
         return
-    from app.auth.passwords import hash_password
+    from app.auth.passwords import hash_password, verify_password
     with SessionLocal() as db:
         for u in users:
             username = (u.get("username") or "").strip()
@@ -331,6 +367,16 @@ def _seed_users() -> None:
                 continue
             existing = db.scalar(select(User).where(User.username == username))
             if existing:
+                if bool(u.get("force_password")) and not verify_password(password, existing.password_hash):
+                    existing.password_hash = hash_password(password)
+                    logger.info("Updated explicitly managed password for: %s", username)
+                desired_admin = bool(u.get("is_admin"))
+                if bool(u.get("force_role")) and existing.is_admin != desired_admin:
+                    existing.is_admin = desired_admin
+                    logger.info("Updated explicitly managed role for: %s", username)
+                elif desired_admin and not existing.is_admin:
+                    existing.is_admin = True
+                    logger.info("Promoted seeded user to admin: %s", username)
                 continue
             db.add(
                 User(
@@ -338,6 +384,7 @@ def _seed_users() -> None:
                     password_hash=hash_password(password),
                     email=u.get("email"),
                     name=u.get("name") or username,
+                    is_admin=bool(u.get("is_admin")),
                 )
             )
             logger.info("Seeded user: %s", username)

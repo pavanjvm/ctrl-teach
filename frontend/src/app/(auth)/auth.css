@@ -102,6 +102,23 @@
 
 .auth-sub a:hover { color: var(--accent); }
 
+.auth-demo-login {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -8px 0 24px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  font: 650 11px/1.2 inherit;
+  cursor: pointer;
+}
+.auth-demo-login span { color: var(--fg); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.auth-demo-login:hover { border-color: #699b17; }
+
 .auth-error {
   background: transparent;
   color: var(--danger, #B85C5C);

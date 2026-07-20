@@ -17,9 +17,9 @@ If this file is missing, the tool still works; it just won’t return an `audio_
 2. **TTS script:** From the repo root:
    ```bash
    cd Backend
-   python scripts/generate_image_ok_audio.py
+   uv run --with gtts --with pydub python scripts/generate_image_ok_audio.py
    ```
-   (Requires: `pip install gtts pydub` and ffmpeg for WAV→PCM, or use the script’s fallback.)
+   (Requires ffmpeg for WAV→PCM, or use the script’s fallback.)
 
 3. **Online:** Use a TTS site to generate a 16 kHz mono WAV, then use sox/ffmpeg to convert to raw PCM:
    ```bash

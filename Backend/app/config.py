@@ -16,14 +16,16 @@ class Settings(BaseSettings):
     """Centralised application settings loaded from environment / .env file."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # .env.local is ignored by git and may override local demo settings
+        # without changing a developer's secret-bearing .env file.
+        env_file=(".env", ".env.local"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
     # ── OpenAI ─────────────────────────────────────────────────────────────
     openai_api_key: str = ""
-    realtime_model: str = "gpt-realtime-2"
+    realtime_model: str = "gpt-realtime-2.1"
     realtime_voice: str = "ash"
     transcription_model: str = "gpt-4o-mini-transcribe"
     course_generation_model: str = "gpt-5.4-mini"
@@ -58,8 +60,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./ctrlteach.db"
 
     # ── Auth ────────────────────────────────────────────────────────────────
-    # JSON list of {"username":"x","password":"y"} seeded into the users
-    # table on startup. Prefer registering users through /api/auth/register.
+    # JSON list of {"username":"x","password":"y","is_admin":true} seeded
+    # into the users table on startup. Prefer registration for learner users.
     app_users: str = "[]"
     # New PBKDF2-SHA256 password hashes use at least 600,000 rounds.
     password_pbkdf2_rounds: int = 600_000

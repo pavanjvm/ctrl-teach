@@ -63,6 +63,7 @@ browser-to-OpenAI WebSocket path, so a camera is not required.
 
 - Node.js 20 or newer
 - Python 3.12 or newer
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
 - An OpenAI API key
 - A Tavus API key only when testing live video roleplay
 
@@ -70,9 +71,7 @@ browser-to-OpenAI WebSocket path, so a camera is not required.
 
 ```bash
 cd Backend
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync --locked
 cp .env.example .env
 ```
 
@@ -86,13 +85,13 @@ APP_SESSION_TOKEN_SECRET=replace-with-a-long-random-secret
 Generate a suitable local session secret with:
 
 ```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"
+uv run python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
 Start the API:
 
 ```bash
-.venv/bin/uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
 The API is available at `http://localhost:8000`; interactive documentation is
@@ -135,7 +134,7 @@ groups are summarized below.
 | Variable | Purpose |
 | --- | --- |
 | `OPENAI_API_KEY` | Realtime tutoring, course generation, images, and visual location |
-| `REALTIME_MODEL` | Realtime conversation model; defaults to `gpt-realtime-2` |
+| `REALTIME_MODEL` | Realtime conversation model; defaults to `gpt-realtime-2.1` |
 | `COURSE_GENERATION_MODEL` | Course research and writing model |
 | `IMAGE_MODEL` | Generated course image model |
 | `TAVUS_API_KEY` | Backend-only Tavus credential for live roleplay |
@@ -175,7 +174,7 @@ room or OpenAI request. To regenerate the complete set deliberately:
 
 ```bash
 cd Backend
-.venv/bin/python scripts/generate_roleplay_voice_previews.py
+uv run python scripts/generate_roleplay_voice_previews.py
 ```
 
 ## Course Generation
@@ -235,13 +234,13 @@ npm run build
 
 # Backend import smoke test
 cd ../Backend
-.venv/bin/python -c "from app.main import app; print(app.title)"
+uv run python -c "from app.main import app; print(app.title)"
 
 # Roleplay tests
-.venv/bin/python -m unittest tests.test_roleplay
+uv run python -m unittest tests.test_roleplay
 
 # Adaptive browser-lab recovery tests
-.venv/bin/python -m unittest tests.test_browser_labs
+uv run python -m unittest tests.test_browser_labs
 
 # Browser-extension protocol tests
 cd ../browser-extension
