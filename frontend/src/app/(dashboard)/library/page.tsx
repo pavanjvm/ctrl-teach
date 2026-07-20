@@ -32,7 +32,12 @@ function courseCoverStyle(course: Course): CSSProperties {
   const cover = course.coverImage?.url || course.thumbnail;
   if (!cover) return {};
   if (cover.includes("gradient(")) return { backgroundImage: cover };
-  return { backgroundImage: `url("${assetUrl(cover)}")` };
+  return {
+    backgroundImage: `url("${assetUrl(cover)}")`,
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    backgroundSize: "contain",
+  };
 }
 
 function courseProgress(
