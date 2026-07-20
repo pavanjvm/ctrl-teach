@@ -48,20 +48,27 @@ function courseProgress(
 export default function LibraryPage() {
   const router = useRouter();
   const { getToken } = useAuth();
-  const { courses, activeCourse, setActiveCourse, isLessonComplete } = useLearner();
+  const { activeCourse, setActiveCourse, isLessonComplete } = useLearner();
   const [builderOpen, setBuilderOpen] = useState(false);
   const [jobs, setJobs] = useState<GeneratedCourseJob[]>([]);
+  const [platformCourses, setPlatformCourses] = useState<Array<Course & { sourceGeneratedCourseId?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
       const token = await getToken();
-      const response = await axios.get<{ courses: GeneratedCourseJob[] }>(
-        `${API_URL}/api/generated-courses`,
-        { headers: token ? { Authorization: token } : undefined },
-      );
-      setJobs(response.data.courses ?? []);
+      const [jobsResponse, platformResponse] = await Promise.all([
+        axios.get<{ courses: GeneratedCourseJob[] }>(
+          `${API_URL}/api/generated-courses`,
+          { headers: token ? { Authorization: token } : undefined },
+        ),
+        axios.get<{ courses: Array<Course & { sourceGeneratedCourseId?: string }> }>(
+          `${API_URL}/api/platform-courses`,
+        ),
+      ]);
+      setJobs(jobsResponse.data.courses ?? []);
+      setPlatformCourses(platformResponse.data.courses ?? []);
       setError(null);
     } catch {
       setError("Your generated courses could not be loaded.");
@@ -88,19 +95,9 @@ export default function LibraryPage() {
     return () => window.clearInterval(timer);
   }, [jobs, load]);
 
-  const generatedCourseIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const job of jobs) {
-      ids.add(job.id);
-      if (job.course?.id) ids.add(job.course.id);
-      if (job.partialCourse?.id) ids.add(job.partialCourse.id);
-    }
-    return ids;
-  }, [jobs]);
-
   const catalogCourses = useMemo(
-    () => courses.filter((course) => !generatedCourseIds.has(course.id)),
-    [courses, generatedCourseIds],
+    () => platformCourses.filter((course) => Boolean(course.sourceGeneratedCourseId)),
+    [platformCourses],
   );
 
   function openJob(job: GeneratedCourseJob) {
@@ -181,7 +178,7 @@ export default function LibraryPage() {
             <span>Start a learning path</span>
             <BookOpen size={26} />
             <h2 id="library-start-title">Choose something worth getting good at.</h2>
-            <p>Start with a ready-made course below, then learn through explanation, practice, and feedback.</p>
+            <p>Start with a published generated course below, then learn through explanation, practice, and feedback.</p>
             <a href="#course-catalog-title">Browse courses <ArrowRight size={15} /></a>
           </section>
         )}
@@ -234,7 +231,6 @@ export default function LibraryPage() {
                 (total, module) => total + module.lessons.filter((lesson) => (lesson.contentBlocks?.length || 0) > 0).length,
                 0,
               ) || 0;
-              const image = assetUrl(course?.coverImage?.url || course?.thumbnail);
               return (
                 <motion.article
                   key={job.id}
@@ -244,16 +240,13 @@ export default function LibraryPage() {
                   className="library-card"
                 >
                   <button type="button" onClick={() => openJob(job)} aria-label={`Open ${job.topic}`}>
-                    <div className="library-cover">
+                    <div
+                      className="library-cover"
+                      style={course ? courseCoverStyle(course) : undefined}
+                      role={course ? "img" : undefined}
+                      aria-label={course ? course.coverImage?.alt || `${course.title} course cover` : undefined}
+                    >
                       <Sparkles className="library-cover-fallback" size={28} aria-hidden="true" />
-                      {image && (
-                        <img
-                          src={image}
-                          alt={course?.coverImage?.alt || `${course?.title || job.topic} course cover`}
-                          loading="lazy"
-                          onError={(event) => { event.currentTarget.style.display = "none"; }}
-                        />
-                      )}
                       <span className={`library-status ${job.status}`}>
                         {job.status === "ready" ? "Ready" : job.status === "failed" ? "Needs attention" : job.status === "intake" ? "Needs answers" : "Generating"}
                       </span>
@@ -285,40 +278,52 @@ export default function LibraryPage() {
       <section className="library-section" aria-labelledby="course-catalog-title">
         <div className="library-section-head">
           <div>
-            <span>Explore</span>
-            <h2 id="course-catalog-title">Courses ready to start</h2>
+            <span>Published</span>
+            <h2 id="course-catalog-title">Generated courses ready to start</h2>
           </div>
-          <p>Complete paths with study, guided practice, assessment, and roleplay.</p>
+          <p>Real courses generated in Ctrl+Teach and published from the admin studio.</p>
         </div>
-        <section className="library-grid library-catalog-grid">
-          {catalogCourses.map((course, index) => {
-            const progress = courseProgress(course, isLessonComplete);
-            return (
-              <motion.article
-                key={course.id}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * .035 }}
-                className="library-card"
-              >
-                <button type="button" onClick={() => openCourse(course)} aria-label={`Open ${course.title}`}>
-                  <div className="library-cover library-catalog-cover" style={courseCoverStyle(course)}>
-                    <BookOpen className="library-cover-fallback" size={28} aria-hidden="true" />
-                    <span className="library-status ready">{progress > 0 ? `${progress}% complete` : course.difficulty}</span>
-                  </div>
-                  <div className="library-body">
-                    <span className="library-meta">{course.modules.length} modules · {course.duration}</span>
-                    <h2>{course.title}</h2>
-                    <p>{course.description}</p>
-                    <div className="library-open">
-                      {progress > 0 ? "Resume course" : "Start course"} <ArrowRight size={14} />
+        {catalogCourses.length === 0 ? (
+          <div className="library-collection-empty">
+            <Sparkles size={20} />
+            <div><strong>No published generated courses yet</strong><span>Publish a generated course from the admin studio to show it here.</span></div>
+          </div>
+        ) : (
+          <section className="library-grid library-catalog-grid">
+            {catalogCourses.map((course, index) => {
+              const progress = courseProgress(course, isLessonComplete);
+              return (
+                <motion.article
+                  key={course.id}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * .035 }}
+                  className="library-card"
+                >
+                  <button type="button" onClick={() => openCourse(course)} aria-label={`Open ${course.title}`}>
+                    <div
+                      className="library-cover library-catalog-cover"
+                      style={courseCoverStyle(course)}
+                      role="img"
+                      aria-label={course.coverImage?.alt || `${course.title} course cover`}
+                    >
+                      <BookOpen className="library-cover-fallback" size={28} aria-hidden="true" />
+                      <span className="library-status ready">{progress > 0 ? `${progress}% complete` : course.difficulty}</span>
                     </div>
-                  </div>
-                </button>
-              </motion.article>
-            );
-          })}
-        </section>
+                    <div className="library-body">
+                      <span className="library-meta">{course.modules.length} modules · {course.duration}</span>
+                      <h2>{course.title}</h2>
+                      <p>{course.description}</p>
+                      <div className="library-open">
+                        {progress > 0 ? "Resume course" : "Start course"} <ArrowRight size={14} />
+                      </div>
+                    </div>
+                  </button>
+                </motion.article>
+              );
+            })}
+          </section>
+        )}
       </section>
 
       {!loading && jobs.some((job) => isGenerationActive(job.status)) && (

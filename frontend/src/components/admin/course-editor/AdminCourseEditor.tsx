@@ -404,7 +404,13 @@ export default function AdminCourseEditor({
                   key={block.id}
                   className={`admin-editable-block ${activeBlockId === block.id ? "active" : ""}`}
                   draggable={mode === "edit"}
-                  onDragStart={() => setDragItem({ kind: "block", moduleId: selection.moduleId, lessonId: selection.lessonId, blockId: block.id })}
+                  onDragStart={(event) => {
+                    if ((event.target as HTMLElement).isContentEditable) {
+                      event.preventDefault();
+                      return;
+                    }
+                    setDragItem({ kind: "block", moduleId: selection.moduleId, lessonId: selection.lessonId, blockId: block.id });
+                  }}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={() => {
                     if (dragItem?.kind !== "block" || dragItem.lessonId !== selection.lessonId) return;
@@ -420,11 +426,16 @@ export default function AdminCourseEditor({
                       <button type="button" disabled={blockIndex === 0} onClick={() => { onChange(moveBlock(course, selection.moduleId, selection.lessonId, block.id, -1)); announce("Content block moved up."); }} aria-label="Move block up"><ArrowUp size={12} /></button>
                       <button type="button" disabled={blockIndex === (selectedLesson.contentBlocks?.length ?? 0) - 1} onClick={() => { onChange(moveBlock(course, selection.moduleId, selection.lessonId, block.id, 1)); announce("Content block moved down."); }} aria-label="Move block down"><ArrowDown size={12} /></button>
                       <button type="button" onClick={() => onChange(duplicateBlock(course, selection.moduleId, selection.lessonId, block.id))} aria-label="Duplicate block"><Copy size={12} /></button>
-                      <button type="button" className={activeBlockId === block.id ? "active" : ""} onClick={() => setActiveBlockId(activeBlockId === block.id ? null : block.id)}><Settings2 size={12} /> Edit</button>
+                      <button type="button" className={activeBlockId === block.id ? "active" : ""} onClick={() => setActiveBlockId(activeBlockId === block.id ? null : block.id)}><Settings2 size={12} /> Advanced</button>
                       <button type="button" onClick={() => { if (window.confirm("Delete this content block?")) onChange(removeBlockById(course, selection.moduleId, selection.lessonId, block.id)); }} aria-label="Delete block"><Trash2 size={12} /></button>
                     </div>
                   )}
-                  <CourseBlockRenderer block={block} citations={course.citations ?? []} />
+                  <CourseBlockRenderer
+                    block={block}
+                    citations={course.citations ?? []}
+                    editable={mode === "edit"}
+                    onChange={(next) => onChange(updateBlockById(course, selection.moduleId, selection.lessonId, block.id, next))}
+                  />
                   {mode === "edit" && activeBlockId === block.id && (
                     <ContentBlockEditor
                       block={block}

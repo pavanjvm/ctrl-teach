@@ -395,6 +395,7 @@ export default function AdminCoursesPage() {
     url.searchParams.delete("generation");
     url.searchParams.delete("prompt");
     window.history.replaceState({}, "", url);
+    window.scrollTo(0, 0);
   }
 
   function startNewCourse(suggestedPrompt = "") {
