@@ -186,6 +186,99 @@ class PlatformCourseRouterTests(unittest.TestCase):
                 ["Full generated lesson content."],
             )
 
+    def test_rich_course_fields_round_trip_through_admin_and_public_catalog(self) -> None:
+        rich_course = {
+            **COURSE,
+            "format": "rich",
+            "overview": {
+                "audience": "Product teams",
+                "outcomes": ["Frame a problem", "Test an assumption"],
+                "prerequisites": ["Basic product vocabulary"],
+                "estimatedTime": "2h 15m",
+            },
+            "coverImage": {
+                "id": "cover-1",
+                "status": "ready",
+                "url": "/uploads/generated/cover.webp",
+                "alt": "Course cover",
+                "caption": "Generated cover",
+                "prompt": "A product discovery workshop",
+                "width": 1536,
+                "height": 1024,
+                "contentType": "image/webp",
+                "sizeBytes": 1200,
+            },
+            "citations": [{
+                "id": "src-1",
+                "title": "Discovery guide",
+                "url": "https://example.com/discovery",
+            }],
+            "certificateCriteria": {
+                "title": "Discovery practitioner",
+                "requiredScore": 80,
+                "requiredArtifacts": ["interview-plan"],
+                "skills": ["Editing", "Publishing"],
+                "statement": "Completed the discovery course.",
+            },
+            "modules": [{
+                "id": "module-1",
+                "title": "First module",
+                "lessons": [{
+                    "id": "lesson-1",
+                    "title": "First lesson",
+                    "type": "lab",
+                    "duration": "20m",
+                    "summary": "Practice the workflow.",
+                    "contentBlocks": [{
+                        "id": "block-1",
+                        "type": "content",
+                        "heading": "Important concept",
+                        "paragraphs": ["Full lesson content."],
+                        "citationIds": ["src-1"],
+                    }],
+                    "lab": {
+                        "scenario": "Interview a customer",
+                        "task": "Write neutral questions",
+                        "starterContext": "A new product idea",
+                        "deliverable": "Interview guide",
+                        "successCriteria": ["Questions avoid leading language"],
+                    },
+                    "whiteboardPlan": {
+                        "objective": "Explain neutral interviewing",
+                        "beats": ["Define leading questions"],
+                        "visualElements": ["Question comparison"],
+                    },
+                }],
+            }],
+        }
+        client = self._client(admin=True)
+        with patch.object(platform_router, "SessionLocal", self.session_factory):
+            created = client.post("/api/admin/courses", json=rich_course)
+            self.assertEqual(created.status_code, 201)
+            course_id = created.json()["id"]
+
+            edited = created.json()["course"]
+            edited["overview"]["audience"] = "Product and design teams"
+            saved = client.put(f"/api/admin/courses/{course_id}", json=edited)
+            self.assertEqual(saved.status_code, 200)
+            self.assertEqual(saved.json()["course"]["coverImage"]["url"], "/uploads/generated/cover.webp")
+            self.assertEqual(
+                saved.json()["course"]["modules"][0]["lessons"][0]["lab"]["deliverable"],
+                "Interview guide",
+            )
+
+            published = client.post(f"/api/admin/courses/{course_id}/publish")
+            self.assertEqual(published.status_code, 200)
+            public = client.get(f"/api/platform-courses/{course_id}")
+            self.assertEqual(public.status_code, 200)
+            self.assertEqual(public.json()["course"]["overview"]["audience"], "Product and design teams")
+            self.assertEqual(public.json()["course"]["citations"][0]["id"], "src-1")
+            self.assertEqual(public.json()["course"]["certificateCriteria"]["requiredScore"], 80)
+            self.assertEqual(
+                public.json()["course"]["modules"][0]["lessons"][0]["contentBlocks"][0]["citationIds"],
+                ["src-1"],
+            )
+
     def test_generated_course_cannot_be_edited_before_generation_is_ready(self) -> None:
         with self.session_factory() as db:
             db.add(

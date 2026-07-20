@@ -24,10 +24,12 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "@/components/AuthProvider";
+import AdminCourseEditor from "@/components/admin/course-editor/AdminCourseEditor";
 import { API_URL } from "@/lib/constants";
 import { assetUrl, isGenerationActive, type GeneratedCourseJob } from "@/lib/generatedCourses";
 import type { Course, CourseContentBlock, Lesson, LessonType, Module } from "@/lib/types";
 import CourseBuilder from "../../(dashboard)/discover/page";
+import "../../(dashboard)/learn/[courseId]/rich-course.css";
 import "../admin.css";
 
 type CourseStatus = "draft" | "published";
@@ -581,7 +583,7 @@ export default function AdminCoursesPage() {
   }
 
   return (
-    <main className={`admin-studio ${builderOpen || !draft ? "admin-library-mode" : ""}`}>
+    <main className={`admin-studio ${builderOpen || !draft ? "admin-library-mode" : "admin-authoring-mode"}`}>
       <header className="admin-studio-header">
         <Link href="/admin/dashboard" className="admin-wordmark" aria-label="Admin dashboard">Ctrl<span>+</span>Teach</Link>
         <div className="admin-studio-title">
@@ -596,48 +598,6 @@ export default function AdminCoursesPage() {
           <button type="button" onClick={signOut}><LogOut size={15} /> Sign out</button>
         </div>
       </header>
-
-      {!builderOpen && draft && <aside className="admin-course-rail">
-        <button type="button" className="admin-rail-library" onClick={openLibrary}><ArrowLeft size={14} /> Course library</button>
-        <div className="admin-rail-heading">
-          <div>
-            <span>Platform catalog</span>
-            <strong>{courses.length} courses</strong>
-          </div>
-          <button type="button" onClick={() => startNewCourse()} aria-label="Generate a new course">
-            <Sparkles size={16} />
-          </button>
-        </div>
-
-        {loading ? (
-          <div className="admin-rail-state"><Loader2 className="admin-spin" size={17} /> Loading courses</div>
-        ) : courses.length === 0 ? (
-          <div className="admin-rail-empty">No platform courses yet.</div>
-        ) : (
-          <nav className="admin-course-list" aria-label="Platform courses">
-            {courses.map((record) => (
-              <button
-                type="button"
-                key={record.id}
-                className={selectedId === record.id ? "active" : ""}
-                onClick={() => selectCourse(record)}
-              >
-                <span className={`admin-status-dot ${record.status}`} />
-                <span>
-                  <strong>{record.course.title}</strong>
-                  <small>{record.status} · {record.course.modules.length} modules</small>
-                </span>
-                <ChevronRight size={15} />
-              </button>
-            ))}
-          </nav>
-        )}
-
-        <div className="admin-rail-legend">
-          <span><i className="published" /> Published</span>
-          <span><i className="draft" /> Draft</span>
-        </div>
-      </aside>}
 
       <section className="admin-editor">
         {builderOpen ? (
@@ -755,183 +715,20 @@ export default function AdminCoursesPage() {
             </section>
           </div>
         ) : (
-          <>
-            <div className="admin-editor-head">
-              <div>
-                <span className={`admin-status-pill ${selectedRecord?.status ?? "draft"}`}>
-                  {selectedRecord?.status === "published" ? <Check size={12} /> : null}
-                  {selectedRecord?.status ?? "New draft"}
-                </span>
-                <h1>{draft.title || "Untitled course"}</h1>
-                <p>
-                  {draft.modules.length} modules · {lessonCount} lessons · {isDirty ? "Unsaved changes" : formatUpdated(selectedRecord?.updatedAt ?? null)}
-                </p>
-              </div>
-              <div className="admin-editor-actions">
-                <button type="button" className="admin-secondary" onClick={saveCourse} disabled={Boolean(busy)}>
-                  {busy === "save" ? <Loader2 className="admin-spin" size={15} /> : <Save size={15} />}
-                  Save
-                </button>
-                {selectedRecord?.status === "published" ? (
-                  <button type="button" className="admin-secondary admin-unpublish" onClick={() => changePublishing("unpublish")} disabled={Boolean(busy)}>
-                    {busy === "unpublish" ? <Loader2 className="admin-spin" size={15} /> : <EyeOff size={15} />}
-                    Unpublish
-                  </button>
-                ) : (
-                  <button type="button" className="admin-primary admin-publish" onClick={() => changePublishing("publish")} disabled={Boolean(busy)}>
-                    {busy === "publish" ? <Loader2 className="admin-spin" size={15} /> : <Send size={15} />}
-                    Publish
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {(notice || error) && (
-              <div className={error ? "admin-editor-message error" : "admin-editor-message"} role="status">
-                {error || notice}
-              </div>
-            )}
-
-            <div className="admin-form-section">
-              <div className="admin-section-label"><span>01</span><div><strong>Course identity</strong><small>What learners see before they begin.</small></div></div>
-              <div className="admin-field-grid">
-                <label className="admin-field admin-field-wide">
-                  <span>Course title</span>
-                  <input value={draft.title} onChange={(event) => updateField("title", event.target.value)} />
-                </label>
-                <label className="admin-field admin-field-wide">
-                  <span>Description</span>
-                  <textarea rows={4} value={draft.description} onChange={(event) => updateField("description", event.target.value)} />
-                </label>
-                <label className="admin-field">
-                  <span>Instructor</span>
-                  <input value={draft.instructor} onChange={(event) => updateField("instructor", event.target.value)} />
-                </label>
-                <label className="admin-field">
-                  <span>Difficulty</span>
-                  <select value={draft.difficulty} onChange={(event) => updateField("difficulty", event.target.value as Course["difficulty"])}>
-                    <option>Beginner</option>
-                    <option>Intermediate</option>
-                    <option>Advanced</option>
-                  </select>
-                </label>
-                <label className="admin-field">
-                  <span>Duration</span>
-                  <input value={draft.duration} onChange={(event) => updateField("duration", event.target.value)} placeholder="e.g. 4h 30m" />
-                </label>
-                <label className="admin-field">
-                  <span>Skills <small>Comma separated</small></span>
-                  <input
-                    value={draft.skills.join(", ")}
-                    onChange={(event) => updateField("skills", event.target.value.split(",").map((skill) => skill.trim()).filter(Boolean))}
-                    placeholder="Research, Prototyping, Testing"
-                  />
-                </label>
-                <label className="admin-field admin-field-wide">
-                  <span>Cover background <small>CSS gradient or image URL</small></span>
-                  <div className="admin-cover-field">
-                    <i style={{ backgroundImage: draft.thumbnail.includes("gradient(") ? draft.thumbnail : `url(${draft.thumbnail})` }} />
-                    <input value={draft.thumbnail} onChange={(event) => updateField("thumbnail", event.target.value)} />
-                  </div>
-                </label>
-              </div>
-            </div>
-
-            <div className="admin-form-section admin-curriculum-section">
-              <div className="admin-section-label">
-                <span>02</span>
-                <div><strong>Curriculum</strong><small>Build the path in the order learners will follow it.</small></div>
-                <button type="button" onClick={() => updateField("modules", [...draft.modules, newModule()])}><Plus size={14} /> Add module</button>
-              </div>
-
-              <div className="admin-modules">
-                {draft.modules.map((module, moduleIndex) => (
-                  <article className="admin-module" key={module.id}>
-                    <header>
-                      <span><Layers3 size={15} /> Module {String(moduleIndex + 1).padStart(2, "0")}</span>
-                      <input
-                        value={module.title}
-                        onChange={(event) => updateModule(moduleIndex, { title: event.target.value })}
-                        aria-label={`Module ${moduleIndex + 1} title`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => updateField("modules", draft.modules.filter((_, index) => index !== moduleIndex))}
-                        aria-label={`Remove ${module.title}`}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </header>
-
-                    <div className="admin-lessons">
-                      {module.lessons.map((lesson, lessonIndex) => (
-                        <div className="admin-lesson" key={lesson.id}>
-                          <span className="admin-lesson-number">{moduleIndex + 1}.{lessonIndex + 1}</span>
-                          <label>
-                            <span>Lesson title</span>
-                            <input value={lesson.title} onChange={(event) => updateLesson(moduleIndex, lessonIndex, { title: event.target.value })} />
-                          </label>
-                          <label className="admin-lesson-type">
-                            <span>Mode</span>
-                            <select value={lesson.type} onChange={(event) => updateLesson(moduleIndex, lessonIndex, { type: event.target.value as LessonType })}>
-                              <option value="study">Study</option>
-                              <option value="lab">Lab</option>
-                              <option value="assessment">Assessment</option>
-                              <option value="roleplay">Roleplay</option>
-                            </select>
-                          </label>
-                          <label className="admin-lesson-duration">
-                            <span>Time</span>
-                            <input value={lesson.duration} onChange={(event) => updateLesson(moduleIndex, lessonIndex, { duration: event.target.value })} />
-                          </label>
-                          <label className="admin-lesson-summary">
-                            <span>Lesson summary</span>
-                            <textarea rows={2} value={lesson.summary} onChange={(event) => updateLesson(moduleIndex, lessonIndex, { summary: event.target.value })} />
-                          </label>
-                          <div className="admin-lesson-rich">
-                            <header>
-                              <span>Lesson content</span>
-                              <small>{lesson.contentBlocks?.length ?? 0} sections</small>
-                            </header>
-                            {lesson.contentBlocks?.map((block, blockIndex) => (
-                              <ContentBlockEditor
-                                key={block.id}
-                                block={block}
-                                onChange={(next) => updateContentBlock(moduleIndex, lessonIndex, blockIndex, next)}
-                                onRemove={() => updateContentBlock(moduleIndex, lessonIndex, blockIndex, null)}
-                              />
-                            ))}
-                            <button
-                              type="button"
-                              className="admin-add-content"
-                              onClick={() => updateLesson(moduleIndex, lessonIndex, { contentBlocks: [...(lesson.contentBlocks ?? []), newContentBlock()] })}
-                            >
-                              <Plus size={12} /> Add content section
-                            </button>
-                          </div>
-                          <button
-                            type="button"
-                            className="admin-lesson-remove"
-                            onClick={() => updateModule(moduleIndex, { lessons: module.lessons.filter((_, index) => index !== lessonIndex) })}
-                            aria-label={`Remove ${lesson.title}`}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      ))}
-                      <button
-                        type="button"
-                        className="admin-add-lesson"
-                        onClick={() => updateModule(moduleIndex, { lessons: [...module.lessons, newLesson()] })}
-                      >
-                        <Plus size={14} /> Add lesson
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </>
+          <AdminCourseEditor
+            course={draft}
+            status={selectedRecord?.status ?? "draft"}
+            updatedLabel={formatUpdated(selectedRecord?.updatedAt ?? null)}
+            dirty={isDirty}
+            busy={busy}
+            notice={notice}
+            error={error}
+            onChange={setDraft}
+            onBack={openLibrary}
+            onSave={saveCourse}
+            onPublish={() => changePublishing("publish")}
+            onUnpublish={() => changePublishing("unpublish")}
+          />
         )}
       </section>
     </main>
