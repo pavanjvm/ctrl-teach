@@ -102,7 +102,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { name: "Home", href: "/dashboard", active: pathname === "/dashboard" },
         { name: "Explore", href: "/courses", active: pathname === "/courses" },
         {
-            name: "My Learning",
+            name: "Learning",
             href: "/library",
             active: pathname === "/library" || pathname === "/discover" || pathname.startsWith("/learn"),
         },
@@ -117,7 +117,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const isCourseOverview = Boolean(courseId && pathname === `/learn/${courseId}`);
     const lessonId = !isLiveClassroom ? pathname.split("/")[3] : null;
     const courseBackHref = courseId?.startsWith("platform-") ? "/courses" : "/library";
-    const courseBackLabel = courseId?.startsWith("platform-") ? "Explore" : "My Learning";
+    const courseBackLabel = courseId?.startsWith("platform-") ? "Explore" : "Learning";
 
     return (
         <div className={`dash-app ${isBoard ? "board-shell" : ""}`}>
