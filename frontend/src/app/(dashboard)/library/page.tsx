@@ -217,14 +217,6 @@ export default function LibraryPage() {
 
   return (
     <div className="library-page">
-      <header className="library-head">
-        <div>
-          <span>Your learning space</span>
-          <h1>Learn what matters next<span>.</span></h1>
-          <p>Continue where you stopped or create a focused course around a new goal.</p>
-        </div>
-      </header>
-
       <section className="library-launchpad" aria-label="Ways to learn">
         {activeCourse ? (
           <section className="library-continue" aria-labelledby="library-continue-title">
