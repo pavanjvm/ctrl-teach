@@ -58,13 +58,14 @@ export default function RichLessonPage() {
   const load = useCallback(async () => {
     try {
       const token = await getToken();
-      const nextCourse = await fetchAvailableCourse(params.courseId, token);
+      const nextCourse = await fetchAvailableCourse(params.courseId, token, true);
       if (!nextCourse) {
         router.replace(`/library?generation=${params.courseId}`);
         return;
       }
       setCourse(nextCourse);
-      const hydrationKey = `${nextCourse.id}:${params.lessonId}`;
+      setError(null);
+      const hydrationKey = `${nextCourse.id}:${params.lessonId}:${nextCourse.partial ? nextCourse.completedLessonCount ?? 0 : "ready"}`;
       if (hydratedRef.current !== hydrationKey) {
         hydratedRef.current = hydrationKey;
         addCourse(nextCourse);
@@ -79,6 +80,11 @@ export default function RichLessonPage() {
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
+    if (!course?.partial) return;
+    const timer = window.setInterval(() => void load(), 2500);
+    return () => window.clearInterval(timer);
+  }, [course?.partial, load]);
+  useEffect(() => {
     setQuizProgress({});
     setBrowserLabVerified(false);
   }, [params.lessonId]);
@@ -86,8 +92,12 @@ export default function RichLessonPage() {
   const lessons = useMemo(() => course?.modules.flatMap((module) => module.lessons) ?? [], [course]);
   const lessonIndex = lessons.findIndex((item) => item.id === params.lessonId);
   const lesson = lessonIndex >= 0 ? lessons[lessonIndex] : null;
-  const previous = lessonIndex > 0 ? lessons[lessonIndex - 1] : null;
-  const next = lessonIndex >= 0 && lessonIndex < lessons.length - 1 ? lessons[lessonIndex + 1] : null;
+  const previous = lessonIndex > 0
+    ? lessons.slice(0, lessonIndex).reverse().find((item) => item.status !== "pending") ?? null
+    : null;
+  const next = lessonIndex >= 0
+    ? lessons.slice(lessonIndex + 1).find((item) => item.status !== "pending") ?? null
+    : null;
   const isBrowserLab = Boolean(lesson?.browserLab);
   const quizBlocks = lesson?.contentBlocks?.filter((block) => block.type === "quiz") ?? [];
   const lessonAlreadyComplete = Boolean(lesson && course && isLessonComplete(course.id, lesson.id));
@@ -104,7 +114,7 @@ export default function RichLessonPage() {
   }
 
   function finishLesson() {
-    if (!course || !lesson || !quizzesDone) return;
+    if (!course || !lesson || lesson.status === "pending" || !quizzesDone) return;
     const quizResult = Object.values(quizProgress).reduce<QuizProgress>(
       (total, result) => ({
         answered: total.answered + result.answered,
@@ -124,11 +134,12 @@ export default function RichLessonPage() {
     }
     completeLesson(lesson.id);
     if (next) goTo(next.id);
-    else router.push("/learn/completion");
+    else router.push(course.partial ? `/learn/${course.id}` : "/learn/completion");
   }
 
   if (loading) return <div className="rich-load"><Loader2 className="rich-spin" size={25} /> Loading lesson…</div>;
   if (error || !course || !lesson) return <div className="rich-load rich-load-error"><CircleAlert size={22} /> {error || "Lesson not found."}</div>;
+  if (lesson.status === "pending") return <div className="rich-load"><Loader2 className="rich-spin" size={25} /> This lesson is still generating…</div>;
 
   const completion = lessons.length
     ? Math.round((lessons.filter((item) => isLessonComplete(course.id, item.id)).length / lessons.length) * 100)
@@ -151,7 +162,7 @@ export default function RichLessonPage() {
           <div>
             {!quizzesDone && <small>{isBrowserLab ? "Complete the lab and cleanup after backend verification." : "Answer every quiz question to complete this lesson."}</small>}
             <button type="button" className="rich-primary" disabled={!quizzesDone} onClick={finishLesson}>
-              {next ? "Complete & continue" : "Complete course"} <ChevronRight size={15} />
+              {next ? "Complete & continue" : course.partial ? "Complete lesson" : "Complete course"} <ChevronRight size={15} />
             </button>
           </div>
         </footer>

@@ -24,9 +24,22 @@
 .library-head p { max-width: 670px; color: var(--muted); font-size: 14px; font-weight: 300; line-height: 1.65; }
 .library-empty button { display: inline-flex; align-items: center; gap: 8px; flex: none; padding: 11px 16px; border: 1px solid var(--fg); background: var(--fg); color: var(--bg); font: inherit; font-size: 10px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; cursor: pointer; }
 .library-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px 22px; margin-top: 38px; }
-.library-card { min-width: 0; border: 1px solid var(--border); background: #fff; transition: border-color .2s ease; }
+.library-card { position: relative; min-width: 0; border: 1px solid var(--border); background: #fff; transition: border-color .2s ease; }
 .library-card:hover { border-color: var(--fg); }
-.library-card > button { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.library-card-main { display: block; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; }
+button.library-card-main { cursor: pointer; }
+.library-card-menu { position: absolute; z-index: 4; top: 11px; right: 11px; }
+.library-card-menu > summary { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid transparent; background: transparent; color: #fff; cursor: pointer; list-style: none; }
+.library-card-menu > summary::-webkit-details-marker { display: none; }
+.library-card-menu > summary:hover { border-color: rgba(255,255,255,.72); background: rgba(20,20,20,.35); }
+.library-card-menu[open] > summary { border-color: #fff; background: #fff; color: var(--fg); }
+.library-card-menu > div { position: absolute; top: 38px; right: 0; width: 142px; padding: 5px; border: 1px solid var(--border); background: #fff; box-shadow: 0 12px 28px rgba(28, 27, 23, .16); }
+.library-card-menu button { display: flex; width: 100%; min-height: 34px; align-items: center; gap: 8px; padding: 0 9px; border: 0; background: transparent; color: var(--fg); font: inherit; font-size: 11px; text-align: left; cursor: pointer; }
+.library-card-menu button:hover:not(:disabled) { background: #f1eee5; }
+.library-card-menu button:last-child { color: #8b3d32; }
+.library-card-menu button:last-child:hover:not(:disabled) { background: #fff1ee; }
+.library-card-menu button:disabled { opacity: .42; cursor: not-allowed; }
+.library-card-archived { opacity: .78; }
 .library-cover { position: relative; display: grid; height: 205px; place-items: center; overflow: hidden; border-bottom: 1px solid var(--border); background: linear-gradient(135deg, #efe8d7, #c39b48 120%); background-position: center; background-size: cover; color: rgba(30,30,30,.45); }
 .library-cover > img { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .library-cover-fallback { position: relative; z-index: 0; }
@@ -47,6 +60,7 @@
 .library-empty button { margin-top: 24px; }
 .library-state { display: flex; min-height: 400px; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 13px; }
 .library-error { color: #8b3d32; }
+.library-action-error { display: flex; align-items: center; gap: 7px; margin-top: 14px; padding: 10px 12px; border: 1px solid #e7c7c0; background: #fff4f1; color: #8b3d32; font-size: 12px; }
 .library-spin { animation: library-spin .9s linear infinite; }
 @keyframes library-spin { to { transform: rotate(360deg); } }
 .library-foot { display: flex; align-items: center; gap: 7px; margin-top: 28px; color: var(--muted); font-size: 10px; }
@@ -360,14 +374,6 @@
 .library-collection-empty strong { font-size: 13px; }
 .library-collection-empty span { margin-top: 3px; color: var(--muted); font-size: 11px; }
 .library-collection-empty button { margin: 0; }
-
-.library-catalog-cover {
-  color: rgba(255, 255, 255, .7);
-  background-position: center;
-  background-size: cover;
-}
-
-.library-catalog-cover .library-cover-fallback { z-index: 2; }
 
 @media (max-width: 980px) {
   .library-launchpad { grid-template-columns: 1fr; }

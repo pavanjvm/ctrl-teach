@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowLeft, Check, ExternalLink } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, Loader2 } from "lucide-react";
 
 import type { Course, Lesson } from "@/lib/types";
 
@@ -62,11 +62,12 @@ export default function CourseLessonView({
                     key={item.id}
                     type="button"
                     className={item.id === lesson.id ? "active" : ""}
+                    disabled={item.status === "pending"}
                     onClick={() => onSelectLesson?.(item.id)}
                   >
-                    <i>{isLessonComplete(item.id) ? <Check size={10} /> : null}</i>
+                    <i>{isLessonComplete(item.id) ? <Check size={10} /> : item.status === "pending" ? <Loader2 className="rich-spin" size={10} /> : null}</i>
                     <b>{item.title}</b>
-                    <small>{item.duration}</small>
+                    <small>{item.status === "pending" ? "Generating" : item.duration}</small>
                   </button>
                 ))}
               </section>

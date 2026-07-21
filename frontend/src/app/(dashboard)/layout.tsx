@@ -175,8 +175,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     const navItems = [
         { name: "Home", href: "/dashboard", active: pathname === "/dashboard" },
+        { name: "Explore Courses", href: "/courses", active: pathname === "/courses" },
         {
-            name: "Learn",
+            name: "My Learning",
             href: "/library",
             active: pathname === "/library" || pathname === "/discover" || pathname.startsWith("/learn"),
         },
@@ -184,32 +185,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     const isBoard = pathname === "/board";
     const isWorkspace = pathname === "/learn";
-    const generatedCourseMatch = pathname.match(/^\/learn\/(generated-[^/]+)/);
-    const generatedCourseId = generatedCourseMatch?.[1] ?? null;
-    const isGeneratedCourse = Boolean(generatedCourseId);
-    const isLiveClassroom = Boolean(generatedCourseId && pathname === `/learn/${generatedCourseId}/classroom`);
-    const isGeneratedOverview = Boolean(generatedCourseId && pathname === `/learn/${generatedCourseId}`);
-    const generatedLessonId = !isLiveClassroom ? pathname.split("/")[3] : null;
+    const courseMatch = pathname.match(/^\/learn\/((?:generated|platform)-[^/]+)/);
+    const courseId = courseMatch?.[1] ?? null;
+    const isCourse = Boolean(courseId);
+    const isLiveClassroom = Boolean(courseId && pathname === `/learn/${courseId}/classroom`);
+    const isCourseOverview = Boolean(courseId && pathname === `/learn/${courseId}`);
+    const lessonId = !isLiveClassroom ? pathname.split("/")[3] : null;
+    const courseBackHref = courseId?.startsWith("platform-") ? "/courses" : "/library";
+    const courseBackLabel = courseId?.startsWith("platform-") ? "Explore Courses" : "My Learning";
 
     return (
         <div className={`dash-app ${isBoard ? "board-shell" : ""}`}>
             {/* ── Top Navbar ──────────────────────────────────────────── */}
-            {isGeneratedCourse && generatedCourseId && (
+            {isCourse && courseId && (
                 <header className="course-mode-topbar">
-                    <Link href="/library" className="course-mode-back" aria-label="Return to My Library">
+                    <Link href={courseBackHref} className="course-mode-back" aria-label={`Return to ${courseBackLabel}`}>
                         <ArrowLeft size={15} />
-                        <span>My Library</span>
+                        <span>{courseBackLabel}</span>
                     </Link>
                     <nav className="course-mode-nav" aria-label="Course modes">
                         <Link
-                            href={`/learn/${generatedCourseId}`}
+                            href={`/learn/${courseId}`}
                             className={!isLiveClassroom ? "active" : ""}
                             aria-current={!isLiveClassroom ? "page" : undefined}
                         >
                             <BookOpen size={15} /> Course
                         </Link>
                         <Link
-                            href={`/learn/${generatedCourseId}/classroom${generatedLessonId ? `?lesson=${encodeURIComponent(generatedLessonId)}` : ""}`}
+                            href={`/learn/${courseId}/classroom${lessonId ? `?lesson=${encodeURIComponent(lessonId)}` : ""}`}
                             className={isLiveClassroom ? "active" : ""}
                             aria-current={isLiveClassroom ? "page" : undefined}
                         >
@@ -222,7 +225,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </header>
             )}
 
-            {!isGeneratedCourse && (
+            {!isCourse && (
                 <header className="dash-topbar">
                     {/* 1. Logo Zone */}
                     <div className="topbar-logo-zone">
@@ -457,7 +460,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
 
             {/* ── Main Content Area ──────────────────────────────── */}
-            <main className={`dash-main ${isBoard || isWorkspace || isGeneratedCourse ? "no-padding" : ""} ${isBoard || isWorkspace ? "board-mode" : ""} ${isGeneratedOverview ? "course-overview-mode" : ""}`}>
+            <main className={`dash-main ${isBoard || isWorkspace || isCourse ? "no-padding" : ""} ${isBoard || isWorkspace ? "board-mode" : ""} ${isCourseOverview ? "course-overview-mode" : ""}`}>
                 {children}
             </main>
         </div>

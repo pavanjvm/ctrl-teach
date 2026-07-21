@@ -36,6 +36,7 @@ export interface GeneratedCourseJob {
   course?: Course | null;
   partialCourse?: Course | null;
   error?: string | null;
+  archivedAt?: string | null;
   sourceType?: string;
   sourceLabel?: string;
   createdAt?: string;
@@ -56,14 +57,15 @@ export function isGenerationActive(status: GeneratedCourseStatus): boolean {
 export async function fetchAvailableCourse(
   courseId: string,
   authorization?: string | null,
+  allowPartial = false,
 ): Promise<Course | null> {
   try {
     const generated = await axios.get<GeneratedCourseJob>(
       `${API_URL}/api/generated-courses/${courseId}`,
       { headers: authorization ? { Authorization: authorization } : undefined },
     );
-    if (generated.data.status !== "ready" || !generated.data.course) return null;
-    return generated.data.course;
+    if (generated.data.course) return generated.data.course;
+    return allowPartial ? generated.data.partialCourse ?? null : null;
   } catch (error) {
     const status = axios.isAxiosError(error) ? error.response?.status : null;
     if (status !== 403 && status !== 404) throw error;

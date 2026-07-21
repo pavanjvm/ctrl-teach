@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, BookOpen, Check, ExternalLink, RotateCcw } from "lucide-react";
+import { ArrowRight, BookOpen, Check, ExternalLink, Loader2, RotateCcw } from "lucide-react";
 
 import { assetUrl } from "@/lib/generatedCourses";
 import type {
@@ -196,6 +196,15 @@ export default function CourseBlockRenderer({
         </p>
         <BlockSources ids={block.citationIds} citations={citations} />
       </section>
+    );
+  }
+  if (block.status === "pending" || block.asset.status === "pending" || !block.asset.url) {
+    return (
+      <figure className="rich-block rich-image-block rich-image-pending" role="status">
+        <div><Loader2 className="rich-spin" size={22} /><span>Generating lesson artwork</span></div>
+        {block.asset.caption && <figcaption>{block.asset.caption}</figcaption>}
+        <BlockSources ids={block.citationIds} citations={citations} />
+      </figure>
     );
   }
   return (

@@ -5,17 +5,20 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import shutil
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.auth.dependencies import get_current_user
-from app.db import GeneratedCourse, SessionLocal
+from app.config import settings
+from app.db import BrowserLabRecovery, BrowserLabRun, GeneratedCourse, PlatformCourse, SessionLocal
 from app.services.course_factory import extract_file_source
 from app.services.generated_courses import (
     MAX_SOURCE_CHARS,
@@ -67,6 +70,7 @@ def _public_response(row: GeneratedCourse) -> Dict[str, Any]:
             "summary": legacy_course.get("description") if legacy_course else "",
             "progress": {"stage": row.status, "percent": 100 if legacy_course else 0, "message": ""},
             "course": legacy_course,
+            "archivedAt": payload.get("archivedAt"),
             "error": None,
             "createdAt": row.created_at.isoformat() if row.created_at else None,
             "updatedAt": row.updated_at.isoformat() if row.updated_at else None,
@@ -87,6 +91,7 @@ def _public_response(row: GeneratedCourse) -> Dict[str, Any]:
         "course": payload.get("course"),
         "partialCourse": partial_course,
         "error": payload.get("error"),
+        "archivedAt": payload.get("archivedAt"),
         "sourceType": row.source_type,
         "sourceLabel": row.source_label,
         "createdAt": row.created_at.isoformat() if row.created_at else None,
@@ -130,6 +135,22 @@ async def shutdown_generation_jobs() -> None:
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     _tasks.clear()
+
+
+async def _cancel_generation_job(course_id: str) -> None:
+    task = _tasks.pop(course_id, None)
+    if task is None or task.done():
+        return
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
+def _remove_generated_assets(owner_user_id: int, course_id: str) -> None:
+    safe_course_id = re.sub(r"[^a-zA-Z0-9_-]", "", course_id)
+    owner_root = (Path(settings.uploads_dir) / "generated" / str(owner_user_id)).resolve()
+    course_root = (owner_root / safe_course_id).resolve()
+    if safe_course_id and owner_root in course_root.parents:
+        shutil.rmtree(course_root, ignore_errors=True)
 
 
 def _prompt_title(text: str) -> str:
@@ -377,9 +398,9 @@ async def start_generation(
     payload["answers"] = effective_answers
     payload["error"] = None
     payload["progress"] = {
-        "stage": "researching",
+        "stage": "outlining",
         "percent": 10,
-        "message": "Researching authoritative sources",
+        "message": "Designing your course modules",
     }
     with SessionLocal() as db:
         stored = db.get(GeneratedCourse, course_id)
@@ -391,7 +412,7 @@ async def start_generation(
                 stored.owner_user_id,
             )
         stored.payload = payload
-        stored.status = "researching"
+        stored.status = "generating"
         stored.updated_at = datetime.now(timezone.utc)
         db.commit()
         db.refresh(stored)
@@ -416,6 +437,73 @@ async def list_generated_courses(user: dict = Depends(get_current_user)):
             if (row.payload or {}).get("version") == 2 or row.status == "published"
         ]
     return {"courses": courses}
+
+
+@router.post("/{course_id}/archive")
+async def archive_generated_course(course_id: str, user: dict = Depends(get_current_user)):
+    owner_user_id = int(user["uid"])
+    _owned_row(course_id, owner_user_id)
+    with SessionLocal() as db:
+        row = db.get(GeneratedCourse, course_id)
+        if row is None or row.owner_user_id != owner_user_id:
+            raise HTTPException(status_code=404, detail="Generated course not found")
+        if row.status in {"researching", "generating", "generating_images"}:
+            raise HTTPException(status_code=409, detail="Wait for generation to finish, or delete the course instead.")
+        payload = dict(row.payload or {})
+        payload["archivedAt"] = datetime.now(timezone.utc).isoformat()
+        row.payload = payload
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(row)
+        return _public_response(row)
+
+
+@router.post("/{course_id}/restore")
+async def restore_generated_course(course_id: str, user: dict = Depends(get_current_user)):
+    owner_user_id = int(user["uid"])
+    _owned_row(course_id, owner_user_id)
+    with SessionLocal() as db:
+        row = db.get(GeneratedCourse, course_id)
+        if row is None or row.owner_user_id != owner_user_id:
+            raise HTTPException(status_code=404, detail="Generated course not found")
+        payload = dict(row.payload or {})
+        payload.pop("archivedAt", None)
+        row.payload = payload
+        row.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(row)
+        return _public_response(row)
+
+
+@router.delete("/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_generated_course(course_id: str, user: dict = Depends(get_current_user)):
+    owner_user_id = int(user["uid"])
+    _owned_row(course_id, owner_user_id)
+    await _cancel_generation_job(course_id)
+
+    keep_assets = False
+    with SessionLocal() as db:
+        row = db.get(GeneratedCourse, course_id)
+        if row is None or row.owner_user_id != owner_user_id:
+            raise HTTPException(status_code=404, detail="Generated course not found")
+        platform_courses = db.scalars(select(PlatformCourse)).all()
+        keep_assets = any(
+            str((platform.course or {}).get("sourceGeneratedCourseId") or "") == course_id
+            for platform in platform_courses
+        )
+        db.execute(delete(BrowserLabRecovery).where(
+            BrowserLabRecovery.owner_user_id == owner_user_id,
+            BrowserLabRecovery.course_id == course_id,
+        ))
+        db.execute(delete(BrowserLabRun).where(
+            BrowserLabRun.owner_user_id == owner_user_id,
+            BrowserLabRun.course_id == course_id,
+        ))
+        db.delete(row)
+        db.commit()
+
+    if not keep_assets:
+        await run_in_threadpool(_remove_generated_assets, owner_user_id, course_id)
 
 
 @router.get("/{course_id}")

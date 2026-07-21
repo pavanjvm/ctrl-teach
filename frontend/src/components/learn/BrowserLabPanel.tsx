@@ -14,6 +14,9 @@ import {
   RotateCcw,
   ShieldCheck,
   Target,
+  ThumbsUp,
+  TrendingUp,
+  TriangleAlert,
   XCircle,
 } from "lucide-react";
 
@@ -252,6 +255,28 @@ export default function BrowserLabPanel({
     [recovery],
   );
   const lastPractice = recovery?.practiceAttempts?.[recovery.practiceAttempts.length - 1];
+  const postLabRemarks = useMemo(() => {
+    if (!verified || !attempt) return null;
+    const history = attempt.recoveryHistory ?? [];
+    const recovered = history.filter((item) => item.status === "resolved" || item.finalOutcome === "resolved");
+    const completedSteps = activePlan.steps.filter((step) => assertionsComplete(
+      step,
+      attempt.verification?.taskAssertions,
+      taskComplete,
+    )).length;
+    const issues = history.length
+      ? history.slice(-3).map((item) => `${item.misconception.title}: ${item.misconception.evidenceSummary}`)
+      : ["No major task gaps were detected by backend verification."];
+    const latestRecovery = history[history.length - 1];
+    const improvement = latestRecovery?.microLesson?.objective
+      || activePlan.successCriteria[activePlan.successCriteria.length - 1]
+      || "Repeat the workflow once without prompts and explain why each step satisfies the evidence requirement.";
+    return {
+      good: `${completedSteps} of ${activePlan.steps.length} task steps and cleanup were verified from ${evidenceCount} evidence events.${recovered.length ? ` ${recovered.length} detected gap${recovered.length === 1 ? " was" : "s were"} successfully recovered.` : ""}`,
+      issues,
+      improvement,
+    };
+  }, [activePlan.steps, activePlan.successCriteria, attempt, evidenceCount, taskComplete, verified]);
 
   const launchPlan = useCallback((next: BrowserLabAttempt, plan: BrowserLabBlueprint) => {
     postLabMessage("CTRLTEACH_BROWSER_LAB_START", {
@@ -480,6 +505,32 @@ export default function BrowserLabPanel({
           })}
         </ol>
       </div>
+
+      {postLabRemarks && (
+        <section className="rich-browser-lab-review" aria-labelledby={`lab-review-${attempt?.id}`}>
+          <header>
+            <span>Post-lab remarks</span>
+            <h3 id={`lab-review-${attempt?.id}`}>Your verified performance review</h3>
+          </header>
+          <div>
+            <article className="went-well">
+              <ThumbsUp size={16} />
+              <div><strong>What went well</strong><p>{postLabRemarks.good}</p></div>
+            </article>
+            <article className="went-wrong">
+              <TriangleAlert size={16} />
+              <div>
+                <strong>What went wrong</strong>
+                <ul>{postLabRemarks.issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+              </div>
+            </article>
+            <article className="improve-next">
+              <TrendingUp size={16} />
+              <div><strong>What could be better</strong><p>{postLabRemarks.improvement}</p></div>
+            </article>
+          </div>
+        </section>
+      )}
 
       {error && <p className="rich-browser-lab-error" role="alert">{error}</p>}
 

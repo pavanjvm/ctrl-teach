@@ -269,7 +269,7 @@
 .gen-total-progress { width: min(520px, 80vw); height: 3px; margin-top: 36px; overflow: hidden; background: var(--border); }
 .gen-total-progress i { display: block; height: 100%; background: var(--accent); transition: width .6s ease; }
 .gen-percent { margin-top: 9px; color: var(--muted); font-size: 12px; letter-spacing: 0; }
-.gen-stage-list { display: grid; width: min(780px, 90vw); grid-template-columns: repeat(4, 1fr); margin-top: 35px; }
+.gen-stage-list { display: grid; width: min(860px, 90vw); grid-template-columns: repeat(5, 1fr); margin-top: 35px; }
 .gen-stage-list > div { display: flex; min-width: 0; flex-direction: column; align-items: center; color: var(--muted); }
 .gen-stage-list > div > span { display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid var(--border); border-radius: 50%; font-size: 10px; }
 .gen-stage-list > div small { margin-top: 9px; font-size: 12px; line-height: 1.45; }
@@ -298,11 +298,14 @@
 .gen-live-course > header span { color: #527f16; font-size: 11px; font-weight: 700; letter-spacing: 0; text-transform: uppercase; }
 .gen-live-course > header strong { overflow: hidden; font-size: 20px; text-overflow: ellipsis; white-space: nowrap; }
 .gen-live-course > header small { flex: none; color: var(--muted); font-size: 12px; }
+.gen-live-summary { align-items: flex-end; }
+.gen-live-summary button { display: inline-flex; align-items: center; gap: 7px; padding: 9px 12px; border: 1px solid var(--fg); background: var(--fg); color: var(--bg); font: inherit; font-size: 12px; cursor: pointer; }
 .gen-live-modules { display: grid; gap: 1px; background: var(--border); }
 .gen-live-modules > section { padding: 20px 24px 24px; background: var(--surface, #fff); }
 .gen-live-modules h2 { margin-bottom: 12px; font-size: 13px; letter-spacing: 0; text-transform: uppercase; }
 .gen-live-modules section > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .gen-live-modules article { min-width: 0; padding: 16px; border: 1px solid var(--border); background: #fbfaf7; }
+.gen-live-modules article.pending { opacity: .58; }
 .gen-live-modules article > span { display: block; color: #527f16; font-size: 11px; }
 .gen-live-modules article > strong { display: block; margin-top: 5px; font-size: 15px; line-height: 1.4; }
 .gen-live-modules article p { display: -webkit-box; overflow: hidden; margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.6; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }

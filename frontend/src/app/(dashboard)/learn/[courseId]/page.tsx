@@ -25,12 +25,13 @@ export default function RichCourseOverviewPage() {
   const load = useCallback(async () => {
     try {
       const token = await getToken();
-      const nextCourse = await fetchAvailableCourse(params.courseId, token);
+      const nextCourse = await fetchAvailableCourse(params.courseId, token, true);
       if (!nextCourse) {
         router.replace(`/library?generation=${params.courseId}`);
         return;
       }
       setCourse(nextCourse);
+      setError(null);
     } catch (loadError) {
       setError(axios.isAxiosError(loadError) ? String(loadError.response?.data?.detail || "Course not found.") : "Course not found.");
     } finally {
@@ -39,13 +40,19 @@ export default function RichCourseOverviewPage() {
   }, [getToken, params.courseId, router]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!course?.partial) return;
+    const timer = window.setInterval(() => void load(), 2500);
+    return () => window.clearInterval(timer);
+  }, [course?.partial, load]);
 
   const lessons = useMemo(() => course?.modules.flatMap((module) => module.lessons) ?? [], [course]);
   const completed = course
     ? lessons.filter((lesson) => isLessonComplete(course.id, lesson.id)).length
     : 0;
   const firstIncomplete = course
-    ? lessons.find((lesson) => !isLessonComplete(course.id, lesson.id)) ?? lessons[0]
+    ? lessons.find((lesson) => lesson.status !== "pending" && !isLessonComplete(course.id, lesson.id))
+      ?? lessons.find((lesson) => lesson.status !== "pending")
     : lessons[0];
   const allComplete = lessons.length > 0 && completed === lessons.length;
 
@@ -66,7 +73,10 @@ export default function RichCourseOverviewPage() {
       isLessonComplete={(lessonId) => isLessonComplete(course.id, lessonId)}
       onBack={() => router.push("/library")}
       onStart={start}
-      onSelectLesson={(_, lessonId) => router.push(`/learn/${course.id}/${lessonId}`)}
+      onSelectLesson={(_, lessonId) => {
+        const selected = lessons.find((lesson) => lesson.id === lessonId);
+        if (selected?.status !== "pending") router.push(`/learn/${course.id}/${lessonId}`);
+      }}
     />
   );
 }

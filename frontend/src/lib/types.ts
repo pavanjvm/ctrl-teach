@@ -317,7 +317,7 @@ export interface CourseCitation {
 
 export interface GeneratedImageAsset {
   id: string;
-  status: "ready";
+  status: "ready" | "pending";
   url: string;
   alt: string;
   caption: string;
@@ -380,6 +380,7 @@ export interface HtmlContentBlock extends ContentBlockBase {
 
 export interface ImageContentBlock extends ContentBlockBase {
   type: "image";
+  status?: "pending";
   asset: GeneratedImageAsset;
 }
 
@@ -414,6 +415,7 @@ export interface Lesson {
   browserLab?: BrowserLabBlueprint;
   sourceLessonId?: string;
   contentBlocks?: CourseContentBlock[];
+  status?: "ready" | "pending";
   done?: boolean;
   bookmarked?: boolean;
 }
@@ -440,7 +442,11 @@ export interface Course {
   sourceCount?: number;
   goal?: string;
   source?: CourseSource;
-  status?: "draft" | "published" | "ready";
+  status?: "draft" | "published" | "ready" | "generating";
+  partial?: boolean;
+  completedLessonCount?: number;
+  totalLessonCount?: number;
+  estimatedMinutes?: number;
   format?: "rich";
   overview?: RichCourseOverview;
   citations?: CourseCitation[];

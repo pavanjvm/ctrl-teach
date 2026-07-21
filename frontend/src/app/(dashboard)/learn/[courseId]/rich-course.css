@@ -12,6 +12,7 @@
 .rich-primary:disabled,
 .rich-secondary:disabled { opacity: .35; cursor: not-allowed; }
 .rich-text-link { display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
+.rich-generation-notice { display: flex; align-items: center; gap: 9px; margin-top: 22px; padding: 12px 14px; border: 1px solid #d8c9a8; background: #fffaf0; color: #61573f; font-size: 12px; line-height: 1.5; }
 
 /* Overview */
 .rich-overview { width: min(1320px, calc(100% - 56px)); margin: 0 auto; padding: 38px 0 100px; color: var(--fg); }
@@ -24,6 +25,8 @@
 .rich-cover { position: relative; min-height: 455px; border: 1px solid var(--border); background-color: #e9dec6; background-position: center; background-size: cover; }
 .rich-cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.45), transparent 42%); }
 .rich-cover span { position: absolute; z-index: 1; right: 18px; bottom: 16px; color: #fff; font-size: 8px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.rich-cover-pending { display: grid; place-items: center; background: repeating-linear-gradient(135deg, #eee7d8 0, #eee7d8 12px, #e7decc 12px, #e7decc 24px); }
+.rich-cover-pending > svg { color: #736a58; }
 .rich-resume-line { display: grid; grid-template-columns: 170px 1fr; gap: 26px; align-items: center; margin-bottom: 62px; padding: 16px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
 .rich-resume-line > div:first-child { display: flex; align-items: baseline; justify-content: space-between; }
 .rich-resume-line span { color: var(--muted); font-size: 9px; text-transform: uppercase; }
@@ -41,6 +44,7 @@
 .rich-module-list li > span { display: grid; width: 14px; height: 14px; place-items: center; border: 1px solid var(--border); color: var(--accent); }
 .rich-module-list li button { padding: 0; border: 0; background: transparent; color: var(--fg); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
 .rich-module-list li button:hover { color: var(--accent); }
+.rich-module-list li button:disabled { color: var(--muted); cursor: wait; }
 .rich-module-lesson-label { color: var(--fg); font-size: 12.5px; }
 .rich-module-list li small { color: var(--muted); font-size: 10px; }
 .rich-overview-side { display: flex; flex-direction: column; }
@@ -65,6 +69,7 @@
 .rich-reader-nav nav section > span { display: block; padding: 0 8px 8px; color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
 .rich-reader-nav nav button { display: grid; width: 100%; grid-template-columns: 16px 1fr auto; gap: 8px; align-items: center; padding: 9px 8px; border: 1px solid transparent; background: transparent; color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
 .rich-reader-nav nav button:hover { color: var(--fg); }
+.rich-reader-nav nav button:disabled { opacity: .55; cursor: wait; }
 .rich-reader-nav nav button.active { border-color: var(--accent); background: #fff; color: var(--fg); }
 .rich-reader-nav nav button i { display: grid; width: 13px; height: 13px; place-items: center; border: 1px solid var(--border); color: var(--accent); }
 .rich-reader-nav nav button b { font-size: 11.5px; font-weight: 400; line-height: 1.35; }
@@ -111,6 +116,7 @@
 .rich-numbered-list li > span { color: var(--accent); font-size: 10px; letter-spacing: .1em; }
 .rich-numbered-list h3 { margin-top: 0; }
 .rich-image-block img { display: block; width: 100%; max-height: 560px; object-fit: cover; border: 1px solid var(--border); }
+.rich-image-pending > div:first-child { display: flex; min-height: 300px; align-items: center; justify-content: center; gap: 10px; border: 1px solid var(--border); background: repeating-linear-gradient(135deg, #faf8f2 0, #faf8f2 12px, #f1ede3 12px, #f1ede3 24px); color: var(--muted); font-size: 13px; }
 .rich-image-block figcaption { padding: 10px 2px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .rich-html-block iframe { display: block; width: 100%; border: 1px solid var(--border); background: #faf8f2; }
 .rich-accessibility { display: flex; align-items: flex-start; gap: 7px; margin-top: 9px; color: var(--muted); font-size: 10px; line-height: 1.45; }
@@ -147,6 +153,18 @@
 .rich-browser-lab-actions small { color: var(--muted); font-size: 9px; line-height: 1.35; text-align: right; }
 .rich-browser-lab-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .rich-browser-lab-recovery { border-bottom: 1px solid var(--border); background: #fff; }
+.rich-browser-lab-review { padding: 24px 27px 27px; border-bottom: 1px solid var(--border); background: #fff; }
+.rich-browser-lab-review > header > span { color: var(--accent); font-size: 11px; font-weight: 700; }
+.rich-browser-lab-review > header h3 { margin-top: 5px; font-size: 21px; font-weight: 650; }
+.rich-browser-lab-review > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 17px; }
+.rich-browser-lab-review article { display: grid; grid-template-columns: 20px 1fr; gap: 9px; min-height: 150px; padding: 16px; border: 1px solid var(--border); background: #faf9f5; }
+.rich-browser-lab-review article > svg { margin-top: 2px; color: #628e1a; }
+.rich-browser-lab-review article.went-wrong > svg { color: #a24d3f; }
+.rich-browser-lab-review article.improve-next > svg { color: #b17a16; }
+.rich-browser-lab-review article strong { font-size: 13px; font-weight: 700; }
+.rich-browser-lab-review article p,
+.rich-browser-lab-review article li { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.rich-browser-lab-review article ul { padding-left: 15px; }
 .rich-recovery-head { padding: 22px 27px 20px; border-left: 3px solid #d19a2a; }
 .rich-recovery-head > span,
 .rich-recovery-practice > span { display: inline-flex; align-items: center; gap: 6px; color: #7a5812; font-size: 11px; font-weight: 700; }
@@ -341,6 +359,7 @@
   .rich-overview-grid { grid-template-columns: 1fr; }
   .rich-reader-shell { position: relative; display: block; height: auto; overflow: visible; }
   .rich-reader-nav { display: none; }
+  .rich-browser-lab-review > div { grid-template-columns: 1fr; }
   .rich-lesson { overflow: visible; }
   .rich-lesson-head,
   .rich-blocks,

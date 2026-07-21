@@ -132,8 +132,12 @@ class GeneratedCourseRouterTests(unittest.TestCase):
                 json={"answers": {}},
             )
             self.assertEqual(started.status_code, 202)
-            self.assertEqual(started.json()["status"], "researching")
+            self.assertEqual(started.json()["status"], "generating")
+            self.assertEqual(started.json()["progress"]["stage"], "outlining")
             schedule.assert_called_once_with(course_id)
+
+            archiving_active = self.client.post(f"/api/generated-courses/{course_id}/archive")
+            self.assertEqual(archiving_active.status_code, 409)
 
             with self.session_factory() as db:
                 stored = db.get(GeneratedCourse, course_id)
@@ -150,7 +154,8 @@ class GeneratedCourseRouterTests(unittest.TestCase):
                 json={"answers": {}},
             )
             self.assertEqual(retried.status_code, 202)
-            self.assertEqual(retried.json()["status"], "researching")
+            self.assertEqual(retried.json()["status"], "generating")
+            self.assertEqual(retried.json()["progress"]["stage"], "outlining")
             self.assertEqual(schedule.call_count, 2)
             recovery_snapshot.assert_called_once()
             self.assertEqual(recovery_snapshot.call_args.args[1], 7)
@@ -177,7 +182,55 @@ class GeneratedCourseRouterTests(unittest.TestCase):
             db.commit()
         with patch.object(generated_router, "SessionLocal", self.session_factory):
             response = self.client.get("/api/generated-courses/generated-private")
+            archived = self.client.post("/api/generated-courses/generated-private/archive")
+            deleted = self.client.delete("/api/generated-courses/generated-private")
         self.assertEqual(response.status_code, 404)
+        self.assertEqual(archived.status_code, 404)
+        self.assertEqual(deleted.status_code, 404)
+
+    def test_owner_can_archive_restore_and_delete_generated_course(self) -> None:
+        now = datetime.now(timezone.utc)
+        course_id = "generated-manage"
+        with self.session_factory() as db:
+            db.add(
+                GeneratedCourse(
+                    id=course_id,
+                    owner_user_id=7,
+                    status="ready",
+                    source_type="prompt",
+                    source_label="manageable",
+                    payload={"version": 2, "intake": INTAKE, "course": {"id": course_id, "modules": []}},
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            db.commit()
+
+        with tempfile.TemporaryDirectory() as uploads_dir:
+            asset_dir = Path(uploads_dir) / "generated" / "7" / course_id
+            asset_dir.mkdir(parents=True)
+            (asset_dir / "cover.webp").write_bytes(b"image")
+            with (
+                patch.object(generated_router, "SessionLocal", self.session_factory),
+                patch.object(settings, "uploads_dir", uploads_dir),
+            ):
+                archived = self.client.post(f"/api/generated-courses/{course_id}/archive")
+                self.assertEqual(archived.status_code, 200)
+                self.assertTrue(archived.json()["archivedAt"])
+
+                listed = self.client.get("/api/generated-courses")
+                self.assertTrue(listed.json()["courses"][0]["archivedAt"])
+
+                restored = self.client.post(f"/api/generated-courses/{course_id}/restore")
+                self.assertEqual(restored.status_code, 200)
+                self.assertIsNone(restored.json()["archivedAt"])
+
+                deleted = self.client.delete(f"/api/generated-courses/{course_id}")
+                self.assertEqual(deleted.status_code, 204)
+                self.assertFalse(asset_dir.exists())
+
+                missing = self.client.get(f"/api/generated-courses/{course_id}")
+                self.assertEqual(missing.status_code, 404)
 
 
 class GeneratedCourseServiceTests(unittest.TestCase):
@@ -250,15 +303,15 @@ class GeneratedCourseServiceTests(unittest.TestCase):
             },
             "intake": {**INTAKE, "topic": "GitHub navigation"},
             "answers": {"time_budget": "Up to 1 hour"},
-            "research": {
-                "brief": "Authoritative research brief about repository navigation.",
-                "citations": [{"id": "src-1", "title": "GitHub Docs", "url": "https://docs.github.com"}],
-            },
             "adaptiveRecovery": ADAPTIVE_RECOVERY,
         }
         with patch.object(generated_service, "_client", return_value=outline_client):
             asyncio.run(generated_service.generate_outline(payload))
         outline_prompt = outline_parse.await_args.kwargs["input"]
+        payload["research"] = {
+            "brief": "Authoritative research brief about repository navigation.",
+            "citations": [{"id": "src-1", "title": "GitHub Docs", "url": "https://docs.github.com"}],
+        }
 
         lesson_content = LessonContent.model_validate({
             "summary": "A complete lesson about choosing the correct repository navigation area.",
@@ -471,6 +524,87 @@ class GeneratedCourseServiceTests(unittest.TestCase):
         self.assertEqual(partial["modules"][0]["lessons"][1]["status"], "pending")
         self.assertEqual(partial["modules"][0]["lessons"][0]["contentBlocks"][0]["id"], "course-1-m1-l1-b1")
         self.assertEqual(partial["modules"][0]["lessons"][0]["contentBlocks"][4]["questions"][0]["id"], "course-1-m1-l1-b5-q1")
+
+    def test_partial_course_exposes_outline_before_first_lesson(self) -> None:
+        outline = CourseOutline.model_validate(
+            {
+                "title": "Streaming Course",
+                "description": "Course outline available before lesson generation finishes.",
+                "difficulty": "Beginner",
+                "audience": "Learners",
+                "outcomes": ["Start learning sooner", "Follow course structure"],
+                "prerequisites": [],
+                "skills": ["Streaming", "Course navigation"],
+                "coverPrompt": "An editorial illustration about progressive learning",
+                "modules": [
+                    {"title": "First module", "lessons": [{"title": "First lesson", "summary": "Pending lesson summary."}]},
+                ],
+            }
+        )
+        partial = generated_service._partial_course(
+            "course-stream",
+            {
+                "source": {"type": "prompt", "label": "Prompt"},
+                "answers": {},
+                "research": {"citations": []},
+                "outline": outline.model_dump(),
+                "lessonDrafts": {},
+                "assets": {},
+            },
+        )
+        self.assertIsNotNone(partial)
+        assert partial is not None
+        self.assertEqual(partial["modules"][0]["lessons"][0]["status"], "pending")
+        self.assertEqual(partial["completedLessonCount"], 0)
+
+    def test_partial_course_streams_ready_images_and_marks_pending_images(self) -> None:
+        outline = CourseOutline.model_validate(
+            {
+                "title": "Visual Course",
+                "description": "Course with progressively generated artwork.",
+                "difficulty": "Beginner",
+                "audience": "Learners",
+                "outcomes": ["Understand visuals", "Use diagrams effectively"],
+                "prerequisites": [],
+                "skills": ["Visual reasoning", "Diagram reading"],
+                "coverPrompt": "A visual course cover",
+                "modules": [
+                    {"title": "Visuals", "lessons": [{"title": "Diagrams", "summary": "Learn with diagrams."}]},
+                ],
+            }
+        )
+        ready_cover = {"id": "cover", "status": "ready", "url": "/uploads/cover.webp", "alt": "Cover", "caption": "Cover"}
+        payload = {
+            "source": {"type": "prompt", "label": "Prompt"},
+            "answers": {},
+            "research": {"citations": []},
+            "outline": outline.model_dump(),
+            "lessonDrafts": {
+                "course-visual-m1-l1": {
+                    "summary": "Diagram lesson",
+                    "duration": "15m",
+                    "blocks": [
+                        {"type": "image", "prompt": "Diagram", "alt": "Pending diagram", "caption": "Diagram caption", "aspect": "wide", "citationIds": []},
+                    ],
+                },
+            },
+            "assets": {"cover": ready_cover},
+        }
+        partial = generated_service._partial_course("course-visual", payload, outline)
+        assert partial is not None
+        image = partial["modules"][0]["lessons"][0]["contentBlocks"][0]
+        self.assertEqual(partial["coverImage"], ready_cover)
+        self.assertEqual(image["status"], "pending")
+        self.assertEqual(image["asset"]["status"], "pending")
+        self.assertNotIn("prompt", image)
+
+        ready_image = {"id": "lesson-1", "status": "ready", "url": "/uploads/lesson.webp", "alt": "Diagram", "caption": "Diagram caption"}
+        payload["assets"]["lesson-1"] = ready_image
+        partial = generated_service._partial_course("course-visual", payload, outline)
+        assert partial is not None
+        image = partial["modules"][0]["lessons"][0]["contentBlocks"][0]
+        self.assertEqual(image["asset"], ready_image)
+        self.assertNotIn("status", image)
 
     def test_total_estimated_minutes_requires_long_course_floor(self) -> None:
         lessons = [{"duration": "40m"}, {"duration": "40m"}, {"duration": "40m"}]

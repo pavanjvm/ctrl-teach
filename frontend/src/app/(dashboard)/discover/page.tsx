@@ -32,6 +32,7 @@ type Phase = "source" | "interview" | "generating";
 type Answer = string | string[];
 
 const GENERATION_STAGES = [
+  ["outlining", "Designing your course modules"],
   ["researching", "Researching authoritative sources"],
   ["generating", "Writing your course and interactions"],
   ["generating_images", "Creating original course artwork"],
@@ -278,6 +279,14 @@ export default function CourseBuilder() {
     rememberJob(null);
   }
 
+  function openAvailableCourse() {
+    if (!job?.partialCourse) return;
+    openingCourse.current = true;
+    addCourse(job.partialCourse);
+    rememberJob(null);
+    router.push(`/learn/${job.id}`);
+  }
+
   if (phase === "generating" && job) {
     return (
       <GenerationView
@@ -287,6 +296,7 @@ export default function CourseBuilder() {
         error={error}
         onRetry={startGeneration}
         onReset={reset}
+        onOpenCourse={openAvailableCourse}
       />
     );
   }
@@ -523,6 +533,7 @@ function GenerationView({
   error,
   onRetry,
   onReset,
+  onOpenCourse,
 }: {
   job: GeneratedCourseJob;
   context: "learner" | "admin";
@@ -530,20 +541,20 @@ function GenerationView({
   error: string | null;
   onRetry: () => void;
   onReset: () => void;
+  onOpenCourse: () => void;
 }) {
   const percent = job.progress?.percent ?? 0;
   const activeStage = job.progress?.stage || job.status;
   const displayError = error || job.error;
-  const partialModules = (job.partialCourse?.modules || [])
-    .map((module) => ({
-      ...module,
-      lessons: module.lessons.filter((lesson) => (lesson.contentBlocks?.length || 0) > 0),
-    }))
-    .filter((module) => module.lessons.length > 0);
-  const completedLessonCount = partialModules.reduce((total, module) => total + module.lessons.length, 0);
+  const partialModules = job.partialCourse?.modules || [];
+  const completedLessonCount = partialModules.reduce(
+    (total, module) => total + module.lessons.filter((lesson) => lesson.status !== "pending").length,
+    0,
+  );
   const totalLessonCount = job.partialCourse?.modules.reduce((total, module) => total + module.lessons.length, 0) || 0;
+  const hasOutline = partialModules.length > 0;
   return (
-    <div className={`gen-generation-page ${completedLessonCount > 0 ? "has-preview" : ""}`}>
+    <div className={`gen-generation-page ${hasOutline ? "has-preview" : ""}`}>
       <motion.div className="gen-orbit" animate={{ rotate: 360 }} transition={{ duration: 8, repeat: Infinity, ease: "linear" }}>
         <Sparkles size={25} />
       </motion.div>
@@ -569,14 +580,19 @@ function GenerationView({
         })}
       </div>
 
-      {completedLessonCount > 0 && (
+      {hasOutline && (
         <section className="gen-live-course" aria-live="polite">
           <header>
             <div>
               <span>Available while generation continues</span>
               <strong>{job.partialCourse?.title || job.topic}</strong>
             </div>
-            <small>{completedLessonCount} of {totalLessonCount} lessons written</small>
+            <div className="gen-live-summary">
+              <small>{completedLessonCount} of {totalLessonCount} lessons written</small>
+              {context === "learner" && completedLessonCount > 0 && (
+                <button type="button" onClick={onOpenCourse}>Start available lessons <ArrowRight size={14} /></button>
+              )}
+            </div>
           </header>
           <div className="gen-live-modules">
             {partialModules.map((module) => (
@@ -586,11 +602,11 @@ function GenerationView({
                   {module.lessons.map((lesson) => {
                     const firstContent = lesson.contentBlocks?.find((block) => block.type === "content");
                     return (
-                      <article key={lesson.id}>
-                        <span>{lesson.duration || "Lesson ready"}</span>
+                      <article key={lesson.id} className={lesson.status === "pending" ? "pending" : ""}>
+                        <span>{lesson.status === "pending" ? "Generating" : lesson.duration || "Lesson ready"}</span>
                         <strong>{lesson.title}</strong>
                         <p>{firstContent?.paragraphs[0] || lesson.summary}</p>
-                        <small>{lesson.contentBlocks?.length || 0} learning blocks ready</small>
+                        <small>{lesson.status === "pending" ? "Content will appear here automatically" : `${lesson.contentBlocks?.length || 0} learning blocks ready`}</small>
                       </article>
                     );
                   })}

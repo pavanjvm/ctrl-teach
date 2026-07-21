@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, BookOpen, Check, Clock, Sparkles, Target } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Check, Clock, Loader2, Sparkles, Target } from "lucide-react";
 
 import { assetUrl } from "@/lib/generatedCourses";
 import type { Course } from "@/lib/types";
@@ -42,10 +42,11 @@ export default function CourseOverviewView({
   showProgress?: boolean;
 }) {
   const lessons = course.modules.flatMap((module) => module.lessons);
+  const readyLessons = lessons.filter((lesson) => lesson.status !== "pending");
   const allComplete = lessons.length > 0 && completed === lessons.length;
   const completion = lessons.length ? Math.round((completed / lessons.length) * 100) : 0;
   const cover = course.coverImage?.url || course.thumbnail;
-  const coverStyle = cover.includes("gradient(")
+  const coverStyle = !cover ? undefined : cover.includes("gradient(")
     ? { backgroundImage: cover }
     : { backgroundImage: `url("${assetUrl(cover)}")` };
   const text = (field: CourseOverviewTextField) => renderText?.(field) ?? field.value;
@@ -58,6 +59,13 @@ export default function CourseOverviewView({
         </button>
       )}
 
+      {course.partial && (
+        <div className="rich-generation-notice" role="status">
+          <Loader2 className="rich-spin" size={15} />
+          Course generation continues in background. Ready lessons are unlocked now; remaining lessons and artwork appear automatically.
+        </div>
+      )}
+
       <header className="rich-overview-hero">
         <motion.div className="rich-overview-copy" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
           <span className="rich-kicker">AI-generated course · {course.difficulty}</span>
@@ -68,20 +76,21 @@ export default function CourseOverviewView({
             <span><BookOpen size={14} /> {course.modules.length} modules · {lessons.length} lessons</span>
           </div>
           {onStart && (
-            <button type="button" className="rich-primary" onClick={onStart}>
+            <button type="button" className="rich-primary" disabled={readyLessons.length === 0} onClick={onStart}>
               {startLabel || (allComplete ? "View certificate" : completed ? "Resume course" : "Start course")} <ArrowRight size={15} />
             </button>
           )}
         </motion.div>
         <motion.div
-          className="rich-cover"
+          className={`rich-cover ${cover ? "" : "rich-cover-pending"}`}
           initial={{ opacity: 0, scale: .98 }}
           animate={{ opacity: 1, scale: 1 }}
           style={coverStyle}
           role="img"
           aria-label={course.coverImage?.alt || `Cover for ${course.title}`}
         >
-          <span>{course.coverImage ? "Generated course cover" : "Course cover"}</span>
+          <span>{course.coverImage ? "Generated course cover" : course.partial ? "Artwork is generating" : "Course cover"}</span>
+          {!cover && course.partial && <Loader2 className="rich-spin" size={24} aria-hidden="true" />}
           {coverActions}
         </motion.div>
       </header>
@@ -112,11 +121,11 @@ export default function CourseOverviewView({
                             {text({ key: "lessonTitle", value: lesson.title, moduleId: module.id, lessonId: lesson.id })}
                           </div>
                         ) : onSelectLesson ? (
-                          <button type="button" onClick={() => onSelectLesson(module.id, lesson.id)}>{lesson.title}</button>
+                          <button type="button" disabled={lesson.status === "pending"} onClick={() => onSelectLesson(module.id, lesson.id)}>{lesson.title}</button>
                         ) : (
                           <div className="rich-module-lesson-label">{lesson.title}</div>
                         )}
-                        <small>{lesson.duration}</small>
+                        <small>{lesson.status === "pending" ? "Generating" : lesson.duration}</small>
                       </li>
                     ))}
                   </ol>

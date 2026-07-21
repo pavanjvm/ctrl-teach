@@ -242,11 +242,13 @@ interface LearnerContextValue {
   skillProfile: LearnerSkillProfile;
   /** All known courses — seeded catalog + discovered courses saved by id. */
   courses: Course[];
+  savedCourses: Course[];
   setPrefs: (prefs: OnboardingPrefs) => void;
   setCoursePrefs: (courseId: string, prefs: CourseOnboardingPrefs) => void;
   setActiveCourse: (courseId: string, lessonId?: string) => void;
   setActiveLesson: (lessonId: string) => void;
   addCourse: (course: Course) => void;
+  removeCourse: (courseId: string) => void;
   addXp: (amount: number) => void;
   awardActivity: (result: {
     courseId?: string;
@@ -389,16 +391,15 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
         });
         const generated: Course[] = Array.isArray(res.data?.courses)
           ? res.data.courses
-              .filter((job: { status?: string; course?: Course }) => job.status === "ready" && job.course)
+              .filter((job: { status?: string; course?: Course; archivedAt?: string | null }) => job.status === "ready" && job.course && !job.archivedAt)
               .map((job: { course: Course }) => job.course)
           : [];
-        if (!generated.length) return;
         const ids = new Set(generated.map((course) => course.id));
         setState((current) => ({
           ...current,
           savedCourses: [
             ...generated,
-            ...current.savedCourses.filter((course) => !ids.has(course.id)),
+            ...current.savedCourses.filter((course) => !ids.has(course.id) && !course.id.startsWith("generated-")),
           ],
         }));
       } catch {}
@@ -505,6 +506,7 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
     learningMemories: exposedMemories,
     skillProfile,
     courses,
+    savedCourses: ownsCachedState ? state.savedCourses : [],
     setPrefs: (prefs) => setState((s) => ({
       ...s,
       prefs,
@@ -527,6 +529,13 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
       setState((s) => ({
         ...s,
         savedCourses: [course, ...s.savedCourses.filter((c) => c.id !== course.id)],
+      })),
+    removeCourse: (courseId) =>
+      setState((s) => ({
+        ...s,
+        activeCourseId: s.activeCourseId === courseId ? null : s.activeCourseId,
+        activeLessonId: s.activeCourseId === courseId ? null : s.activeLessonId,
+        savedCourses: s.savedCourses.filter((course) => course.id !== courseId),
       })),
     addXp: (amount) =>
       setState((s) => ({

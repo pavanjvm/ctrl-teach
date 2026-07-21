@@ -975,7 +975,7 @@ async def generate_outline(payload: Dict[str, Any]) -> CourseOutline:
     client = _client()
     source = payload["source"]
     intake = payload["intake"]
-    research = payload["research"]
+    research = payload.get("research") or {}
     answers = payload.get("answers") or {}
     module_count, lesson_count, duration = course_shape(_time_budget(payload))
     distribution = _lesson_distribution(module_count, lesson_count)
@@ -1628,8 +1628,6 @@ def _attach_assets(course: Dict[str, Any], assets: Dict[str, Any]) -> Dict[str, 
 
 def _partial_course(course_id: str, payload: Dict[str, Any], outline: Optional[CourseOutline] = None) -> Optional[Dict[str, Any]]:
     drafts = _stored_lesson_map(payload)
-    if not drafts:
-        return None
     course_outline = outline
     if course_outline is None:
         outline_payload = payload.get("outline")
@@ -1669,6 +1667,8 @@ def _partial_course(course_id: str, payload: Dict[str, Any], outline: Optional[C
         for item in partial["citations"]
         if isinstance(item, dict) and item.get("id")
     }
+    assets = dict(payload.get("assets") or {})
+    image_count = 0
     for module_index, module in enumerate(course_outline.modules):
         module_lessons: List[Dict[str, Any]] = []
         for lesson_index, lesson_plan in enumerate(module.lessons):
@@ -1680,11 +1680,38 @@ def _partial_course(course_id: str, payload: Dict[str, Any], outline: Optional[C
                     if not isinstance(raw_block, dict):
                         continue
                     block = _sanitize_block(dict(raw_block), citation_ids)
-                    # Images have no persisted file until the later image
-                    # stage. Expose the completed textual lesson safely now;
-                    # the final course attaches the real visual asset.
                     if block.get("type") == "image":
-                        continue
+                        if image_count >= MAX_LESSON_IMAGES:
+                            block = {
+                                "type": "content",
+                                "heading": "Visual takeaway",
+                                "paragraphs": [block.get("caption") or block.get("alt")],
+                                "citationIds": block.get("citationIds", []),
+                            }
+                        else:
+                            image_count += 1
+                            asset_id = f"lesson-{image_count}"
+                            asset = assets.get(asset_id)
+                            block.pop("prompt", None)
+                            block.pop("aspect", None)
+                            if isinstance(asset, dict) and asset.get("status") == "ready":
+                                block.pop("alt", None)
+                                block.pop("caption", None)
+                                block["asset"] = asset
+                            else:
+                                block["status"] = "pending"
+                                block["asset"] = {
+                                    "id": asset_id,
+                                    "status": "pending",
+                                    "url": "",
+                                    "alt": block.pop("alt", None) or "Lesson artwork generating",
+                                    "caption": block.pop("caption", None) or "Lesson artwork",
+                                    "prompt": "",
+                                    "width": 0,
+                                    "height": 0,
+                                    "contentType": "image/webp",
+                                    "sizeBytes": 0,
+                                }
                     block["id"] = f"{lesson_id}-b{block_index + 1}"
                     if block.get("type") == "quiz":
                         for question_index, question in enumerate(block.get("questions") or []):
@@ -1700,12 +1727,6 @@ def _partial_course(course_id: str, payload: Dict[str, Any], outline: Optional[C
                 "status": "ready" if stored else "pending",
             }
             module_lessons.append(study_lesson)
-            if stored:
-                browser_lab = _sanitize_browser_lab(lesson_id, lesson_plan, stored)
-                if browser_lab:
-                    lab_lesson = _browser_lab_lesson(study_lesson, browser_lab)
-                    lab_lesson["status"] = "ready"
-                    module_lessons.append(lab_lesson)
         partial["modules"].append(
             {
                 "id": f"{course_id}-module-{module_index + 1}",
@@ -1717,6 +1738,10 @@ def _partial_course(course_id: str, payload: Dict[str, Any], outline: Optional[C
     partial["completedLessonCount"] = len(drafts)
     partial["totalLessonCount"] = sum(len(module.lessons) for module in course_outline.modules)
     partial["estimatedMinutes"] = _total_estimated_minutes(list(drafts.values()))
+    cover = assets.get("cover")
+    if isinstance(cover, dict) and cover.get("status") == "ready":
+        partial["coverImage"] = cover
+        partial["thumbnail"] = cover.get("url") or ""
     return partial
 
 
@@ -1773,13 +1798,19 @@ async def run_generation_job(course_id: str) -> None:
     try:
         owner_user_id, _status, payload = _load_job(course_id)
 
-        if not payload.get("research"):
-            payload = _progress(payload, "researching", 12, "Researching authoritative sources")
+        if not payload.get("outline"):
+            payload = _progress(payload, "outlining", 10, "Designing your course modules")
+            _save_job(course_id, status="generating", payload=payload)
+            outline = await generate_outline(payload)
+            payload["outline"] = outline.model_dump()
+            payload = _progress(payload, "researching", 18, "Course path ready. Researching lesson sources")
             _save_job(course_id, status="researching", payload=payload)
+
+        if not payload.get("research"):
             payload["research"] = await research_topic(
                 payload["source"], payload["intake"], payload.get("answers") or {}
             )
-            payload = _progress(payload, "generating", 25, "Designing your course structure")
+            payload = _progress(payload, "generating", 25, "Writing your first lesson")
             _save_job(course_id, status="generating", payload=payload)
 
         # Jobs created by an older generator may already contain a structurally
@@ -1791,12 +1822,7 @@ async def run_generation_job(course_id: str) -> None:
             _save_job(course_id, status="generating", payload=payload)
 
         if not payload.get("courseDraft"):
-            if payload.get("outline"):
-                outline = CourseOutline.model_validate(payload["outline"])
-            else:
-                outline = await generate_outline(payload)
-                payload["outline"] = outline.model_dump()
-                _save_job(course_id, status="generating", payload=payload)
+            outline = CourseOutline.model_validate(payload["outline"])
 
             lesson_specs = [
                 {

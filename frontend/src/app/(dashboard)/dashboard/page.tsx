@@ -175,7 +175,7 @@ export default function HomePage() {
   const activeCourseComplete = Boolean(activeCourse && lessons.length > 0 && completedLessonCount === lessons.length);
 
   const sortedJobs = useMemo(
-    () => [...jobs].sort((left, right) => (
+    () => jobs.filter((job) => !job.archivedAt).sort((left, right) => (
       new Date(right.updatedAt || right.createdAt || 0).getTime()
       - new Date(left.updatedAt || left.createdAt || 0).getTime()
     )),
@@ -474,7 +474,10 @@ function GenerationCard({ job }: { job: GeneratedCourseJob }) {
   const isReady = job.status === "ready";
   const isIntake = job.status === "intake";
   const percent = job.progress?.percent ?? 0;
-  const href = isReady ? `/learn/${job.id}` : `/library?generation=${encodeURIComponent(job.id)}`;
+  const hasAvailableLesson = Boolean(job.partialCourse?.modules.some((module) => (
+    module.lessons.some((lesson) => lesson.status !== "pending")
+  )));
+  const href = isReady || hasAvailableLesson ? `/learn/${job.id}` : `/library?generation=${encodeURIComponent(job.id)}`;
 
   return (
     <div className={`home-generation ${isFailed ? "is-failed" : ""}`}>
@@ -494,7 +497,7 @@ function GenerationCard({ job }: { job: GeneratedCourseJob }) {
           </>
         )}
         <Link className="home-primary-action" href={href}>
-          {isFailed ? "Review and retry" : isReady ? "Open course" : isIntake ? "Resume setup" : "View progress"}
+          {isFailed ? "Review and retry" : isReady ? "Open course" : isIntake ? "Resume setup" : hasAvailableLesson ? "Start available lessons" : "View progress"}
           <ArrowRight size={16} />
         </Link>
       </div>
