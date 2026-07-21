@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
@@ -11,34 +11,20 @@ import {
     BookOpen,
     Presentation,
     Settings,
-    Bell,
     Menu,
     X,
-    Check,
 } from "lucide-react";
 import "./dashboard.css";
 import "./signal-product.css";
-
-function relativeTime(timestamp: number): string {
-    const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
-    if (minutes < 1) return "now";
-    if (minutes < 60) return `${minutes}m`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h`;
-    return `${Math.floor(hours / 24)}d`;
-}
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const router = useRouter();
     const { user, loading, logout } = useAuth();
-    const { isOnboarded, learnerReady, progress, skillProfile } = useLearner();
+    const { isOnboarded, learnerReady } = useLearner();
     const { enabled: tarsEnabled, setEnabled: setTarsEnabled } = useTars();
-    const [showNotifications, setShowNotifications] = useState(false);
     const [showProfileDropdown, setShowProfileDropdown] = useState(false);
     const [showMobileNav, setShowMobileNav] = useState(false);
-    const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(() => new Set());
-    const notifRef = useRef<HTMLDivElement>(null);
     const profileRef = useRef<HTMLDivElement>(null);
 
     // Auth Protection
@@ -55,9 +41,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     useEffect(() => {
         function handleClickOutside(e: MouseEvent) {
             const target = e.target as Node;
-            if (notifRef.current && !notifRef.current.contains(target)) {
-                setShowNotifications(false);
-            }
             if (profileRef.current && !profileRef.current.contains(target)) {
                 setShowProfileDropdown(false);
             }
@@ -68,55 +51,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     useEffect(() => {
         setShowMobileNav(false);
-        setShowNotifications(false);
         setShowProfileDropdown(false);
     }, [pathname]);
-
-    const notifications = useMemo(() => {
-        const items: Array<{ id: string; title: string; desc: string; time: string; timestamp: number }> = [];
-        for (const badge of progress.badges
-            .filter((item) => item.earnedAt)
-            .sort((first, second) => (second.earnedAt ?? 0) - (first.earnedAt ?? 0))
-            .slice(0, 3)) {
-            const timestamp = badge.earnedAt ?? Date.now();
-            items.push({
-                id: `badge:${badge.id}:${timestamp}`,
-                title: "Achievement unlocked",
-                desc: `${badge.title}: ${badge.description}`,
-                time: relativeTime(timestamp),
-                timestamp,
-            });
-        }
-        if (progress.streak > 0 && progress.lastActivityDate) {
-            const timestamp = new Date(`${progress.lastActivityDate}T12:00:00`).getTime();
-            items.push({
-                id: `streak:${progress.lastActivityDate}`,
-                title: `${progress.streak}-day learning streak`,
-                desc: "Your completed learning activity kept the streak moving.",
-                time: relativeTime(timestamp),
-                timestamp,
-            });
-        }
-        const focus = skillProfile.focusAreas[0];
-        if (focus) {
-            items.push({
-                id: `focus:${focus.name}:${focus.lastObservedAt}`,
-                title: `Focus next: ${focus.name}`,
-                desc: focus.reason,
-                time: relativeTime(focus.lastObservedAt),
-                timestamp: focus.lastObservedAt,
-            });
-        }
-        return items
-            .sort((first, second) => second.timestamp - first.timestamp)
-            .slice(0, 5)
-            .map((item, index) => ({
-                ...item,
-                icon: String(index + 1).padStart(2, "0"),
-                unread: !readNotificationIds.has(item.id),
-            }));
-    }, [progress.badges, progress.lastActivityDate, progress.streak, readNotificationIds, skillProfile.focusAreas]);
-    const unreadCount = notifications.filter((notification) => notification.unread).length;
 
     const handleLogout = async () => {
         try {
@@ -140,7 +76,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         </div>
                     </div>
                     <nav className="topbar-nav">
-                        {[1, 2, 3, 4, 5].map((i) => (
+                        {[1, 2, 3].map((i) => (
                             <div key={i} className="skeleton-shimmer" style={{ width: 90, height: 20, borderRadius: 999 }} />
                         ))}
                     </nav>
@@ -162,20 +98,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         );
     }
 
-    const markAllRead = () => {
-        setReadNotificationIds((current) => new Set([
-            ...current,
-            ...notifications.map((notification) => notification.id),
-        ]));
-    };
-
-    const markRead = (id: string) => {
-        setReadNotificationIds((current) => new Set([...current, id]));
-    };
-
     const navItems = [
         { name: "Home", href: "/dashboard", active: pathname === "/dashboard" },
-        { name: "Explore Courses", href: "/courses", active: pathname === "/courses" },
+        { name: "Explore", href: "/courses", active: pathname === "/courses" },
         {
             name: "My Learning",
             href: "/library",
@@ -192,7 +117,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const isCourseOverview = Boolean(courseId && pathname === `/learn/${courseId}`);
     const lessonId = !isLiveClassroom ? pathname.split("/")[3] : null;
     const courseBackHref = courseId?.startsWith("platform-") ? "/courses" : "/library";
-    const courseBackLabel = courseId?.startsWith("platform-") ? "Explore Courses" : "My Learning";
+    const courseBackLabel = courseId?.startsWith("platform-") ? "Explore" : "My Learning";
 
     return (
         <div className={`dash-app ${isBoard ? "board-shell" : ""}`}>
@@ -294,72 +219,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         >
                             <Settings size={18} />
                         </Link>
-
-                        <div className="topbar-notif-wrapper" ref={notifRef}>
-                            <button
-                                className={`topbar-icon-btn notification-btn ${showNotifications ? "active" : ""}`}
-                                title="Notifications"
-                                onClick={() => setShowNotifications(!showNotifications)}
-                            >
-                                <Bell size={18} />
-                                {unreadCount > 0 && (
-                                    <span className="notification-dot">
-                                        {unreadCount > 9 ? "9+" : unreadCount}
-                                    </span>
-                                )}
-                            </button>
-
-                            {showNotifications && (
-                                <div className="notif-dropdown">
-                                    <div className="notif-header">
-                                        <h3 className="notif-title">Notifications</h3>
-                                        <div className="notif-header-actions">
-                                            {unreadCount > 0 && (
-                                                <button className="notif-mark-all" onClick={markAllRead}>
-                                                    <Check size={12} />
-                                                    Mark all read
-                                                </button>
-                                            )}
-                                            <button
-                                                className="notif-close"
-                                                onClick={() => setShowNotifications(false)}
-                                            >
-                                                <X size={14} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="notif-list">
-                                        {notifications.length === 0 && (
-                                            <p style={{ margin: 0, padding: "24px 16px", color: "var(--text-muted)", textAlign: "center", fontSize: 13 }}>
-                                                You&apos;re all caught up.
-                                            </p>
-                                        )}
-                                        {notifications.map((n) => (
-                                            <button
-                                                key={n.id}
-                                                className={`notif-item ${n.unread ? "unread" : ""}`}
-                                                onClick={() => markRead(n.id)}
-                                            >
-                                                <span className="notif-item-icon">{n.icon}</span>
-                                                <div className="notif-item-content">
-                                                    <span className="notif-item-title">{n.title}</span>
-                                                    <span className="notif-item-desc">{n.desc}</span>
-                                                </div>
-                                                <span className="notif-item-time">{n.time}</span>
-                                                {n.unread && <span className="notif-unread-dot" />}
-                                            </button>
-                                        ))}
-                                    </div>
-                                    <Link
-                                        href="/profile?tab=settings"
-                                        className="notif-footer"
-                                        onClick={() => setShowNotifications(false)}
-                                    >
-                                        Notification Settings
-                                    </Link>
-                                </div>
-                            )}
-                        </div>
 
                         <div className="topbar-user-wrapper" ref={profileRef} style={{ position: "relative" }}>
                             <button

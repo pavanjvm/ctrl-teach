@@ -353,6 +353,48 @@ button.library-card-main { cursor: pointer; }
 
 .library-section-aside button:hover { background: var(--fg); color: #fff; }
 
+.library-course-filter {
+  display: inline-flex;
+  gap: 4px;
+  margin-top: 18px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .58);
+}
+
+.library-course-filter button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.library-course-filter button:hover { color: var(--fg); }
+.library-course-filter button.active { background: var(--fg); color: #fff; }
+
+.library-course-filter button span {
+  display: grid;
+  min-width: 19px;
+  height: 19px;
+  place-items: center;
+  border-radius: 3px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.library-course-filter button.active span { background: rgba(255, 255, 255, .16); color: #fff; }
+
 .library-section .library-grid { margin-top: 20px; }
 .library-section-state { min-height: 112px; }
 
@@ -394,6 +436,8 @@ button.library-card-main { cursor: pointer; }
   .library-section-aside { width: 100%; align-items: flex-start; flex-direction: column; }
   .library-section-aside p { text-align: left; }
   .library-section-aside button { width: 100%; justify-content: center; }
+  .library-course-filter { display: flex; width: 100%; }
+  .library-course-filter button { flex: 1; justify-content: center; }
   .library-grid { grid-template-columns: 1fr; }
   .library-collection-empty { grid-template-columns: auto minmax(0, 1fr); }
   .library-collection-empty button { grid-column: 1 / -1; width: 100%; }

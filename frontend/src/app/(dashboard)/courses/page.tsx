@@ -67,18 +67,6 @@ export default function CoursesPage() {
 
   return (
     <div className="courses-page">
-      <header className="courses-hero">
-        <div>
-          <span className="courses-eyebrow">Explore courses</span>
-          <h1>Choose what to master next<span>.</span></h1>
-          <p>Browse focused courses published by Ctrl+Teach faculty, then learn through explanation, practice, and feedback.</p>
-        </div>
-        <div className="courses-published-count" aria-live="polite">
-          <strong>{loading ? "—" : courses.length}</strong>
-          <span>{courses.length === 1 ? "published course" : "published courses"}</span>
-        </div>
-      </header>
-
       <section className="courses-toolbar" aria-label="Search published courses">
         <label htmlFor="course-search">
           <Search size={17} aria-hidden="true" />

@@ -64,6 +64,7 @@ export default function LibraryPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [managingJobId, setManagingJobId] = useState<string | null>(null);
+  const [courseFilter, setCourseFilter] = useState<"generated" | "started">("generated");
 
   const load = useCallback(async () => {
     try {
@@ -275,101 +276,119 @@ export default function LibraryPage() {
             <h2 id="your-courses-title">Made around your goals</h2>
           </div>
           <div className="library-section-aside">
-            <p>Courses you created with Ctrl+Teach, including work still in progress.</p>
+            <p>{courseFilter === "generated" ? "Courses you created with Ctrl+Teach, including work still in progress." : "Published courses you started from Explore Courses."}</p>
             <button type="button" onClick={() => openBuilder()}>
               <Plus size={14} /> New course
             </button>
           </div>
         </div>
 
-        {actionError && <div className="library-action-error"><CircleAlert size={15} /> {actionError}</div>}
-        {loading ? (
-          <div className="library-state library-section-state"><Loader2 className="library-spin" size={20} /> Loading your courses…</div>
-        ) : error ? (
-          <div className="library-state library-section-state library-error"><CircleAlert size={18} /> {error}</div>
-        ) : activeJobs.length === 0 ? (
+        <div className="library-course-filter" role="group" aria-label="Filter your courses">
+          <button
+            type="button"
+            className={courseFilter === "generated" ? "active" : ""}
+            aria-pressed={courseFilter === "generated"}
+            onClick={() => setCourseFilter("generated")}
+          >
+            <Sparkles size={13} /> Generated <span>{activeJobs.length}</span>
+          </button>
+          <button
+            type="button"
+            className={courseFilter === "started" ? "active" : ""}
+            aria-pressed={courseFilter === "started"}
+            onClick={() => setCourseFilter("started")}
+          >
+            <BookOpen size={13} /> Started <span>{startedPlatformCourses.length}</span>
+          </button>
+        </div>
+
+        {courseFilter === "generated" ? (
+          <>
+            {actionError && <div className="library-action-error"><CircleAlert size={15} /> {actionError}</div>}
+            {loading ? (
+              <div className="library-state library-section-state"><Loader2 className="library-spin" size={20} /> Loading your courses…</div>
+            ) : error ? (
+              <div className="library-state library-section-state library-error"><CircleAlert size={18} /> {error}</div>
+            ) : activeJobs.length === 0 ? (
+              <div className="library-collection-empty">
+                <Sparkles size={20} />
+                <div><strong>No custom courses yet</strong><span>Create one when the ready-made catalog does not fit your goal.</span></div>
+                <button type="button" onClick={() => openBuilder()}>Create a course <ArrowRight size={14} /></button>
+              </div>
+            ) : (
+              <section className="library-grid">
+                {activeJobs.map((job, index) => {
+                  const course = job.course || job.partialCourse;
+                  const writtenLessons = job.partialCourse?.modules.reduce(
+                    (total, module) => total + module.lessons.filter((lesson) => (lesson.contentBlocks?.length || 0) > 0).length,
+                    0,
+                  ) || 0;
+                  return (
+                    <motion.article
+                      key={job.id}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * .04 }}
+                      className="library-card"
+                    >
+                      <button className="library-card-main" type="button" onClick={() => openJob(job)} aria-label={`Open ${job.topic}`}>
+                        <div
+                          className="library-cover"
+                          style={course ? courseCoverStyle(course) : undefined}
+                          role={course ? "img" : undefined}
+                          aria-label={course ? course.coverImage?.alt || `${course.title} course cover` : undefined}
+                        >
+                          <Sparkles className="library-cover-fallback" size={28} aria-hidden="true" />
+                          <span className={`library-status ${job.status}`}>
+                            {job.status === "ready" ? "Ready" : job.status === "failed" ? "Needs attention" : job.status === "intake" ? "Needs answers" : "Generating"}
+                          </span>
+                          {isGenerationActive(job.status) && (
+                            <div className="library-progress"><i style={{ width: `${job.progress?.percent ?? 0}%` }} /></div>
+                          )}
+                        </div>
+                        <div className="library-body">
+                          <span className="library-meta">
+                            {writtenLessons > 0 && job.status !== "ready"
+                              ? `${writtenLessons} lessons written · ${course?.duration}`
+                              : course ? `${course.modules.length} modules · ${course.duration}` : job.progress?.message}
+                          </span>
+                          <h2>{course?.title || job.topic}</h2>
+                          <p>{course?.description || job.summary}</p>
+                          <div className="library-open">
+                            {course ? (job.status === "ready" ? "Open course" : "Open available course") : job.status === "failed" ? "Review and retry" : job.status === "intake" ? "Continue setup" : `${job.progress?.percent ?? 0}% complete`}
+                            <ArrowRight size={14} />
+                          </div>
+                        </div>
+                      </button>
+                      <details className="library-card-menu">
+                        <summary aria-label={`Manage ${course?.title || job.topic}`} title="Course actions"><EllipsisVertical size={17} /></summary>
+                        <div>
+                          <button
+                            type="button"
+                            disabled={managingJobId === job.id || isGenerationActive(job.status)}
+                            title={isGenerationActive(job.status) ? "Archive becomes available after generation finishes" : "Archive course"}
+                            onClick={() => void archiveJob(job)}
+                          >
+                            {managingJobId === job.id ? <Loader2 className="library-spin" size={14} /> : <Archive size={14} />} <span>Archive</span>
+                          </button>
+                          <button type="button" disabled={managingJobId === job.id} onClick={() => void deleteJob(job)}>
+                            <Trash2 size={14} /> <span>Delete</span>
+                          </button>
+                        </div>
+                      </details>
+                    </motion.article>
+                  );
+                })}
+              </section>
+            )}
+          </>
+        ) : startedPlatformCourses.length === 0 ? (
           <div className="library-collection-empty">
-            <Sparkles size={20} />
-            <div><strong>No custom courses yet</strong><span>Create one when the ready-made catalog does not fit your goal.</span></div>
-            <button type="button" onClick={() => openBuilder()}>Create a course <ArrowRight size={14} /></button>
+            <BookOpen size={20} />
+            <div><strong>No started courses yet</strong><span>Choose a published course and start its first lesson.</span></div>
+            <button type="button" onClick={() => router.push("/courses")}>Explore courses <ArrowRight size={14} /></button>
           </div>
         ) : (
-          <section className="library-grid">
-            {activeJobs.map((job, index) => {
-              const course = job.course || job.partialCourse;
-              const writtenLessons = job.partialCourse?.modules.reduce(
-                (total, module) => total + module.lessons.filter((lesson) => (lesson.contentBlocks?.length || 0) > 0).length,
-                0,
-              ) || 0;
-              return (
-                <motion.article
-                  key={job.id}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * .04 }}
-                  className="library-card"
-                >
-                  <button className="library-card-main" type="button" onClick={() => openJob(job)} aria-label={`Open ${job.topic}`}>
-                    <div
-                      className="library-cover"
-                      style={course ? courseCoverStyle(course) : undefined}
-                      role={course ? "img" : undefined}
-                      aria-label={course ? course.coverImage?.alt || `${course.title} course cover` : undefined}
-                    >
-                      <Sparkles className="library-cover-fallback" size={28} aria-hidden="true" />
-                      <span className={`library-status ${job.status}`}>
-                        {job.status === "ready" ? "Ready" : job.status === "failed" ? "Needs attention" : job.status === "intake" ? "Needs answers" : "Generating"}
-                      </span>
-                      {isGenerationActive(job.status) && (
-                        <div className="library-progress"><i style={{ width: `${job.progress?.percent ?? 0}%` }} /></div>
-                      )}
-                    </div>
-                    <div className="library-body">
-                      <span className="library-meta">
-                        {writtenLessons > 0 && job.status !== "ready"
-                          ? `${writtenLessons} lessons written · ${course?.duration}`
-                          : course ? `${course.modules.length} modules · ${course.duration}` : job.progress?.message}
-                      </span>
-                      <h2>{course?.title || job.topic}</h2>
-                      <p>{course?.description || job.summary}</p>
-                      <div className="library-open">
-                        {course ? (job.status === "ready" ? "Open course" : "Open available course") : job.status === "failed" ? "Review and retry" : job.status === "intake" ? "Continue setup" : `${job.progress?.percent ?? 0}% complete`}
-                        <ArrowRight size={14} />
-                      </div>
-                    </div>
-                  </button>
-                  <details className="library-card-menu">
-                    <summary aria-label={`Manage ${course?.title || job.topic}`} title="Course actions"><EllipsisVertical size={17} /></summary>
-                    <div>
-                      <button
-                        type="button"
-                        disabled={managingJobId === job.id || isGenerationActive(job.status)}
-                        title={isGenerationActive(job.status) ? "Archive becomes available after generation finishes" : "Archive course"}
-                        onClick={() => void archiveJob(job)}
-                      >
-                        {managingJobId === job.id ? <Loader2 className="library-spin" size={14} /> : <Archive size={14} />} <span>Archive</span>
-                      </button>
-                      <button type="button" disabled={managingJobId === job.id} onClick={() => void deleteJob(job)}>
-                        <Trash2 size={14} /> <span>Delete</span>
-                      </button>
-                    </div>
-                  </details>
-                </motion.article>
-              );
-            })}
-          </section>
-        )}
-      </section>
-
-      {startedPlatformCourses.length > 0 && (
-        <section className="library-section" aria-labelledby="started-courses-title">
-          <div className="library-section-head">
-            <div>
-              <span>Started courses</span>
-              <h2 id="started-courses-title">Published learning in progress</h2>
-            </div>
-            <p>Courses from the published catalog that you have started.</p>
-          </div>
           <section className="library-grid">
             {startedPlatformCourses.map((course, index) => {
               const progress = courseProgress(course, isLessonComplete);
@@ -402,10 +421,10 @@ export default function LibraryPage() {
               );
             })}
           </section>
-        </section>
-      )}
+        )}
+      </section>
 
-      {archivedJobs.length > 0 && (
+      {courseFilter === "generated" && archivedJobs.length > 0 && (
         <section className="library-section" aria-labelledby="archived-courses-title">
           <div className="library-section-head">
             <div>
@@ -460,7 +479,7 @@ export default function LibraryPage() {
         </section>
       )}
 
-      {!loading && jobs.some((job) => isGenerationActive(job.status)) && (
+      {courseFilter === "generated" && !loading && jobs.some((job) => isGenerationActive(job.status)) && (
         <footer className="library-foot"><Clock size={13} /> Active generations continue while this page is open.</footer>
       )}
     </div>
