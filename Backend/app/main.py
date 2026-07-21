@@ -92,6 +92,7 @@ logger = logging.getLogger(__name__)
 
 # ── Globals initialised at startup ────────────────────────────────────────────
 default_root_agent: Optional[RealtimeAgent] = None
+TEACHING_PROFILES_ENABLED = False
 
 
 # ── Audio helpers ─────────────────────────────────────────────────────────────
@@ -450,7 +451,11 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, session_id: str
         await websocket.close(code=1008, reason="Invalid roleplay voice")
         return
     classroom_mode = requested_mode == "classroom" or websocket.query_params.get("classroom", "").lower() in {"1", "true", "yes"}
-    active_teaching_profile = selected_teaching_profile(int(user_id))
+    active_teaching_profile = (
+        selected_teaching_profile(int(user_id))
+        if TEACHING_PROFILES_ENABLED
+        else None
+    )
     teaching_profile_instruction = build_teaching_profile_instruction(
         active_teaching_profile
     )

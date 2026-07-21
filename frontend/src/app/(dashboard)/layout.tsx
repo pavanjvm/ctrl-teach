@@ -278,14 +278,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                     >
                                         Achievements
                                     </Link>
-                                    <Link
-                                        href="/teaching-profiles"
-                                        className="notif-item"
-                                        onClick={() => setShowProfileDropdown(false)}
-                                        style={{ padding: "10px", borderRadius: "4px" }}
-                                    >
-                                        Teaching style
-                                    </Link>
                                     <button
                                         onClick={handleLogout}
                                         className="notif-item"
