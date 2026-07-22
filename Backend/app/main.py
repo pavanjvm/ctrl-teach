@@ -68,6 +68,7 @@ from app.routers import teaching_profiles as teaching_profiles_router
 from app.routers import discover as discover_router
 from app.routers import tars as tars_router
 from app.routers import generated_courses as generated_courses_router
+from app.routers import learning_paths as learning_paths_router
 from app.routers import browser_labs as browser_labs_router
 from app.routers import roleplay as roleplay_router
 from app.routers import platform_courses as platform_courses_router
@@ -250,6 +251,7 @@ app.include_router(teaching_profiles_router.router)
 app.include_router(discover_router.router)
 app.include_router(tars_router.router)
 app.include_router(generated_courses_router.router)
+app.include_router(learning_paths_router.router)
 app.include_router(browser_labs_router.router)
 app.include_router(roleplay_router.router)
 app.include_router(platform_courses_router.public_router)

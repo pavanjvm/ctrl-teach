@@ -250,6 +250,42 @@ class PlatformCourse(Base):
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
+class LearningPath(Base):
+    """A learner-owned route from their current skills to a target role."""
+
+    __tablename__ = "learning_paths"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(Integer, index=True)
+    role_id: Mapped[str] = mapped_column(String(128), index=True)
+    role_name: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    skill_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class PathNode(Base):
+    """One ordered skill, course, project, or milestone in a learning path."""
+
+    __tablename__ = "path_nodes"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    path_id: Mapped[str] = mapped_column(String(128), index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    node_type: Mapped[str] = mapped_column(String(32))
+    skill: Mapped[str] = mapped_column(String(255), default="")
+    target_level: Mapped[int] = mapped_column(Integer, default=3)
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(String(2048), default="")
+    course_ref: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    generated_course_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="locked", index=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class BrowserLabRun(Base):
     """A learner-owned, server-verified run of one generated browser lab.
 

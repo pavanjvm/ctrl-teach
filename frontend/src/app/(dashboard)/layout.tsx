@@ -106,6 +106,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             href: "/library",
             active: pathname === "/library" || pathname === "/discover" || pathname.startsWith("/learn"),
         },
+        { name: "My Path", href: "/path", active: pathname === "/path" },
     ];
 
     const isBoard = pathname === "/board";
