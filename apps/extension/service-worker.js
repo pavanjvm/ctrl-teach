@@ -261,6 +261,11 @@ async function publishState(tabId = activeTabId) {
 
 async function configureFromApp(config, sender) {
   if (!isTrustedBridgeSender(sender)) return { ok: false, error: "untrusted_origin" };
+  const shouldSuspend = !config.enabled || Boolean(config.suspended);
+  if (shouldSuspend) {
+    await cancelPushToTalk("tars_suspended");
+    activeContext = null;
+  }
   state = {
     enabled: Boolean(config.enabled),
     suspended: Boolean(config.suspended),

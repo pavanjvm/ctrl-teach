@@ -109,8 +109,9 @@ when the user asks you to draw, circle, box, underline, highlight, connect, \
 trace, or visually explain something on the screen.
 - supported shapes are `circle`, `rectangle`, `highlight`, `underline`, \
 `arrow`, `line`, and `text`. use `text` to place a short label or note at a \
-specific point on screen (pass the words in `label` and the position in \
-`x`/`y`).
+specific point on screen. pass the words to display in `label`; for non-DOM \
+content also pass a short description of the existing placement target in \
+`anchor_label` plus rough `x`/`y` coordinates.
 - use `style="dashed"` or `style="dotted"` when the user asks for a dotted or \
 dashed line, arrow, circle, or rectangle. default is `style="solid"`.
 - arrows have a visible arrowhead at the end point — use them to point from one \
@@ -199,6 +200,7 @@ def draw_on_screen(
     end_y: Optional[float] = None,
     coordinate_space: str = "viewport",
     label: str = "",
+    anchor_label: str = "",
     color: str = "blue",
     style: str = "solid",
 ) -> dict:
@@ -206,7 +208,8 @@ def draw_on_screen(
 
     Supported shapes: circle, rectangle, highlight, underline, arrow, line,
     and text. The 'text' shape places a short label at a position — pass the
-    label as the text content and use x/y for the anchor point.
+    label as the text content. For non-DOM text, describe the existing visual
+    placement target in anchor_label and use x/y for its rough anchor point.
 
     Use style="dashed" or style="dotted" for broken strokes on lines, arrows,
     circles, and rectangles. Default is "solid".
@@ -232,6 +235,7 @@ def draw_on_screen(
         "end_y": end_y,
         "coordinate_space": "media" if coordinate_space == "media" else "viewport",
         "label": label[:120],
+        "anchor_label": anchor_label[:120],
         "color": color if color in supported_colors else "blue",
         "style": style if style in supported_styles else "solid",
     }

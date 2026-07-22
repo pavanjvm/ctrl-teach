@@ -1,6 +1,7 @@
 export type TarsDrawCommand = {
   tool: "draw_on_screen" | "clear_screen_drawings";
-  shape?: "circle" | "rectangle" | "highlight" | "underline" | "arrow" | "line";
+  shape?: "circle" | "rectangle" | "highlight" | "underline" | "arrow" | "line" | "text";
+  style?: "solid" | "dashed" | "dotted";
   targetId?: string | null;
   fromTargetId?: string | null;
   toTargetId?: string | null;

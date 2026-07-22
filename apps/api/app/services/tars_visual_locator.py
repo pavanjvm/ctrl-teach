@@ -97,6 +97,11 @@ def _spatial_result(computer_call: Any, requested_mode: LocalizationMode) -> Loc
             path = [point for point in (_xy(item) for item in (getattr(action, "path", []) or [])) if point]
             if len(path) >= 2:
                 start, end = path[0], path[-1]
+                if requested_mode == "point":
+                    return LocalizationResult(
+                        mode="point",
+                        start=((start[0] + end[0]) / 2, (start[1] + end[1]) / 2),
+                    )
                 if requested_mode == "bounds":
                     start = min(start[0], end[0]), min(start[1], end[1])
                     end = max(path[0][0], path[-1][0]), max(path[0][1], path[-1][1])
@@ -109,9 +114,11 @@ def _spatial_result(computer_call: Any, requested_mode: LocalizationMode) -> Loc
         elif action_type == "move":
             move = point
 
-    # A click is still useful if the model did not follow a requested drag. The
-    # caller can preserve the old annotation size while correcting its center.
+    # A point cannot establish requested bounds or segment endpoints. Reject it
+    # instead of presenting rough Realtime geometry as fully grounded.
     point = click or move
+    if requested_mode != "point":
+        return None
     return LocalizationResult(mode="point", start=point) if point else None
 
 
@@ -179,6 +186,8 @@ async def locate_visual_target(
     selected_model = model or settings.tars_visual_locator_model
     prompt = _prompt_for(mode, description, shape)
     started_at = time.perf_counter()
+    timeout_seconds = settings.tars_visual_locator_timeout_seconds
+    deadline = time.monotonic() + timeout_seconds
 
     try:
         response = await asyncio.wait_for(
@@ -208,7 +217,7 @@ async def locate_visual_target(
                 # still returning the tiny computer action payload.
                 max_output_tokens=2048,
             ),
-            timeout=settings.tars_visual_locator_timeout_seconds,
+            timeout=timeout_seconds,
         )
         computer_call = _computer_call(response)
         if computer_call is None:
@@ -243,7 +252,7 @@ async def locate_visual_target(
                     reasoning={"effort": settings.tars_visual_locator_reasoning_effort},
                     max_output_tokens=2048,
                 ),
-                timeout=settings.tars_visual_locator_timeout_seconds,
+                timeout=max(0.001, deadline - time.monotonic()),
             )
             computer_call = _computer_call(response)
             if computer_call is None:
@@ -399,12 +408,17 @@ async def refine_tars_payload(
             return point_fallback("invalid_capture")
         return drawing_failure("invalid_capture")
 
-    label = str(payload.get("label") or "").strip()
-    transcript = str(state.get("last_input_transcript") or "").strip()
-    description = label or "requested target"
-    if transcript:
-        description = f"{description} (user request: {transcript})"
     shape = str(payload.get("shape") or "")
+    label = str(payload.get("label") or "").strip()
+    anchor_label = str(payload.get("anchor_label") or "").strip()
+    transcript = str(state.get("last_input_transcript") or "").strip()
+    description = (
+        anchor_label or "requested text placement"
+        if shape == "text"
+        else label or "requested target"
+    )
+    if transcript and shape != "text":
+        description = f"{description} (user request: {transcript})"
     requested_mode = _mode_for(tool_name, shape)
 
     result = await locate_visual_target(
@@ -428,6 +442,20 @@ async def refine_tars_payload(
         if tool_name == "point_at":
             return point_fallback("locator_no_result")
         return drawing_failure("locator_no_result")
+    result_matches_request = (
+        result.mode == requested_mode
+        and (result.end is None if requested_mode == "point" else result.end is not None)
+    )
+    if not result_matches_request:
+        logger.warning(
+            "Tars visual locator mode mismatch target=%r requested=%s received=%s",
+            description,
+            requested_mode,
+            result.mode,
+        )
+        if tool_name == "point_at":
+            return point_fallback("locator_mode_mismatch")
+        return drawing_failure("locator_mode_mismatch")
 
     start = _scaled_point(
         result.start,

@@ -95,8 +95,8 @@
       #confirm-cancel { background: #f3f4f6; color: #374151; }
       #confirm-accept { background: #b7ec52; color: #26320f; }
       .stroke { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .55s cubic-bezier(.22,.8,.24,1) forwards; }
-      .stroke.dashed { stroke-dasharray: 8 6; }
-      .stroke.dotted { stroke-dasharray: 2 5; stroke-linecap: round; }
+      .stroke.dashed { stroke-dasharray: 8 6; stroke-dashoffset: 0; animation: none; }
+      .stroke.dotted { stroke-dasharray: 2 5; stroke-dashoffset: 0; stroke-linecap: round; animation: none; }
       .ctrl-trail-segment { stroke: #14b8a6; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 6px rgba(20,184,166,.5)); }
       .draw-text { font: 600 13px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 4px; stroke-linejoin: round; animation: draw .35s ease forwards; }
       @keyframes spin { to { transform: rotate(360deg); } }
@@ -672,7 +672,9 @@
 
   function svgElement(name, attributes) {
     const element = document.createElementNS("http://www.w3.org/2000/svg", name);
-    for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
+    for (const [key, value] of Object.entries(attributes)) {
+      if (value != null) element.setAttribute(key, String(value));
+    }
     return element;
   }
 
@@ -791,62 +793,12 @@
   function finishCtrlTrail() {
     const points = ctrlGesturePoints.slice();
     scheduleCtrlTrailRender();
-    if (!points.length) return null;
-    const xs = points.map((point) => point.x);
-    const ys = points.map((point) => point.y);
-    const left = Math.min(...xs);
-    const right = Math.max(...xs);
-    const top = Math.min(...ys);
-    const bottom = Math.max(...ys);
-    const width = right - left;
-    const height = bottom - top;
-    const pathLength = points.slice(1).reduce((total, point, index) => {
-      const previous = points[index];
-      return total + Math.hypot(point.x - previous.x, point.y - previous.y);
-    }, 0);
-    const start = points[0];
-    const end = points[points.length - 1];
-    const startEnd = Math.hypot(end.x - start.x, end.y - start.y);
-    let gesture = {
-      type: "point",
-      x: end.x,
-      y: end.y,
-      label: "pointed region",
-      nearestElement: nearestElementSummary(end),
+    const classified = TarsGroundingGeometry.classifyCtrlGesture(points);
+    if (!classified) return null;
+    const gesture = {
+      ...classified.gesture,
+      nearestElement: nearestElementSummary(classified.referencePoint),
     };
-    if (pathLength >= 30 && width >= Math.max(60, height * 2.4)) {
-      const leftPoint = start.x <= end.x ? start : end;
-      const rightPoint = start.x <= end.x ? end : start;
-      gesture = {
-        type: "underline",
-        x: leftPoint.x,
-        y: leftPoint.y,
-        end_x: rightPoint.x,
-        end_y: rightPoint.y,
-        label: "underlined region",
-        nearestElement: nearestElementSummary({ x: (left + right) / 2, y: (top + bottom) / 2 }),
-      };
-    } else if (pathLength >= 80 && width >= 28 && height >= 28 && startEnd <= Math.max(36, Math.min(width, height) * .55)) {
-      gesture = {
-        type: "circle",
-        x: left,
-        y: top,
-        end_x: right,
-        end_y: bottom,
-        label: "circled region",
-        nearestElement: nearestElementSummary({ x: (left + right) / 2, y: (top + bottom) / 2 }),
-      };
-    } else if (width >= 28 || height >= 28) {
-      gesture = {
-        type: "region",
-        x: left,
-        y: top,
-        end_x: right,
-        end_y: bottom,
-        label: "selected region",
-        nearestElement: nearestElementSummary({ x: (left + right) / 2, y: (top + bottom) / 2 }),
-      };
-    }
     ctrlGesture = gesture;
     ctrlGesturePoints = [];
     return gesture;
@@ -906,8 +858,8 @@
     // strokeAttrs is spread into every stroked SVG element so dash style is
     // applied uniformly across shapes.
     const strokeAttrs = strokeStyle
-      ? { class: `stroke ${strokeStyle}` }
-      : { class: "stroke" };
+      ? { class: `stroke ${strokeStyle}`, pathLength: null }
+      : { class: "stroke", pathLength: 1 };
 
     // ── Text annotation ──────────────────────────────────────
     // Places a short label at a viewport position. Uses the DOM element rect
@@ -924,6 +876,7 @@
         y: anchor.y,
         fill: color,
         class: "draw-text",
+        "dominant-baseline": "hanging",
       });
       text.textContent = textContent;
       annotationGroup.appendChild(text);

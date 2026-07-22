@@ -73,6 +73,7 @@ export function useWebSocket() {
     string,
     { command: CanvasCommand; timer: number }
   >>(new Map());
+  const endedVisualSyncIdsRef = useRef<Set<string>>(new Set());
 
   // Store callbacks in refs so the message handler always sees the latest
   const onAudioRef = useRef<((pcm: ArrayBuffer) => void) | undefined>(undefined);
@@ -98,9 +99,20 @@ export function useWebSocket() {
     chunks.forEach((chunk) => onAudioRef.current?.(chunk));
   }, []);
 
+  const rememberVisualSyncEnd = useCallback((syncId: string) => {
+    if (!syncId) return;
+    const ended = endedVisualSyncIdsRef.current;
+    ended.add(syncId);
+    if (ended.size > 256) {
+      const oldest = ended.values().next().value;
+      if (typeof oldest === "string") ended.delete(oldest);
+    }
+  }, []);
+
   const acknowledgeVisualSync = useCallback((syncId: string) => {
     const barrier = visualBarriersRef.current.get(syncId);
     if (!barrier) return;
+    rememberVisualSyncEnd(syncId);
     window.clearTimeout(barrier.timer);
     visualBarriersRef.current.delete(syncId);
 
@@ -120,10 +132,14 @@ export function useWebSocket() {
       visualWaitersRef.current.clear();
       waiters.forEach((resolve) => resolve());
     }
-  }, [flushDeferredAudio]);
+  }, [flushDeferredAudio, rememberVisualSyncEnd]);
 
   const registerVisualSync = useCallback((syncId: string, tool: string) => {
-    if (!syncId || visualBarriersRef.current.has(syncId)) return;
+    if (
+      !syncId
+      || endedVisualSyncIdsRef.current.has(syncId)
+      || visualBarriersRef.current.has(syncId)
+    ) return;
     const timer = window.setTimeout(() => {
       console.warn(`[WS] Visual sync timed out for ${tool}; releasing queued audio.`);
       acknowledgeVisualSync(syncId);
@@ -137,6 +153,7 @@ export function useWebSocket() {
     if (!pending) return;
     window.clearTimeout(pending.timer);
     pendingCanvasCommandsRef.current.delete(syncId);
+    if (endedVisualSyncIdsRef.current.has(syncId)) return;
     setCanvasCommands((current) => [...current, pending.command]);
 
     // Let React commit the command and Excalidraw begin its first paint before
@@ -148,6 +165,7 @@ export function useWebSocket() {
   }, [acknowledgeVisualSync]);
 
   const stageCanvasCommand = useCallback((syncId: string, command: CanvasCommand) => {
+    if (endedVisualSyncIdsRef.current.has(syncId)) return;
     const existing = pendingCanvasCommandsRef.current.get(syncId);
     if (existing) window.clearTimeout(existing.timer);
     const timer = window.setTimeout(() => {
@@ -164,11 +182,13 @@ export function useWebSocket() {
   }, [commitPendingCanvasCommand]);
 
   const clearVisualSync = useCallback((dropAudio: boolean) => {
-    for (const barrier of visualBarriersRef.current.values()) {
+    for (const [syncId, barrier] of visualBarriersRef.current) {
+      rememberVisualSyncEnd(syncId);
       window.clearTimeout(barrier.timer);
     }
     visualBarriersRef.current.clear();
-    for (const pending of pendingCanvasCommandsRef.current.values()) {
+    for (const [syncId, pending] of pendingCanvasCommandsRef.current) {
+      rememberVisualSyncEnd(syncId);
       window.clearTimeout(pending.timer);
     }
     pendingCanvasCommandsRef.current.clear();
@@ -178,7 +198,7 @@ export function useWebSocket() {
     const waiters = [...visualWaitersRef.current];
     visualWaitersRef.current.clear();
     waiters.forEach((resolve) => resolve());
-  }, [flushDeferredAudio]);
+  }, [flushDeferredAudio, rememberVisualSyncEnd]);
 
   const waitForVisualSync = useCallback((): Promise<void> => {
     if (visualBarriersRef.current.size === 0) return Promise.resolve();
@@ -208,6 +228,7 @@ export function useWebSocket() {
     setRealtimeReady(false);
     setIsAssistantTurnActive(false);
     clearVisualSync(true);
+    endedVisualSyncIdsRef.current.clear();
     audioSuppressedRef.current = false;
     assistantTurnActiveRef.current = false;
     assistantTurnIdRef.current = 0;
@@ -582,6 +603,18 @@ export function useWebSocket() {
         return;
       }
 
+      if (event.type === "visual_sync_end") {
+        const syncId = typeof event.syncId === "string" ? event.syncId : "";
+        rememberVisualSyncEnd(syncId);
+        const pending = pendingCanvasCommandsRef.current.get(syncId);
+        if (pending) {
+          window.clearTimeout(pending.timer);
+          pendingCanvasCommandsRef.current.delete(syncId);
+        }
+        acknowledgeVisualSync(syncId);
+        return;
+      }
+
       // ─ Early image-generation signal from backend ─
       // Sent by media_tools.py the instant generate_and_show_image is called —
       // before the Gemini image API call even starts.
@@ -629,6 +662,10 @@ export function useWebSocket() {
       // Live Classroom points are grounded by GPT-5.6 Sol against the current
       // viewport (and, when applicable, the exact Excalidraw image crop).
       if (event.type === "classroom_point" && event.response) {
+        if (
+          typeof event.visualSyncId === "string"
+          && endedVisualSyncIdsRef.current.has(event.visualSyncId)
+        ) return;
         const resp = event.response;
         const x = Number(resp.x);
         const y = Number(resp.y);
@@ -650,8 +687,13 @@ export function useWebSocket() {
         (event.type === "tars_draw" && event.response) ||
         (event.type === "tars_draw_batch" && Array.isArray(event.responses))
       ) {
-        const allowedShapes = new Set(["circle", "rectangle", "highlight", "underline", "arrow", "line"]);
+        if (
+          typeof event.visualSyncId === "string"
+          && endedVisualSyncIdsRef.current.has(event.visualSyncId)
+        ) return;
+        const allowedShapes = new Set(["circle", "rectangle", "highlight", "underline", "arrow", "line", "text"]);
         const allowedColors = new Set(["blue", "teal", "red", "amber", "purple"]);
+        const allowedStyles = new Set(["solid", "dashed", "dotted"]);
         const responses = event.type === "tars_draw_batch" ? event.responses : [event.response];
         const drawEvents = responses.map((response: Record<string, unknown>) => {
           const annotationId = typeof response.annotation_id === "string"
@@ -663,6 +705,9 @@ export function useWebSocket() {
             shape: typeof response.shape === "string" && allowedShapes.has(response.shape)
               ? response.shape
               : undefined,
+            style: typeof response.style === "string" && allowedStyles.has(response.style)
+              ? response.style
+              : "solid",
             targetId: typeof response.target_id === "string" ? response.target_id : null,
             fromTargetId: typeof response.from_target_id === "string" ? response.from_target_id : null,
             toTargetId: typeof response.to_target_id === "string" ? response.to_target_id : null,
@@ -922,7 +967,7 @@ export function useWebSocket() {
         currentInputIdRef.current = null;
       }
     },
-    [acknowledgeVisualSync, beginAssistantTurn, clearVisualSync, registerVisualSync, routeAudioChunk, stageCanvasCommand, waitForVisualSync]
+    [acknowledgeVisualSync, beginAssistantTurn, clearVisualSync, registerVisualSync, rememberVisualSyncEnd, routeAudioChunk, stageCanvasCommand, waitForVisualSync]
   );
 
   // Cleanup on unmount
