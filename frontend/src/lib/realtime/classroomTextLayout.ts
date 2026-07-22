@@ -1,4 +1,4 @@
-import type { CanvasElement } from "../types/whiteboard";
+import type { CanvasElement } from "../../types/whiteboard";
 
 type TextMeasurer = (text: string, fontSize: number) => number;
 

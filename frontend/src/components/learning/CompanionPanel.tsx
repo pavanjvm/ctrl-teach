@@ -13,7 +13,7 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { useLearner } from "@/lib/learner";
+import { useLearner } from "@/lib/learning/provider";
 import type { Course, Lesson } from "@/lib/types";
 
 const NOTES_KEY = (courseId: string) => `ctrlteach_notes_${courseId}`;

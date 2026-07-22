@@ -15,7 +15,7 @@ import {
   Users,
 } from "lucide-react";
 
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
 import {
   TARS_COST_BREAKDOWN,
   TARS_FEATURE_USAGE,
@@ -24,7 +24,7 @@ import {
   TARS_PERSONALITIES,
   TARS_PERSONALITY_FEATURE_MATRIX,
   type AdminPeriodKey,
-} from "@/lib/adminMockData";
+} from "@/lib/admin/mockData";
 import "../admin.css";
 
 const CHART_WIDTH = 760;

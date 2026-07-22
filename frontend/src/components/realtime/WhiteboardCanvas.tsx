@@ -16,8 +16,8 @@ import type { CanvasCommand, AnimationGroup } from "@/hooks/useWebSocket";
 import {
   compileStructuredDiagrams,
   isStructuredDiagramElement,
-} from "@/lib/diagramLayout";
-import { layoutClassroomViewportText } from "@/lib/classroomTextLayout";
+} from "@/lib/realtime/diagramLayout";
+import { layoutClassroomViewportText } from "@/lib/realtime/classroomTextLayout";
 
 // Corner radius applied to AI-generated images (px)
 const IMAGE_CORNER_RADIUS = 20;

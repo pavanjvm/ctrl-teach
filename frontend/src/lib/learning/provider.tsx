@@ -18,7 +18,7 @@ import React, {
   useState,
 } from "react";
 import axios from "axios";
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { API_URL } from "@/lib/constants";
 import type {
   OnboardingPrefs,
@@ -30,7 +30,7 @@ import type {
   LearnerSkillProfile,
   LearningMemory,
 } from "@/lib/types";
-import { SEED_COURSES } from "@/lib/courses";
+import { SEED_COURSES } from "@/lib/courses/catalog";
 import {
   appendLearningMemory,
   createAssessmentMemory,
@@ -42,7 +42,7 @@ import {
   mergeLearningMemories,
   resolveLearningContext,
   sanitizeLearningMemories,
-} from "@/lib/skillProfile";
+} from "@/lib/learning/skillProfile";
 
 const LS_KEY = "ctrlteach_learner_v1";
 const LESSON_PROGRESS_SEPARATOR = "::";

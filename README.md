@@ -256,14 +256,15 @@ check. Use TypeScript and the production build until linting is configured.
 .
 |-- frontend/                  Next.js application
 |   |-- src/app/               routes and route-specific styles
-|   |-- src/components/        learning, canvas, and companion UI
-|   |-- src/lib/               learner state, course data, shared utilities
+|   |-- src/components/        feature UI: learning, labs, realtime, TARS, auth, admin
+|   |-- src/lib/               feature domain/state: learning, courses, realtime, TARS
 |   `-- public/                static images and roleplay voice previews
 |-- Backend/                   FastAPI application
 |   |-- app/agents/            realtime tutor and roleplay agents
 |   |-- app/routers/           REST endpoints
 |   |-- app/services/          courses, labs, context, visual location
 |   |-- tests/                 backend tests
+|-- docs/architecture/         repository architecture and ownership rules
 |   `-- scripts/               maintenance and preview generation
 |-- browser-extension/         Chrome Manifest V3 Tars companion
 |-- scripts/                   project-level artifact scripts

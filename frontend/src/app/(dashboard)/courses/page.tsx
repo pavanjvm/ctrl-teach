@@ -7,8 +7,8 @@ import axios from "axios";
 import { ArrowRight, BookOpen, CircleAlert, Search } from "lucide-react";
 
 import { API_URL } from "@/lib/constants";
-import { assetUrl } from "@/lib/generatedCourses";
-import { useLearner } from "@/lib/learner";
+import { assetUrl } from "@/lib/courses/generated";
+import { useLearner } from "@/lib/learning/provider";
 import type { Course } from "@/lib/types";
 
 import "./courses.css";

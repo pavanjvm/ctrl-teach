@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { useAuth } from "@/components/AuthProvider";
-import { useTars } from "@/lib/tars";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useTars } from "@/lib/tars/provider";
 import { API_URL, WS_URL } from "@/lib/constants";
-import { TEACHING_PROFILE_CHANGED_EVENT } from "@/lib/teachingProfiles";
+import { TEACHING_PROFILE_CHANGED_EVENT } from "@/lib/tars/teachingProfiles";
 
 const PROBE_TIMEOUT_MS = 900;
 

@@ -23,11 +23,11 @@
 - Auth/session secrets and CORS are also configured in `Backend/.env`; copy names from `Backend/.env.example` and never commit real credentials.
 
 ## Architecture highlights
-- `src/lib/learner.tsx` (`LearnerProvider`/`useLearner`): global learner state (onboarding prefs, active course/lesson, XP/streak/confidence/badges). Persisted to `localStorage` + mirrored to backend `Profile.preferences.ctrlteach`.
-- `src/lib/courses.ts`: seed course catalog with full module/lesson structures.
+- `frontend/src/lib/learning/provider.tsx` (`LearnerProvider`/`useLearner`): global learner state (onboarding prefs, active course/lesson, XP/streak/confidence/badges). Persisted to `localStorage` + mirrored to backend `Profile.preferences.ctrlteach`.
+- `frontend/src/lib/courses/catalog.ts`: seed course catalog with full module/lesson structures.
 - Generated courses are owner-scoped SQLite jobs managed by `Backend/app/services/generated_courses.py`, exposed through `/api/generated-courses`, and merged into the learner catalog after completion. Course generation persists intermediate research, outline, lesson, and image stages so interrupted jobs can resume.
 - `/course-factory` creates rich courses; generated lessons can include browser-lab assertions and locally persisted image assets under the configured uploads directory.
-- `src/lib/labScenes.ts` + `src/components/LabCoach.tsx`: the hero pixel-precision coaching engine (Tars-inspired bezier-arc flight + live CSS-selector rect resolution). `src/components/lab/UserStoryBuilder.tsx` is the practice surface.
+- `frontend/src/lib/learning/labScenes.ts` + `frontend/src/components/labs/LabCoach.tsx`: the hero pixel-precision coaching engine (Tars-inspired bezier-arc flight + live CSS-selector rect resolution). `frontend/src/components/labs/UserStoryBuilder.tsx` is the practice surface.
 - Workflow routes: `/onboarding` → `/discover` → `/learn` (workspace) → `/learn/completion`. Login/signup redirect to `/onboarding` (or `/discover` if already onboarded).
 - Workspace `/learn`: 3-pane (PathSidebar · stage · CompanionPanel) + bottom ProgressBar with mode switcher (Study/Lab/Assessment/Roleplay). Study mode reuses the realtime voice whiteboard; embedded Lab/Assessment/Roleplay/Companion modes remain lesson-scoped interactive experiences.
 
@@ -40,4 +40,4 @@
 - Keep the live call surface height stable and the transcript internally scrollable so additional messages cannot resize or visually zoom the Tavus video. The transcript sidebar can be hidden without stopping transcript collection.
 
 ## TARS interaction reference
-- The browser implementation in `LabCoach.tsx` owns the reference interaction: pointer overlay, `[POINT]`→selector mapping, quadratic-bezier arc flight (`animateBezierFlightArc`), streaming speech bubble, and pulsing focus.
+- The browser implementation in `frontend/src/components/labs/LabCoach.tsx` owns the reference interaction: pointer overlay, `[POINT]`→selector mapping, quadratic-bezier arc flight (`animateBezierFlightArc`), streaming speech bubble, and pulsing focus.

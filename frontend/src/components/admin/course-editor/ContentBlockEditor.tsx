@@ -2,8 +2,8 @@
 
 import { Plus, Trash2 } from "lucide-react";
 
-import { assetUrl } from "@/lib/generatedCourses";
-import { editorId } from "@/lib/courseEditor";
+import { assetUrl } from "@/lib/courses/generated";
+import { editorId } from "@/lib/courses/editor";
 import type { CourseCitation, CourseContentBlock } from "@/lib/types";
 
 function splitParagraphs(value: string): string[] {

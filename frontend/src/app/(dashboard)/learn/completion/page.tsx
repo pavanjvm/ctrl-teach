@@ -25,8 +25,8 @@ import {
   Trophy,
   type LucideIcon,
 } from "lucide-react";
-import { useAuth } from "@/components/AuthProvider";
-import { useLearner } from "@/lib/learner";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useLearner } from "@/lib/learning/provider";
 import type { Badge } from "@/lib/types";
 
 import "./completion.css";

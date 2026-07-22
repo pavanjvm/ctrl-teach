@@ -17,14 +17,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAudio } from "@/hooks/useAudio";
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { WS_URL } from "@/lib/constants";
 import { generateId, base64ToArrayBuffer } from "@/lib/utils";
 import type { Course, Lesson } from "@/lib/types";
-import type { WhiteboardCanvasRef } from "@/components/WhiteboardCanvas";
+import type { WhiteboardCanvasRef } from "@/components/realtime/WhiteboardCanvas";
 
 // Excalidraw can't be SSR'd.
-const WhiteboardCanvas = dynamic(() => import("@/components/WhiteboardCanvas"), { ssr: false });
+const WhiteboardCanvas = dynamic(() => import("@/components/realtime/WhiteboardCanvas"), { ssr: false });
 
 // Relevant resource per seed lesson (kept tiny). The resource pills let the AI
 // instructor point learners outward without leaving the immersive stage.

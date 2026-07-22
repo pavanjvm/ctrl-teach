@@ -5,10 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import axios from "axios";
 import { CircleAlert, Loader2 } from "lucide-react";
 
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
 import CourseOverviewView from "@/components/courses/CourseOverviewView";
-import { useLearner } from "@/lib/learner";
-import { fetchAvailableCourse } from "@/lib/generatedCourses";
+import { useLearner } from "@/lib/learning/provider";
+import { fetchAvailableCourse } from "@/lib/courses/generated";
 import type { Course } from "@/lib/types";
 
 import "./rich-course.css";

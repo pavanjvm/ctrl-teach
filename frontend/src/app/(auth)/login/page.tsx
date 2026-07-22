@@ -6,8 +6,8 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { Eye, EyeOff } from "lucide-react";
 
-import { useAuth } from "@/components/AuthProvider";
-import { useLearner } from "@/lib/learner";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useLearner } from "@/lib/learning/provider";
 import "../auth.css";
 
 export default function LoginPage() {

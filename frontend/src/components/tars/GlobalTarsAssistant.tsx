@@ -2,23 +2,23 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { useAuth } from "@/components/AuthProvider";
-import { useTars } from "@/lib/tars";
-import { useLearner } from "@/lib/learner";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useTars } from "@/lib/tars/provider";
+import { useLearner } from "@/lib/learning/provider";
 import { WS_URL } from "@/lib/constants";
 import { useAudio } from "@/hooks/useAudio";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import {
   TARS_BOARD_DRAW_EVENT,
   type TarsDrawCommand,
-} from "@/lib/tarsBoardBridge";
+} from "@/lib/tars/boardBridge";
 import {
   extractWakeVector,
   loadWakeTemplate,
   saveWakeTemplate,
   type WakeTemplate,
-} from "@/lib/tarsWakeTemplate";
-import { TEACHING_PROFILE_CHANGED_EVENT } from "@/lib/teachingProfiles";
+} from "@/lib/tars/wakeTemplate";
+import { TEACHING_PROFILE_CHANGED_EVENT } from "@/lib/tars/teachingProfiles";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

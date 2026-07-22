@@ -16,14 +16,14 @@ import {
   Upload,
 } from "lucide-react";
 
-import { useAuth } from "@/components/AuthProvider";
-import { useLearner } from "@/lib/learner";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useLearner } from "@/lib/learning/provider";
 import { API_URL } from "@/lib/constants";
 import {
   isGenerationActive,
   type GeneratedCourseJob,
   type IntakeQuestion,
-} from "@/lib/generatedCourses";
+} from "@/lib/courses/generated";
 
 import "./discover.css";
 

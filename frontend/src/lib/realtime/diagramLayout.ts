@@ -5,7 +5,7 @@ import type {
   StructuredDiagramEdge,
   StructuredDiagramElement,
   StructuredDiagramNode,
-} from "../types/whiteboard";
+} from "../../types/whiteboard";
 
 type TextMeasurer = (text: string, fontSize: number) => number;
 

@@ -21,15 +21,15 @@ import {
   Zap,
 } from "lucide-react";
 
-import { useAuth } from "@/components/AuthProvider";
-import { Skeleton } from "@/components/Skeleton";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { Skeleton } from "@/components/ui/Skeleton";
 import { API_URL } from "@/lib/constants";
-import { assetUrl, isGenerationActive, type GeneratedCourseJob } from "@/lib/generatedCourses";
+import { assetUrl, isGenerationActive, type GeneratedCourseJob } from "@/lib/courses/generated";
 import {
   rankCourseRecommendations,
   rankCprimeRecommendations,
-} from "@/lib/homeRecommendations";
-import { useLearner } from "@/lib/learner";
+} from "@/lib/learning/recommendations";
+import { useLearner } from "@/lib/learning/provider";
 import type { Course, LearningMemoryKind } from "@/lib/types";
 
 import "./home.css";

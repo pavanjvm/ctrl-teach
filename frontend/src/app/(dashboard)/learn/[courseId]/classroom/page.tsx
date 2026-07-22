@@ -16,15 +16,15 @@ import {
   Square,
 } from "lucide-react";
 
-import { useAuth } from "@/components/AuthProvider";
-import TranscriptPanel from "@/components/TranscriptPanel";
-import type { WhiteboardCanvasRef } from "@/components/WhiteboardCanvas";
+import { useAuth } from "@/components/auth/AuthProvider";
+import TranscriptPanel from "@/components/realtime/TranscriptPanel";
+import type { WhiteboardCanvasRef } from "@/components/realtime/WhiteboardCanvas";
 import { useAudio } from "@/hooks/useAudio";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { WS_URL } from "@/lib/constants";
-import { dispatchBoardTarsDraw } from "@/lib/tarsBoardBridge";
-import { assetUrl, fetchAvailableCourse } from "@/lib/generatedCourses";
-import { useLearner } from "@/lib/learner";
+import { dispatchBoardTarsDraw } from "@/lib/tars/boardBridge";
+import { assetUrl, fetchAvailableCourse } from "@/lib/courses/generated";
+import { useLearner } from "@/lib/learning/provider";
 import type { Course, GeneratedImageAsset, Lesson, Module } from "@/lib/types";
 import type { CanvasCommand } from "@/types/whiteboard";
 import { base64ToArrayBuffer, generateId } from "@/lib/utils";
@@ -34,7 +34,7 @@ import "../../../board/board.css";
 import "./classroom.css";
 
 const WhiteboardCanvas = dynamic(
-  () => import("@/components/WhiteboardCanvas"),
+  () => import("@/components/realtime/WhiteboardCanvas"),
   { ssr: false },
 );
 

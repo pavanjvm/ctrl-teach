@@ -15,8 +15,8 @@ import { useEffect, useRef, useState, forwardRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 
-import { useAuth } from "@/components/AuthProvider";
-import { useLearner } from "@/lib/learner";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useLearner } from "@/lib/learning/provider";
 import type { OnboardingPrefs } from "@/lib/types";
 
 import "./onboarding.css";

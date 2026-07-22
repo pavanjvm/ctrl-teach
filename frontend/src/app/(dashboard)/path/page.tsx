@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import axios from "axios";
 import { ArrowRight, BookOpen, CheckCircle2, Loader2, Sparkles, Target } from "lucide-react";
 
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { API_URL } from "@/lib/constants";
-import { useLearner } from "@/lib/learner";
+import { useLearner } from "@/lib/learning/provider";
 
 import "./path.css";
 

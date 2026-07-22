@@ -8,7 +8,7 @@
 
 import React from "react";
 import type { Course, Lesson } from "@/lib/types";
-import { useLearner } from "@/lib/learner";
+import { useLearner } from "@/lib/learning/provider";
 
 interface Props {
   course: Course;

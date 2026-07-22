@@ -20,7 +20,7 @@ import {
   XCircle,
 } from "lucide-react";
 
-import { useTars } from "@/lib/tars";
+import { useTars } from "@/lib/tars/provider";
 import { API_URL } from "@/lib/constants";
 import type {
   BrowserLabAttempt,
@@ -30,7 +30,7 @@ import type {
 } from "@/lib/types";
 import type { CanvasCommand } from "@/types/whiteboard";
 
-const WhiteboardCanvas = dynamic(() => import("@/components/WhiteboardCanvas"), { ssr: false });
+const WhiteboardCanvas = dynamic(() => import("@/components/realtime/WhiteboardCanvas"), { ssr: false });
 
 type Props = {
   courseId: string;

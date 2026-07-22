@@ -17,7 +17,7 @@ import {
   LoaderCircle, MessageSquareText, Mic, MicOff, PanelRightClose, PanelRightOpen, Play,
   RotateCcw, ShieldCheck, Sparkles, Square, UserRound, UsersRound, Video, Volume2,
 } from "lucide-react";
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { useAudio } from "@/hooks/useAudio";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { API_URL, PLAYER_SAMPLE_RATE, WS_URL } from "@/lib/constants";

@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { base64ToArrayBuffer } from "@/lib/utils";
-import type { TarsDrawCommand } from "@/lib/tarsBoardBridge";
+import type { TarsDrawCommand } from "@/lib/tars/boardBridge";
 import type {
   TranscriptEntry,
   CanvasCommand,

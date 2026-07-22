@@ -11,10 +11,10 @@
 
 import React, { useMemo, useState } from "react";
 import { Check, CheckCircle2, ClipboardList, Send, Sparkles } from "lucide-react";
-import LabCoach from "@/components/LabCoach";
-import UserStoryBuilder from "@/components/lab/UserStoryBuilder";
-import { useLearner } from "@/lib/learner";
-import { USER_STORY_FOUNDATION_SCENE, USER_STORY_FIX_SCENE, sceneForLesson } from "@/lib/labScenes";
+import LabCoach from "@/components/labs/LabCoach";
+import UserStoryBuilder from "@/components/labs/UserStoryBuilder";
+import { useLearner } from "@/lib/learning/provider";
+import { USER_STORY_FOUNDATION_SCENE, USER_STORY_FIX_SCENE, sceneForLesson } from "@/lib/learning/labScenes";
 import type { Lesson } from "@/lib/types";
 
 interface Props { lesson: Lesson | null; onComplete: () => void; }

@@ -41,9 +41,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { useAuth } from "@/components/AuthProvider";
-import { useLearner } from "@/lib/learner";
-import { useTars } from "@/lib/tars";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useLearner } from "@/lib/learning/provider";
+import { useTars } from "@/lib/tars/provider";
 import { API_URL } from "@/lib/constants";
 import type { LearnerSkillProfile, LearningMemory, OnboardingPrefs, SkillEvidence } from "@/lib/types";
 import axios from "axios";

@@ -46,7 +46,7 @@ import {
   updateLessonById,
   updateModuleById,
   type CourseEditorSelection,
-} from "@/lib/courseEditor";
+} from "@/lib/courses/editor";
 import type {
   BrowserLabBlueprint,
   Course,

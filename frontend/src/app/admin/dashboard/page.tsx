@@ -14,7 +14,7 @@ import {
   Users,
 } from "lucide-react";
 
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
 import {
   ADMIN_ACTIONS,
   ADMIN_BOOTCAMPS,
@@ -24,7 +24,7 @@ import {
   ADMIN_USERS,
   type AdminPeriodKey,
   type AdminUserRow,
-} from "@/lib/adminMockData";
+} from "@/lib/admin/mockData";
 import "../admin.css";
 
 type UserFilter = "all" | "converted" | "bootcamp" | "high-intent";

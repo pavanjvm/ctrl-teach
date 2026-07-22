@@ -6,12 +6,12 @@ import axios from "axios";
 import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, CircleAlert, Loader2 } from "lucide-react";
 
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
 import CourseBlockRenderer, { type QuizProgress } from "@/components/courses/CourseBlockRenderer";
 import CourseLessonView from "@/components/courses/CourseLessonView";
-import BrowserLabPanel from "@/components/learn/BrowserLabPanel";
-import { fetchAvailableCourse } from "@/lib/generatedCourses";
-import { useLearner } from "@/lib/learner";
+import BrowserLabPanel from "@/components/learning/BrowserLabPanel";
+import { fetchAvailableCourse } from "@/lib/courses/generated";
+import { useLearner } from "@/lib/learning/provider";
 import type { BrowserLabAttempt, BrowserLabRecoveryMemory, Course } from "@/lib/types";
 
 import "../rich-course.css";

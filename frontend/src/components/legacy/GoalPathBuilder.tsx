@@ -18,8 +18,8 @@ import {
 } from "lucide-react";
 import axios from "axios";
 
-import { useAuth } from "@/components/AuthProvider";
-import { useLearner } from "@/lib/learner";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useLearner } from "@/lib/learning/provider";
 import { API_URL } from "@/lib/constants";
 import type { ContentPlatform, Course, SkillLevel } from "@/lib/types";
 

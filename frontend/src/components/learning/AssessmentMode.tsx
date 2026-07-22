@@ -16,7 +16,7 @@ import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, X, RotateCcw, ArrowRight } from "lucide-react";
 import type { Course, QuizQuestion } from "@/lib/types";
-import { useLearner } from "@/lib/learner";
+import { useLearner } from "@/lib/learning/provider";
 
 /* ── Authored quiz for the User Stories "Anatomy Check" lesson ──────────── */
 

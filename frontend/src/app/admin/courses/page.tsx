@@ -23,10 +23,10 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
 import AdminCourseEditor from "@/components/admin/course-editor/AdminCourseEditor";
 import { API_URL } from "@/lib/constants";
-import { assetUrl, isGenerationActive, type GeneratedCourseJob } from "@/lib/generatedCourses";
+import { assetUrl, isGenerationActive, type GeneratedCourseJob } from "@/lib/courses/generated";
 import type { Course, CourseContentBlock, Lesson, LessonType, Module } from "@/lib/types";
 import CourseBuilder from "../../(dashboard)/discover/page";
 import "../../(dashboard)/learn/[courseId]/rich-course.css";

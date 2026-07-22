@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { useLearner } from "@/lib/learner";
+import { useLearner } from "@/lib/learning/provider";
 import type { Lesson } from "@/lib/types";
 
 interface Line { id: number; role: "me" | "them"; text: string }

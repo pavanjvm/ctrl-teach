@@ -9,15 +9,15 @@
 import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ListTree, MessageCircle, X } from "lucide-react";
-import { useLearner } from "@/lib/learner";
-import PathSidebar from "@/components/learn/PathSidebar";
-import ProgressBar from "@/components/learn/ProgressBar";
-import CompanionPanel from "@/components/learn/CompanionPanel";
-import StudyMode from "@/components/learn/StudyMode";
-import LabMode from "@/components/learn/LabMode";
-import RoleplayMode from "@/components/learn/RoleplayMode";
-import AssessmentMode from "@/components/AssessmentMode";
-import { flattenLessons, nextLesson } from "@/lib/courses";
+import { useLearner } from "@/lib/learning/provider";
+import PathSidebar from "@/components/learning/PathSidebar";
+import ProgressBar from "@/components/learning/ProgressBar";
+import CompanionPanel from "@/components/learning/CompanionPanel";
+import StudyMode from "@/components/learning/StudyMode";
+import LabMode from "@/components/learning/LabMode";
+import RoleplayMode from "@/components/learning/RoleplayMode";
+import AssessmentMode from "@/components/learning/AssessmentMode";
+import { flattenLessons, nextLesson } from "@/lib/courses/catalog";
 import type { Lesson, LessonType } from "@/lib/types";
 import "./learn.css";
 

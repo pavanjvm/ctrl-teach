@@ -14,13 +14,13 @@ import {
   RotateCcw,
 } from "lucide-react";
 
-import { useAuth } from "@/components/AuthProvider";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { API_URL } from "@/lib/constants";
 import {
   TEACHING_PROFILE_CHANGED_EVENT,
   type TeachingProfile,
   type TeachingProfileCatalog,
-} from "@/lib/teachingProfiles";
+} from "@/lib/tars/teachingProfiles";
 
 import "./teaching-profiles.css";
 

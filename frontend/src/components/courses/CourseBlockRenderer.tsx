@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, BookOpen, Check, ExternalLink, Loader2, RotateCcw } from "lucide-react";
 
-import { assetUrl } from "@/lib/generatedCourses";
+import { assetUrl } from "@/lib/courses/generated";
 import type {
   CourseCitation,
   CourseContentBlock,

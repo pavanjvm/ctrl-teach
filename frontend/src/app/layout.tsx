@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { AuthProvider } from "@/components/AuthProvider";
-import GlobalTarsAssistant from "@/components/GlobalTarsAssistant";
-import TarsExtensionBridge from "@/components/TarsExtensionBridge";
-import { LearnerProvider } from "@/lib/learner";
-import { TarsProvider } from "@/lib/tars";
+import { AuthProvider } from "@/components/auth/AuthProvider";
+import GlobalTarsAssistant from "@/components/tars/GlobalTarsAssistant";
+import TarsExtensionBridge from "@/components/tars/TarsExtensionBridge";
+import { LearnerProvider } from "@/lib/learning/provider";
+import { TarsProvider } from "@/lib/tars/provider";
 import "./globals.css";
 
 export const metadata: Metadata = {

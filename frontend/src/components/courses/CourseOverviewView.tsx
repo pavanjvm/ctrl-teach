@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, BookOpen, Check, Clock, Loader2, Sparkles, Target } from "lucide-react";
 
-import { assetUrl } from "@/lib/generatedCourses";
+import { assetUrl } from "@/lib/courses/generated";
 import type { Course } from "@/lib/types";
 
 export type CourseOverviewTextField = {

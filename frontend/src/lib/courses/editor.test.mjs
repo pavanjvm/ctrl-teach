@@ -7,7 +7,7 @@ import {
   moveLesson,
   moveModuleTo,
   updateLessonById,
-} from "./courseEditor.ts";
+} from "./editor.ts";
 
 function course() {
   return {

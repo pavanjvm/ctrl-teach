@@ -12,18 +12,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import TranscriptPanel from "@/components/TranscriptPanel";
+import TranscriptPanel from "@/components/realtime/TranscriptPanel";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAudio } from "@/hooks/useAudio";
-import { useAuth } from "@/components/AuthProvider";
-import type { WhiteboardCanvasRef } from "@/components/WhiteboardCanvas";
+import { useAuth } from "@/components/auth/AuthProvider";
+import type { WhiteboardCanvasRef } from "@/components/realtime/WhiteboardCanvas";
 import { WS_URL } from "@/lib/constants";
 import { generateId, base64ToArrayBuffer } from "@/lib/utils";
-import { dispatchBoardTarsDraw } from "@/lib/tarsBoardBridge";
+import { dispatchBoardTarsDraw } from "@/lib/tars/boardBridge";
 
 // Dynamic import — Excalidraw cannot be SSR'd
 const WhiteboardCanvas = dynamic(
-  () => import("@/components/WhiteboardCanvas"),
+  () => import("@/components/realtime/WhiteboardCanvas"),
   { ssr: false }
 );
 

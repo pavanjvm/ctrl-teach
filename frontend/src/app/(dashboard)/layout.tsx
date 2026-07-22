@@ -3,9 +3,9 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useAuth } from "@/components/AuthProvider";
-import { useLearner } from "@/lib/learner";
-import { useTars } from "@/lib/tars";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useLearner } from "@/lib/learning/provider";
+import { useTars } from "@/lib/tars/provider";
 import {
     ArrowLeft,
     BookOpen,
