@@ -2,7 +2,7 @@
 
 Run from ``Backend``:
 
-    .venv/bin/python scripts/tars_locator_trial.py --manifest path/to/cases.json
+    uv run python scripts/tars_locator_trial.py --manifest path/to/cases.json
 
 Manifest format:
 

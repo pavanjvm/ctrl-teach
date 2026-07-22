@@ -21,7 +21,9 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!loading && user && learnerReady) {
+    if (!loading && user?.isAdmin) {
+      router.replace("/admin/dashboard");
+    } else if (!loading && user && learnerReady) {
       router.push(isOnboarded ? "/dashboard" : "/onboarding");
     }
   }, [user, loading, router, isOnboarded, learnerReady]);
@@ -42,7 +44,7 @@ export default function LoginPage() {
     }
   };
 
-  if (loading || (user && !learnerReady)) {
+  if (loading || (user && !user.isAdmin && !learnerReady)) {
     return <div className="auth-loading">Loading</div>;
   }
 
@@ -65,6 +67,14 @@ export default function LoginPage() {
           New to Ctrl+Teach?{" "}
           <Link href="/signup">Create an account</Link>
         </p>
+
+        <button
+          type="button"
+          className="auth-demo-login"
+          onClick={() => { setUsername("user"); setPassword("user"); setError(null); }}
+        >
+          Demo learner <span>user / user</span>
+        </button>
 
         {error && (
           <motion.div

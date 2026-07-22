@@ -30,7 +30,17 @@ whiteboard, and Live Classroom.
 """
 
 
-def with_companion_identity(mode_instruction: str) -> str:
-    """Prefix a mode-specific instruction with Tars's shared identity."""
+def with_companion_identity(
+    mode_instruction: str,
+    teaching_profile_instruction: str = "",
+) -> str:
+    """Combine Tars's identity, an optional profile, and mode rules."""
 
-    return f"{COMPANION_IDENTITY}\n\n# Active mode instructions\n{mode_instruction.strip()}\n"
+    profile_section = teaching_profile_instruction.strip()
+    if profile_section:
+        profile_section = f"\n\n{profile_section}"
+    return (
+        f"{COMPANION_IDENTITY}"
+        f"{profile_section}"
+        f"\n\n# Active mode instructions\n{mode_instruction.strip()}\n"
+    )

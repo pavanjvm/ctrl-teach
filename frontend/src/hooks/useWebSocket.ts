@@ -26,6 +26,7 @@ import type {
 export type { TranscriptEntry, CanvasCommand, AnimationGroup, ConnectionStatus };
 
 const VISUAL_SYNC_TIMEOUT_MS = 10_000;
+const VISUAL_AUDIO_RENDEZVOUS_TIMEOUT_MS = 2_500;
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
@@ -68,6 +69,10 @@ export function useWebSocket() {
   const visualBarriersRef = useRef<Map<string, { timer: number; tool: string }>>(new Map());
   const deferredAudioRef = useRef<ArrayBuffer[]>([]);
   const visualWaitersRef = useRef<Set<() => void>>(new Set());
+  const pendingCanvasCommandsRef = useRef<Map<
+    string,
+    { command: CanvasCommand; timer: number }
+  >>(new Map());
 
   // Store callbacks in refs so the message handler always sees the latest
   const onAudioRef = useRef<((pcm: ArrayBuffer) => void) | undefined>(undefined);
@@ -127,11 +132,46 @@ export function useWebSocket() {
     setIsVisualSyncing(true);
   }, [acknowledgeVisualSync]);
 
+  const commitPendingCanvasCommand = useCallback((syncId: string) => {
+    const pending = pendingCanvasCommandsRef.current.get(syncId);
+    if (!pending) return;
+    window.clearTimeout(pending.timer);
+    pendingCanvasCommandsRef.current.delete(syncId);
+    setCanvasCommands((current) => [...current, pending.command]);
+
+    // Let React commit the command and Excalidraw begin its first paint before
+    // releasing queued PCM. This starts the visual and voice together without
+    // waiting for the complete drawing animation.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => acknowledgeVisualSync(syncId));
+    });
+  }, [acknowledgeVisualSync]);
+
+  const stageCanvasCommand = useCallback((syncId: string, command: CanvasCommand) => {
+    const existing = pendingCanvasCommandsRef.current.get(syncId);
+    if (existing) window.clearTimeout(existing.timer);
+    const timer = window.setTimeout(() => {
+      console.warn(`[WS] No voice audio reached visual ${syncId}; rendering it without audio.`);
+      commitPendingCanvasCommand(syncId);
+    }, VISUAL_AUDIO_RENDEZVOUS_TIMEOUT_MS);
+    pendingCanvasCommandsRef.current.set(syncId, { command, timer });
+
+    // Audio can arrive just before the function-response envelope. If it is
+    // already waiting at the barrier, complete the rendezvous now.
+    if (deferredAudioRef.current.length > 0) {
+      commitPendingCanvasCommand(syncId);
+    }
+  }, [commitPendingCanvasCommand]);
+
   const clearVisualSync = useCallback((dropAudio: boolean) => {
     for (const barrier of visualBarriersRef.current.values()) {
       window.clearTimeout(barrier.timer);
     }
     visualBarriersRef.current.clear();
+    for (const pending of pendingCanvasCommandsRef.current.values()) {
+      window.clearTimeout(pending.timer);
+    }
+    pendingCanvasCommandsRef.current.clear();
     setIsVisualSyncing(false);
     if (dropAudio) deferredAudioRef.current = [];
     else flushDeferredAudio();
@@ -149,10 +189,13 @@ export function useWebSocket() {
     beginAssistantTurn();
     if (visualBarriersRef.current.size > 0) {
       deferredAudioRef.current.push(chunk);
+      for (const syncId of pendingCanvasCommandsRef.current.keys()) {
+        commitPendingCanvasCommand(syncId);
+      }
       return;
     }
     onAudioRef.current?.(chunk);
-  }, [beginAssistantTurn]);
+  }, [beginAssistantTurn, commitPendingCanvasCommand]);
 
   // ── Connect ──────────────────────────────────────────────────────────────
 
@@ -776,7 +819,11 @@ export function useWebSocket() {
                 animation: Array.isArray(resp.animation) ? resp.animation : undefined,
               };
               console.log("[Canvas CMD]", cmd.tool, cmd.action, cmd.elements.length, "elements");
-              setCanvasCommands((prev) => [...prev, cmd]);
+              if (cmd.visualSyncId) {
+                stageCanvasCommand(cmd.visualSyncId, cmd);
+              } else {
+                setCanvasCommands((prev) => [...prev, cmd]);
+              }
             } else if (typeof resp?.visualSyncId === "string") {
               // A failed/no-op visual tool has nothing for the board to render;
               // release its barrier instead of waiting for the watchdog.
@@ -875,7 +922,7 @@ export function useWebSocket() {
         currentInputIdRef.current = null;
       }
     },
-    [acknowledgeVisualSync, beginAssistantTurn, clearVisualSync, registerVisualSync, routeAudioChunk, waitForVisualSync]
+    [acknowledgeVisualSync, beginAssistantTurn, clearVisualSync, registerVisualSync, routeAudioChunk, stageCanvasCommand, waitForVisualSync]
   );
 
   // Cleanup on unmount

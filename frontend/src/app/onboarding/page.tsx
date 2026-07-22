@@ -240,11 +240,16 @@ export default function OnboardingPage() {
 
   // ── Guards ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (loading || (user && !learnerReady)) return;
+    if (loading) return;
     if (!user) {
       router.push("/login");
       return;
     }
+    if (user.isAdmin) {
+      router.replace("/admin/dashboard");
+      return;
+    }
+    if (!learnerReady) return;
     if (isOnboarded) {
       router.push("/dashboard");
     }
@@ -352,7 +357,7 @@ export default function OnboardingPage() {
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
-  if (loading || (user && !learnerReady)) {
+  if (loading || (user && !user.isAdmin && !learnerReady) || user?.isAdmin) {
     return (
       <div className="ob-page ob-loading">
         <p>Loading…</p>

@@ -6,7 +6,7 @@ Teaching modes use the same identity with a narrower instructional tool set.
 Architecture:
 - Runs over the shared WebSocket in `mode=page`. The legacy `agent=tars`
   selector remains accepted for extension compatibility.
-- Backed by `gpt-realtime-2` (configured at the runner level in main.py).
+- Backed by `gpt-realtime-2.1` (configured at the runner level in main.py).
 - Single tool: `point_at` — the model emits this when pointing would help.
 
 Pointing strategy (two-tier, like the Swift macOS Tars):
@@ -274,11 +274,14 @@ def interact_with_page(
 # ── Builder ─────────────────────────────────────────────────────────────────
 
 
-def build_tars_agent() -> RealtimeAgent:
+def build_tars_agent(teaching_profile_instruction: str = "") -> RealtimeAgent:
     """Construct the Tars RealtimeAgent tree (no sub-agents)."""
     root = RealtimeAgent(
         name=COMPANION_AGENT_NAME,
-        instructions=with_companion_identity(TARS_INSTRUCTION),
+        instructions=with_companion_identity(
+            TARS_INSTRUCTION,
+            teaching_profile_instruction,
+        ),
         tools=[point_at, draw_on_screen, clear_screen_drawings, interact_with_page],
         handoffs=[],
     )

@@ -1,4 +1,4 @@
-# ── BoardyBoo Frontend — Cloud Run Container ─────────────────────────────────
+# ── Ctrl+Teach Frontend — Cloud Run Container ────────────────────────────────
 # Multi-stage build: install → build → serve.
 
 # Stage 1 — Install dependencies

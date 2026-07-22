@@ -1,5 +1,5 @@
 /**
- * Shared utility functions for the BoardyBoo application.
+ * Shared utility functions for the Ctrl+Teach application.
  */
 
 /**

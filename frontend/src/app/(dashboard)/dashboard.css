@@ -574,7 +574,7 @@
 .dash-main.no-padding { padding: 0; min-height: 0; overflow: hidden; }
 
 /* Board page: be a flex column so .app-layout's flex:1 fills the viewport
-   below the topbar. Scoped to board-mode to avoid affecting /tutors & wizard. */
+   below the topbar. Scoped to board-mode to avoid affecting standard pages. */
 .dash-main.board-mode {
   display: flex;
   flex-direction: column;

@@ -53,10 +53,11 @@ class ClassroomAgentTests(unittest.TestCase):
             include_image_generation=False,
             include_handoffs=False,
             include_progress_tools=False,
-            excluded_canvas_tools={"add_image_to_canvas"},
+            excluded_canvas_tools={"add_image_to_canvas", "draw_on_canvas"},
         )
         tool_names = {getattr(tool, "name", "") for tool in agent.tools}
-        self.assertIn("draw_on_canvas", tool_names)
+        self.assertNotIn("draw_on_canvas", tool_names)
+        self.assertIn("draw_diagram", tool_names)
         self.assertIn("point_at_whiteboard", tool_names)
         self.assertIn("draw_on_screen", tool_names)
         self.assertIn("wait_for_learner", tool_names)
@@ -77,7 +78,48 @@ class ClassroomAgentTests(unittest.TestCase):
         elements = bridge["elements"]
         self.assertGreaterEqual(len(elements), 3)
         self.assertTrue(all(float(item["x"]) + float(item["width"]) <= 502 for item in elements))
+        self.assertTrue(all(item["autoResize"] is True for item in elements))
+        self.assertTrue(all(item["viewportWrap"] is True for item in elements))
         canvas_tools.update_board_viewport_width(896)
+
+    def test_diagram_tool_emits_coordinate_free_semantic_graph(self) -> None:
+        result = canvas_tools.draw_diagram(
+            "flowchart",
+            title="Request lifecycle",
+            nodes=[
+                {"id": "request", "label": "Receive request"},
+                {"id": "validate", "label": "Validate the request", "shape": "diamond"},
+                {"id": "respond", "label": "Return response"},
+            ],
+            edges=[
+                {"from": "request", "to": "validate"},
+                {"from": "validate", "to": "respond", "label": "valid"},
+            ],
+        )
+        bridge = canvas_tools.canvas_bridge.pop(result["deferred_canvas_id"])
+        self.assertEqual(bridge["tool"], "draw_diagram")
+        self.assertEqual(len(bridge["elements"]), 1)
+        descriptor = bridge["elements"][0]
+        self.assertEqual(descriptor["type"], "structured-diagram")
+        self.assertEqual(descriptor["direction"], "TB")
+        self.assertEqual(len(descriptor["nodes"]), 3)
+        self.assertEqual(len(descriptor["edges"]), 2)
+        self.assertNotIn("x", descriptor["nodes"][0])
+        self.assertNotIn("y", descriptor["nodes"][0])
+
+    def test_mindmap_items_become_edges_from_a_central_node(self) -> None:
+        result = canvas_tools.draw_diagram(
+            "mindmap",
+            title="Cloud services",
+            items=["Compute", "Storage", "Networking"],
+        )
+        bridge = canvas_tools.canvas_bridge.pop(result["deferred_canvas_id"])
+        descriptor = bridge["elements"][0]
+        root = descriptor["nodes"][0]
+        self.assertEqual(root["label"], "Cloud services")
+        self.assertEqual(root["shape"], "ellipse")
+        self.assertEqual(len(descriptor["edges"]), 3)
+        self.assertTrue(all(edge["from"] == root["id"] for edge in descriptor["edges"]))
 
     def test_only_questions_pause_connected_teaching(self) -> None:
         self.assertFalse(_turn_requires_learner_response(

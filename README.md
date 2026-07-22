@@ -19,7 +19,7 @@ never provider API keys.
 - Realtime voice tutoring with OpenAI Realtime and a synchronized whiteboard.
 - Generated courses with resumable research, outline, lesson, and image stages.
 - Study, lab, assessment, and roleplay learning modes.
-- Browser labs with structured assertions and tracked attempts.
+- Browser labs with structured assertions, tracked attempts, and adaptive recovery.
 - Standalone video roleplay using selectable Tavus faces and OpenAI voices.
 - Permanent local voice previews that do not consume API credits when played.
 - Learner profiles, progress, streaks, badges, schedules, tutors, and a library.
@@ -63,6 +63,7 @@ browser-to-OpenAI WebSocket path, so a camera is not required.
 
 - Node.js 20 or newer
 - Python 3.12 or newer
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
 - An OpenAI API key
 - A Tavus API key only when testing live video roleplay
 
@@ -70,9 +71,7 @@ browser-to-OpenAI WebSocket path, so a camera is not required.
 
 ```bash
 cd Backend
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync --locked
 cp .env.example .env
 ```
 
@@ -86,17 +85,21 @@ APP_SESSION_TOKEN_SECRET=replace-with-a-long-random-secret
 Generate a suitable local session secret with:
 
 ```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"
+uv run python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
 Start the API:
 
 ```bash
-.venv/bin/uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 8000
 ```
 
 The API is available at `http://localhost:8000`; interactive documentation is
 at `http://localhost:8000/docs` and health status is at `/health`.
+
+On Python installations that do not expose a system certificate store, the
+backend automatically uses the verified `certifi` CA bundle for outbound API
+connections. Do not disable TLS verification to work around certificate errors.
 
 ### 2. Configure and run the frontend
 
@@ -131,19 +134,23 @@ groups are summarized below.
 | Variable | Purpose |
 | --- | --- |
 | `OPENAI_API_KEY` | Realtime tutoring, course generation, images, and visual location |
-| `REALTIME_MODEL` | Realtime conversation model; defaults to `gpt-realtime-2` |
+| `REALTIME_MODEL` | Realtime conversation model; defaults to `gpt-realtime-2.1` |
 | `COURSE_GENERATION_MODEL` | Course research and writing model |
 | `IMAGE_MODEL` | Generated course image model |
 | `TAVUS_API_KEY` | Backend-only Tavus credential for live roleplay |
 | `TAVUS_FACE_ID` | Optional default roleplay face |
 | `TAVUS_PAL_ID` | Optional existing Echo PAL; one is created and cached when omitted |
 | `FIRECRAWL_API_KEY` | Optional discovery and source extraction |
-| `DATABASE_URL` | SQLite URL; defaults to `sqlite:///./boardyboo.db` |
+| `DATABASE_URL` | SQLite URL; defaults to `sqlite:///./ctrlteach.db` |
 | `APP_SESSION_TOKEN_SECRET` | HMAC secret for application sessions |
 | `CORS_ORIGINS` | JSON list of allowed frontend origins |
 
 Never place provider keys in `frontend/.env.local` or commit a populated
 `Backend/.env`.
+
+When updating an existing SQLite deployment, move the database file currently
+referenced by `DATABASE_URL` to `ctrlteach.db` before changing the URL. Updating
+the URL first will create a new empty database.
 
 ## Live Roleplay and Tavus Credits
 
@@ -167,7 +174,7 @@ room or OpenAI request. To regenerate the complete set deliberately:
 
 ```bash
 cd Backend
-.venv/bin/python scripts/generate_roleplay_voice_previews.py
+uv run python scripts/generate_roleplay_voice_previews.py
 ```
 
 ## Course Generation
@@ -181,6 +188,40 @@ the backend.
 The frontend merges completed generated courses with the seed catalog in the
 learner provider. Course Factory is available at `/course-factory`.
 
+## Adaptive Recovery Loop
+
+Browser labs use a server-owned recovery loop when verified attempt evidence
+shows that a learner has failed a step:
+
+1. The backend diagnoses the likely misconception from the failed assertion
+   and its verified browser evidence.
+2. The lesson presents a short corrective explanation and a compact whiteboard
+   micro-lesson.
+3. The learner completes a smaller targeted practice task.
+4. A correct practice response reopens the original step with a fresh server
+   retry boundary. Every assertion attached to that step must be proven again.
+5. Required cleanup runs only after the retried task succeeds, using a separate
+   cleanup boundary. The lesson unlocks only when the backend reports the whole
+   attempt as `verified`.
+
+The backend stores each mistake, misconception, recovery task, practice
+attempt, retry boundary, and final outcome in SQLite. Learner memory records a
+matching recovery summary, and future companion and generated-course prompts
+receive a bounded, owner-scoped summary of demonstrated gaps and recoveries.
+This context personalizes later teaching but cannot replace course truth,
+original success criteria, or cleanup requirements.
+
+The recovery API is implemented under the existing browser-lab routes:
+
+- `POST /api/browser-labs/attempts/{attempt_id}/recovery`
+- `POST /api/browser-labs/attempts/{attempt_id}/recoveries/{recovery_id}/practice-attempts`
+- `POST /api/browser-labs/attempts/{attempt_id}/recoveries/{recovery_id}/retry`
+
+The browser extension supplies evidence, but the backend stamps evidence phases
+and makes the verification decision. Client assertion telemetry is diagnostic
+only and cannot prove task completion, recovery practice cannot satisfy the
+original step, and a verified run is terminal.
+
 ## Verification
 
 ```bash
@@ -193,10 +234,17 @@ npm run build
 
 # Backend import smoke test
 cd ../Backend
-.venv/bin/python -c "from app.main import app; print(app.title)"
+uv run python -c "from app.main import app; print(app.title)"
 
 # Roleplay tests
-.venv/bin/python -m unittest tests.test_roleplay
+uv run python -m unittest tests.test_roleplay
+
+# Adaptive browser-lab recovery tests
+uv run python -m unittest tests.test_browser_labs
+
+# Browser-extension protocol tests
+cd ../browser-extension
+node --test *.test.js
 ```
 
 ESLint is not currently installed, so `npm run lint` is not a valid repository

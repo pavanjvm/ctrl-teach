@@ -18,6 +18,7 @@ import {
   saveWakeTemplate,
   type WakeTemplate,
 } from "@/lib/tarsWakeTemplate";
+import { TEACHING_PROFILE_CHANGED_EVENT } from "@/lib/teachingProfiles";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -578,6 +579,7 @@ export default function GlobalTarsAssistant() {
   const { activeCourseId, activeLessonId } = useLearner();
   const pathname = usePathname();
   const isLanding = pathname === "/";
+  const isAdmin = pathname.startsWith("/admin");
   const isWhiteboardSession = pathname === "/board"
     || pathname === "/learn"
     || pathname === "/role-playing"
@@ -594,6 +596,7 @@ export default function GlobalTarsAssistant() {
   const [debugLine, setDebugLine] = useState("tars debug: idle");
   const [screenAnnotations, setScreenAnnotations] = useState<ScreenAnnotation[]>([]);
   const [boardDrawCommands, setBoardDrawCommands] = useState<TarsDrawCommand[]>([]);
+  const [teachingProfileRevision, setTeachingProfileRevision] = useState(0);
 
   // Cursor RAF refs
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -618,6 +621,17 @@ export default function GlobalTarsAssistant() {
   const domIdToElementRef = useRef<Map<string, HTMLElement>>(new Map());
   // Session id reused across reconnects within a single tab session.
   const sessionIdRef = useRef<string>(loadTarsSessionId());
+
+  useEffect(() => {
+    const handleTeachingProfileChange = () => {
+      setTeachingProfileRevision((revision) => revision + 1);
+      setStatus("Teaching profile updated");
+    };
+    window.addEventListener(TEACHING_PROFILE_CHANGED_EVENT, handleTeachingProfileChange);
+    return () => {
+      window.removeEventListener(TEACHING_PROFILE_CHANGED_EVENT, handleTeachingProfileChange);
+    };
+  }, [setStatus]);
 
   const currentPageContext = useCallback(() => {
     const generatedMatch = pathname.match(/^\/learn\/(generated-[^/]+)(?:\/([^/]+))?/);
@@ -973,7 +987,7 @@ export default function GlobalTarsAssistant() {
       upstreamMutedRef.current = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [globalTarsActive, enabled, isWhiteboardSession, user, trainingOpen]);
+  }, [globalTarsActive, enabled, isWhiteboardSession, user, trainingOpen, teachingProfileRevision]);
 
   // ── When the server-side Realtime session is ready, start mic capture & push
   //    initial screen context. The browser WS can open before OpenAI Realtime is
@@ -1402,7 +1416,7 @@ export default function GlobalTarsAssistant() {
 
   if (!mounted) return null;
 
-  if (!user || isLanding) return null;
+  if (!user || isLanding || isAdmin) return null;
 
   const renderCursor = showCursor;
 

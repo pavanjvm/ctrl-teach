@@ -75,6 +75,8 @@ export type LearningMemorySignal =
 
 export interface LearningMemory {
   id: string;
+  /** Stable source activity id used to upsert server-backed observations. */
+  activityId?: string;
   kind: LearningMemoryKind;
   signal: LearningMemorySignal;
   title: string;
@@ -88,6 +90,25 @@ export interface LearningMemory {
   score?: number;
   confidence?: number;
   evidence?: string[];
+  recovery?: BrowserLabRecoveryMemory;
+}
+
+export interface BrowserLabRecoveryMemoryCycle {
+  recoveryId: string;
+  gapKey: string;
+  failedStepId: string;
+  failedStepInstruction: string;
+  misconception: string;
+  practiceAttempts: number;
+  finalOutcome: string;
+}
+
+/** Structured browser-lab evidence retained alongside the readable memory. */
+export interface BrowserLabRecoveryMemory {
+  type: "browser_lab";
+  attemptId: string;
+  finalOutcome: string;
+  cycles: BrowserLabRecoveryMemoryCycle[];
 }
 
 export type SkillEvidenceStatus = "strength" | "building" | "focus";
@@ -220,6 +241,60 @@ export interface BrowserLabBlueprint {
   estimatedDuration?: string;
 }
 
+export type BrowserLabRecoveryStatus =
+  | "practicing"
+  | "retry_ready"
+  | "retrying"
+  | "resolved"
+  | "retry_failed"
+  | string;
+
+export interface BrowserLabRecoveryPracticeAttempt {
+  id: string;
+  correct: boolean;
+  feedback: string;
+  createdAt: string;
+}
+
+export interface BrowserLabRecovery {
+  id: string;
+  status: BrowserLabRecoveryStatus;
+  failedStep: BrowserLabStep;
+  gapKey: string;
+  misconception: {
+    title: string;
+    explanation: string;
+    evidenceSummary: string;
+  };
+  microLesson: WhiteboardTeachingPlan;
+  practiceTask: {
+    prompt: string;
+    options: Array<{ id: string; label: string }>;
+  };
+  practiceAttempts: BrowserLabRecoveryPracticeAttempt[];
+  missingAssertionIds: string[];
+  finalOutcome?: string | null;
+}
+
+export interface BrowserLabAttemptVerification {
+  taskComplete?: boolean;
+  cleanupComplete?: boolean;
+  evidenceCount?: number;
+  taskAssertions?: Record<string, boolean>;
+  cleanupAssertions?: Record<string, boolean>;
+}
+
+export interface BrowserLabAttempt {
+  id: string;
+  status: "running" | "recovering" | "needs_cleanup" | "verified" | string;
+  launchUrl: string;
+  plan: BrowserLabBlueprint;
+  verification?: BrowserLabAttemptVerification;
+  evidenceCount?: number;
+  activeRecovery?: BrowserLabRecovery | null;
+  recoveryHistory?: BrowserLabRecovery[];
+}
+
 export interface CertificateCriteria {
   title: string;
   requiredScore: number;
@@ -242,7 +317,7 @@ export interface CourseCitation {
 
 export interface GeneratedImageAsset {
   id: string;
-  status: "ready";
+  status: "ready" | "pending";
   url: string;
   alt: string;
   caption: string;
@@ -305,6 +380,7 @@ export interface HtmlContentBlock extends ContentBlockBase {
 
 export interface ImageContentBlock extends ContentBlockBase {
   type: "image";
+  status?: "pending";
   asset: GeneratedImageAsset;
 }
 
@@ -339,6 +415,7 @@ export interface Lesson {
   browserLab?: BrowserLabBlueprint;
   sourceLessonId?: string;
   contentBlocks?: CourseContentBlock[];
+  status?: "ready" | "pending";
   done?: boolean;
   bookmarked?: boolean;
 }
@@ -365,7 +442,11 @@ export interface Course {
   sourceCount?: number;
   goal?: string;
   source?: CourseSource;
-  status?: "draft" | "published" | "ready";
+  status?: "draft" | "published" | "ready" | "generating";
+  partial?: boolean;
+  completedLessonCount?: number;
+  totalLessonCount?: number;
+  estimatedMinutes?: number;
   format?: "rich";
   overview?: RichCourseOverview;
   citations?: CourseCitation[];

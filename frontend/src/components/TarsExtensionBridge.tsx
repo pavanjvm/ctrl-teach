@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import { useTars } from "@/lib/tars";
 import { API_URL, WS_URL } from "@/lib/constants";
+import { TEACHING_PROFILE_CHANGED_EVENT } from "@/lib/teachingProfiles";
 
 const PROBE_TIMEOUT_MS = 900;
 
@@ -38,6 +39,19 @@ export default function TarsExtensionBridge() {
   const sessionRef = useRef<ExtensionSession | null>(null);
   const extensionInstanceRef = useRef("");
   const [extensionRevision, setExtensionRevision] = useState(0);
+
+  useEffect(() => {
+    const handleTeachingProfileChange = () => {
+      // A fresh extension token changes the extension's realtime identity,
+      // forcing its long-lived socket to reconnect with the selected profile.
+      sessionRef.current = null;
+      setExtensionRevision((revision) => revision + 1);
+    };
+    window.addEventListener(TEACHING_PROFILE_CHANGED_EVENT, handleTeachingProfileChange);
+    return () => {
+      window.removeEventListener(TEACHING_PROFILE_CHANGED_EVENT, handleTeachingProfileChange);
+    };
+  }, []);
 
   useEffect(() => {
     let resolved = false;
@@ -89,6 +103,7 @@ export default function TarsExtensionBridge() {
     const configure = async () => {
       const suspended = pathname === "/board"
         || pathname === "/learn"
+        || pathname.startsWith("/admin")
         || /^\/learn\/generated-[^/]+\/classroom$/.test(pathname);
       if (!enabled || !user) {
         sessionRef.current = null;

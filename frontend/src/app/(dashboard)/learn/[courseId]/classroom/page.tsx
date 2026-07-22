@@ -21,9 +21,9 @@ import TranscriptPanel from "@/components/TranscriptPanel";
 import type { WhiteboardCanvasRef } from "@/components/WhiteboardCanvas";
 import { useAudio } from "@/hooks/useAudio";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { API_URL, WS_URL } from "@/lib/constants";
+import { WS_URL } from "@/lib/constants";
 import { dispatchBoardTarsDraw } from "@/lib/tarsBoardBridge";
-import { assetUrl, type GeneratedCourseJob } from "@/lib/generatedCourses";
+import { assetUrl, fetchAvailableCourse } from "@/lib/generatedCourses";
 import { useLearner } from "@/lib/learner";
 import type { Course, GeneratedImageAsset, Lesson, Module } from "@/lib/types";
 import type { CanvasCommand } from "@/types/whiteboard";
@@ -169,16 +169,12 @@ export default function LiveClassroomPage() {
     (async () => {
       try {
         const token = await getToken();
-        const response = await axios.get<GeneratedCourseJob>(
-          `${API_URL}/api/generated-courses/${params.courseId}`,
-          { headers: token ? { Authorization: token } : undefined },
-        );
-        if (response.data.status !== "ready" || !response.data.course) {
-          router.replace(`/discover?generation=${params.courseId}`);
+        const nextCourse = await fetchAvailableCourse(params.courseId, token);
+        if (!nextCourse) {
+          router.replace(`/library?generation=${params.courseId}`);
           return;
         }
         if (cancelled) return;
-        const nextCourse = response.data.course;
         const lessons = nextCourse.modules.flatMap((module) => module.lessons);
         const requestedLessonId = new URLSearchParams(window.location.search).get("lesson");
         const nextLesson = lessons.find((lesson) => lesson.id === requestedLessonId)
@@ -640,7 +636,12 @@ function ClassroomSession({
           <span>{isComplete ? "Completed" : quizProgress ? `Knowledge check · ${quizProgress.answered}/${quizProgress.total}` : "How this lesson finishes"}</span>
           <p>{isComplete ? "The teacher completed the lesson after your knowledge check." : quizProgress ? "Answer each question—the score helps the teacher adapt, but does not block progress." : "The teacher will explain each section, ask the generated quiz, then mark this lesson complete."}</p>
         </div>
-        <TranscriptPanel messages={messages} onSendText={sendText} userPhotoURL={user?.photoURL || undefined} />
+        <TranscriptPanel
+          messages={messages}
+          onSendText={sendText}
+          userPhotoURL={user?.photoURL || undefined}
+          showStreamingAgentMessages
+        />
         <div className="classroom-lesson-nav">
           <button type="button" disabled={!previous} onClick={() => previous && onSelect(previous.lesson.id)}><ArrowLeft size={13} /> Previous</button>
           <button type="button" disabled={!next} onClick={() => next && onSelect(next.lesson.id)}>Next <ArrowRight size={13} /></button>

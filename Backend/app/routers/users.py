@@ -122,6 +122,7 @@ async def get_current_user_profile(user: dict = Depends(get_current_user)):
             "preferences": p.preferences if p else {},
             "timezone": u.timezone if u else "",
             "created_at": _serialize_ts(u.created_at) if u else "",
+            "is_admin": bool(u.is_admin) if u else False,
         },
     }
 

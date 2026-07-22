@@ -56,15 +56,24 @@ class SessionResponse(BaseModel):
 
 @router.post("/login", response_model=SessionResponse)
 async def login(body: LoginBody, request: Request):
+    return _login(body, request, require_admin=False)
+
+
+@router.post("/admin/login", response_model=SessionResponse)
+async def admin_login(body: LoginBody, request: Request):
+    return _login(body, request, require_admin=True)
+
+
+def _login(body: LoginBody, request: Request, *, require_admin: bool) -> SessionResponse:
     client_key = _client_key(request)
-    account_key = body.username.strip().casefold()
+    account_key = f"{'admin' if require_admin else 'learner'}:{body.username.strip().casefold()}"
     _consume_or_reject(_login_ip_limiter, client_key)
     _consume_or_reject(_login_account_limiter, account_key)
     user = authenticate_user_credentials(body.username, body.password)
-    if user is None:
+    if user is None or (require_admin and not user.get("isAdmin")):
         raise HTTPException(
             status_code=401,
-            detail="Invalid username or password",
+            detail="Invalid admin username or password" if require_admin else "Invalid username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     _login_account_limiter.reset(account_key)

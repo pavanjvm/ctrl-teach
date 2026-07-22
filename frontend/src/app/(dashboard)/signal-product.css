@@ -84,16 +84,20 @@
 }
 
 .dash-app .topbar-nav {
-  flex: 1;
+  position: absolute;
+  left: 50%;
+  flex: none;
   justify-content: center;
-  gap: 2px;
+  gap: clamp(12px, 1.5vw, 24px);
   min-width: 0;
+  transform: translateX(-50%);
 }
 
 .dash-app .topbar-nav-item {
   position: relative;
+  justify-content: center;
   min-height: 34px;
-  padding: 0 10px;
+  padding: 0 14px;
   border: 1px solid transparent;
   border-radius: 5px;
   color: var(--muted);
@@ -132,13 +136,12 @@
 }
 
 .dash-app .topbar-divider {
-  height: 28px;
-  margin: 0 12px;
-  background: var(--border);
+  display: none;
 }
 
 .dash-app .topbar-controls {
   gap: 8px;
+  margin-left: auto;
 }
 
 .dash-app .topbar-tars-switch {
@@ -1337,6 +1340,10 @@
     display: grid;
     margin-left: auto;
     margin-right: 8px;
+  }
+
+  .dash-app .topbar-controls {
+    margin-left: 0;
   }
 
   .dash-app .topbar-mobile-nav {

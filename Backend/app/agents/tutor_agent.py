@@ -136,8 +136,9 @@ a diagram).  The cursor resets automatically when you call `clear_canvas`.
 ## Diagram placement
 Use `draw_diagram` for structured flowcharts, mind maps, and lists instead of
 manually positioning their boxes and labels with `draw_on_canvas`. Keep each
-node label concise, and omit `y` so the diagram is placed below existing
-content without overlap.
+node label concise. For relationships, provide semantic node IDs and edges;
+the browser owns text measurement, coordinates, arrow routing, and placement.
+Never encode coordinates in diagram labels or approximate the layout yourself.
 
 ## Canvas awareness
 The student has an Excalidraw whiteboard in front of them.  You can:
@@ -251,6 +252,7 @@ def _wrap(fn) -> "function_tool":  # type: ignore[name-defined]
 
 def build_tutor_agent(
     custom_instruction: str | None = None,
+    teaching_profile_instruction: str = "",
     extra_tool_functions: list[object] | None = None,
     include_image_generation: bool = True,
     include_handoffs: bool = True,
@@ -267,7 +269,8 @@ def build_tutor_agent(
     """
 
     instruction = with_companion_identity(
-        custom_instruction if custom_instruction else TUTOR_INSTRUCTION
+        custom_instruction if custom_instruction else TUTOR_INSTRUCTION,
+        teaching_profile_instruction,
     )
     instruction += BOARD_TARS_DRAWING_INSTRUCTION
 

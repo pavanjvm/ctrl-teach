@@ -11,7 +11,7 @@ import {
   CheckCircle2,
   Clock3,
   Flame,
-  Library,
+  MessageSquareText,
   PenTool,
   Plus,
   RefreshCcw,
@@ -175,7 +175,7 @@ export default function HomePage() {
   const activeCourseComplete = Boolean(activeCourse && lessons.length > 0 && completedLessonCount === lessons.length);
 
   const sortedJobs = useMemo(
-    () => [...jobs].sort((left, right) => (
+    () => jobs.filter((job) => !job.archivedAt).sort((left, right) => (
       new Date(right.updatedAt || right.createdAt || 0).getTime()
       - new Date(left.updatedAt || left.createdAt || 0).getTime()
     )),
@@ -323,7 +323,7 @@ export default function HomePage() {
               <span className="home-section-label">Your first step</span>
               <h2 id="continue-heading">Build a course around what you want to achieve.</h2>
               <p>Tars will shape the material, practice, and feedback around your goal and learning history.</p>
-              <Link className="home-primary-action" href="/discover">
+              <Link className="home-primary-action" href="/library?create=1">
                 Create your first course <ArrowRight size={16} />
               </Link>
             </div>
@@ -331,9 +331,9 @@ export default function HomePage() {
         </section>
 
         <section className="home-quick" aria-label="Quick actions">
-          <Link href="/discover"><Plus size={17} /><span><strong>Create a course</strong><small>Start with a learning goal</small></span></Link>
+          <Link href="/library?create=1"><Plus size={17} /><span><strong>Create a course</strong><small>Start with a learning goal</small></span></Link>
           <Link href="/board"><PenTool size={17} /><span><strong>Open whiteboard</strong><small>Ask Tars and work it out</small></span></Link>
-          <Link href="/library"><Library size={17} /><span><strong>My library</strong><small>Open saved courses</small></span></Link>
+          <Link href="/role-playing"><MessageSquareText size={17} /><span><strong>Practice a conversation</strong><small>Rehearse with a live AI counterpart</small></span></Link>
         </section>
 
         <aside className="home-insight" aria-labelledby="insight-heading">
@@ -474,7 +474,10 @@ function GenerationCard({ job }: { job: GeneratedCourseJob }) {
   const isReady = job.status === "ready";
   const isIntake = job.status === "intake";
   const percent = job.progress?.percent ?? 0;
-  const href = isReady ? `/learn/${job.id}` : `/discover?generation=${encodeURIComponent(job.id)}`;
+  const hasAvailableLesson = Boolean(job.partialCourse?.modules.some((module) => (
+    module.lessons.some((lesson) => lesson.status !== "pending")
+  )));
+  const href = isReady || hasAvailableLesson ? `/learn/${job.id}` : `/library?generation=${encodeURIComponent(job.id)}`;
 
   return (
     <div className={`home-generation ${isFailed ? "is-failed" : ""}`}>
@@ -494,7 +497,7 @@ function GenerationCard({ job }: { job: GeneratedCourseJob }) {
           </>
         )}
         <Link className="home-primary-action" href={href}>
-          {isFailed ? "Review and retry" : isReady ? "Open course" : isIntake ? "Resume setup" : "View progress"}
+          {isFailed ? "Review and retry" : isReady ? "Open course" : isIntake ? "Resume setup" : hasAvailableLesson ? "Start available lessons" : "View progress"}
           <ArrowRight size={16} />
         </Link>
       </div>

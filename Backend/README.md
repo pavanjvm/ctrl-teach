@@ -1,5 +1,38 @@
 # Ctrl+Teach backend
 
+## Dependency management
+
+The backend uses `uv` with dependencies declared in `pyproject.toml` and fully
+resolved in `uv.lock`.
+
+```bash
+uv sync --locked
+uv run uvicorn app.main:app --reload --port 8000
+```
+
+Add or remove dependencies with `uv add <package>` and `uv remove <package>`,
+then commit both `pyproject.toml` and `uv.lock`.
+
+## Admin course studio
+
+Admin accounts use the same signed bearer sessions as learners, with an
+additional database role checked on every admin API request. Seed an admin in
+`Backend/.env` (use a strong local password):
+
+```env
+APP_USERS=[{"username":"admin","password":"replace-this","name":"Course Admin","is_admin":true}]
+```
+
+The account signs in at `/admin/login`. Platform courses are stored separately
+from learner-owned generated courses. Admins can save drafts, publish them to
+the shared learner catalog, and unpublish them without deleting course data.
+
+For local product demos, `Backend/.env.local` can override `APP_USERS` without
+changing the main secret-bearing `.env`. A seeded entry may opt into
+`"force_password": true` when a fixed demo password must be restored on each
+startup. `"force_role": true` similarly restores the declared admin role. Do
+not use short demo passwords outside local testing.
+
 ## Tavus role-playing renderer
 
 The `/role-playing` experience keeps Tars/OpenAI as the conversation brain and
@@ -38,7 +71,7 @@ To compare models on the same labeled screenshots, create a JSON manifest using
 the format documented in `scripts/tars_locator_trial.py`, then run:
 
 ```bash
-.venv/bin/python scripts/tars_locator_trial.py --manifest path/to/cases.json
+uv run python scripts/tars_locator_trial.py --manifest path/to/cases.json
 ```
 
 The command reports success count and mean pixel error per model. Trial images

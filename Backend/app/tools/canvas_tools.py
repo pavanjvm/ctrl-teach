@@ -467,6 +467,10 @@ def write_text_on_canvas(
             "x": x,
             "y": line_y,
             "text": line,
+            # The browser has the real Excalidraw font metrics. Keep these
+            # dimensions as layout hints, but let it measure the final glyphs.
+            "autoResize": True,
+            "viewportWrap": True,
             "width": min(_measure_text_width(line, font_size), available_width),
             "height": line_height,
             "fontSize": font_size,
@@ -501,7 +505,7 @@ def write_text_on_canvas(
     return _defer_elements("write_text_on_canvas", "add", elements, animation=animation)
 
 
-def draw_diagram(
+def _draw_diagram_legacy(
     diagram_type: str,
     title: str = "",
     items: Optional[List[str]] = None,
@@ -821,6 +825,190 @@ def draw_diagram(
         diagram_type, title, len(items), len(elements), len(_anim_groups), diagram_bottom,
     )
     return _defer_elements("draw_diagram", "add", elements, animation=animation)
+
+
+def _diagram_id(value: Any, index: int, used: set[str]) -> str:
+    """Return a short unique identifier suitable for graph bindings."""
+    candidate = _re.sub(r"[^a-zA-Z0-9_-]+", "-", str(value or "").strip()).strip("-")
+    candidate = (candidate or f"node-{index + 1}")[:48]
+    base = candidate
+    suffix = 2
+    while candidate in used:
+        candidate = f"{base[:40]}-{suffix}"
+        suffix += 1
+    used.add(candidate)
+    return candidate
+
+
+def _semantic_diagram_spec(
+    diagram_type: str,
+    title: str,
+    items: Optional[List[str]],
+    nodes: Optional[List[Dict[str, str]]],
+    edges: Optional[List[Dict[str, str]]],
+    direction: str,
+) -> Dict[str, Any]:
+    """Normalize model output into a bounded coordinate-free graph."""
+    allowed_types = {
+        "flowchart", "mindmap", "timeline", "comparison_table", "equation", "list",
+    }
+    kind = str(diagram_type or "flowchart").strip().lower()
+    if kind not in allowed_types:
+        kind = "flowchart"
+
+    direction_aliases = {
+        "tb": "TB", "top-to-bottom": "TB", "vertical": "TB",
+        "lr": "LR", "left-to-right": "LR", "horizontal": "LR",
+    }
+    default_direction = "LR" if kind in {"mindmap", "timeline"} else "TB"
+    rank_direction = direction_aliases.get(str(direction or "").strip().lower(), default_direction)
+
+    safe_title = _normalize_math_text(str(title or "").strip())[:140]
+    normalized_nodes: List[Dict[str, str]] = []
+    aliases: Dict[str, str] = {}
+    used_ids: set[str] = set()
+
+    source_nodes = nodes if isinstance(nodes, list) else []
+    for index, raw in enumerate(source_nodes[:10]):
+        if not isinstance(raw, dict):
+            continue
+        label = _normalize_math_text(str(raw.get("label") or raw.get("text") or "").strip())[:120]
+        if not label:
+            continue
+        raw_id = str(raw.get("id") or f"node-{index + 1}")
+        node_id = _diagram_id(raw_id, index, used_ids)
+        aliases[raw_id] = node_id
+        requested_shape = str(raw.get("shape") or raw.get("kind") or "rectangle").lower()
+        shape = requested_shape if requested_shape in {"rectangle", "ellipse", "diamond"} else "rectangle"
+        normalized_nodes.append({"id": node_id, "label": label, "shape": shape})
+
+    if not normalized_nodes:
+        for index, item in enumerate((items or [])[:10]):
+            label = _normalize_math_text(str(item or "").strip())[:120]
+            if not label:
+                continue
+            node_id = _diagram_id(f"item-{index + 1}", index, used_ids)
+            normalized_nodes.append({"id": node_id, "label": label, "shape": "rectangle"})
+
+    if kind == "mindmap":
+        root_id = _diagram_id("root", -1, used_ids)
+        normalized_nodes.insert(0, {
+            "id": root_id,
+            "label": safe_title or "Main idea",
+            "shape": "ellipse",
+        })
+    elif not normalized_nodes and safe_title:
+        normalized_nodes.append({
+            "id": _diagram_id("idea", 0, used_ids),
+            "label": safe_title,
+            "shape": "rectangle",
+        })
+
+    node_ids = {node["id"] for node in normalized_nodes}
+    normalized_edges: List[Dict[str, str]] = []
+    seen_edges: set[tuple[str, str, str]] = set()
+    for raw in (edges or [])[:16]:
+        if not isinstance(raw, dict):
+            continue
+        raw_source = str(raw.get("from") or raw.get("source") or "")
+        raw_target = str(raw.get("to") or raw.get("target") or "")
+        source = aliases.get(raw_source, raw_source)
+        target = aliases.get(raw_target, raw_target)
+        if source not in node_ids or target not in node_ids or source == target:
+            continue
+        label = _normalize_math_text(str(raw.get("label") or "").strip())[:80]
+        key = (source, target, label)
+        if key in seen_edges:
+            continue
+        seen_edges.add(key)
+        normalized_edges.append({"from": source, "to": target, "label": label})
+
+    if not normalized_edges and len(normalized_nodes) > 1:
+        if kind == "mindmap":
+            root_id = normalized_nodes[0]["id"]
+            normalized_edges = [
+                {"from": root_id, "to": node["id"], "label": ""}
+                for node in normalized_nodes[1:]
+            ]
+        elif kind in {"flowchart", "timeline"}:
+            normalized_edges = [
+                {
+                    "from": normalized_nodes[index]["id"],
+                    "to": normalized_nodes[index + 1]["id"],
+                    "label": "",
+                }
+                for index in range(len(normalized_nodes) - 1)
+            ]
+
+    return {
+        "diagramType": kind,
+        "title": safe_title,
+        "direction": rank_direction,
+        "nodes": normalized_nodes,
+        "edges": normalized_edges,
+    }
+
+
+def draw_diagram(
+    diagram_type: str,
+    title: str = "",
+    items: Optional[List[str]] = None,
+    nodes: Optional[List[Dict[str, str]]] = None,
+    edges: Optional[List[Dict[str, str]]] = None,
+    direction: str = "",
+) -> Dict[str, Any]:
+    """Draw a structured diagram without accepting model-authored coordinates.
+
+    Supply semantic ``nodes`` and ``edges`` when relationships matter. Each
+    node supports ``id``, ``label``, and an optional ``shape`` of rectangle,
+    ellipse, or diamond. Each edge supports ``from``, ``to``, and an optional
+    ``label``. ``items`` remains a concise fallback for lists, timelines,
+    mindmaps, and simple sequential flowcharts. Browser-side Dagre layout and
+    Excalidraw bindings own all geometry.
+    """
+    global _cursor_y
+
+    spec = _semantic_diagram_spec(
+        diagram_type,
+        title,
+        items,
+        nodes,
+        edges,
+        direction,
+    )
+    if not spec["nodes"]:
+        return {
+            "status": "error",
+            "tool": "draw_diagram",
+            "message": "A diagram needs at least one labelled node or item.",
+        }
+
+    import uuid as _uuid_mod
+
+    origin_y = max(_CURSOR_Y_INIT, _cursor_y)
+    descriptor = {
+        "type": "structured-diagram",
+        "id": f"diagram-{_uuid_mod.uuid4().hex[:12]}",
+        "x": 72.0,
+        "y": origin_y,
+        **spec,
+    }
+
+    node_count = len(spec["nodes"])
+    if spec["direction"] == "TB":
+        estimated_height = 100.0 + node_count * 118.0
+    else:
+        estimated_height = 180.0 + min(node_count, 4) * 34.0
+    _cursor_y = origin_y + estimated_height + _TEXT_SPACING
+
+    result = _defer_elements("draw_diagram", "add", [descriptor])
+    result["node_count"] = node_count
+    result["edge_count"] = len(spec["edges"])
+    logger.info(
+        "draw_diagram semantic: type=%s nodes=%d edges=%d direction=%s",
+        spec["diagramType"], node_count, len(spec["edges"]), spec["direction"],
+    )
+    return result
 
 
 def highlight_area(

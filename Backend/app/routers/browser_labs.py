@@ -24,6 +24,11 @@ class BrowserLabEvidenceRequest(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class BrowserLabPracticeAttemptRequest(BaseModel):
+    clientAttemptId: str = Field(min_length=1, max_length=120)
+    optionId: str = Field(min_length=1, max_length=80)
+
+
 def get_tars_extension_user(authorization: Optional[str] = Header(default=None)) -> dict[str, Any]:
     user = verify_tars_extension_token(authorization)
     if not user:
@@ -63,4 +68,49 @@ async def submit_browser_lab_evidence(
 ) -> BrowserLabAttemptResponse:
     return BrowserLabAttemptResponse(
         attempt=browser_labs.record_evidence(attempt_id, user, request.model_dump())
+    )
+
+
+@router.post("/attempts/{attempt_id}/recovery", response_model=BrowserLabAttemptResponse)
+async def create_browser_lab_recovery(
+    attempt_id: str,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> BrowserLabAttemptResponse:
+    return BrowserLabAttemptResponse(
+        attempt=browser_labs.create_recovery(attempt_id, user)
+    )
+
+
+@router.post(
+    "/attempts/{attempt_id}/recoveries/{recovery_id}/practice-attempts",
+    response_model=BrowserLabAttemptResponse,
+)
+async def submit_browser_lab_recovery_practice(
+    attempt_id: str,
+    recovery_id: str,
+    request: BrowserLabPracticeAttemptRequest,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> BrowserLabAttemptResponse:
+    return BrowserLabAttemptResponse(
+        attempt=browser_labs.record_practice_attempt(
+            attempt_id,
+            recovery_id,
+            user,
+            client_attempt_id=request.clientAttemptId,
+            option_id=request.optionId,
+        )
+    )
+
+
+@router.post(
+    "/attempts/{attempt_id}/recoveries/{recovery_id}/retry",
+    response_model=BrowserLabAttemptResponse,
+)
+async def retry_browser_lab_recovery(
+    attempt_id: str,
+    recovery_id: str,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> BrowserLabAttemptResponse:
+    return BrowserLabAttemptResponse(
+        attempt=browser_labs.start_recovery_retry(attempt_id, recovery_id, user)
     )

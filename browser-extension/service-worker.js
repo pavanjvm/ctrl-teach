@@ -248,6 +248,7 @@ async function recordLabEvent(kind, payload = {}) {
       url: safePayload.url,
       title: safePayload.title,
       text: safePayload.text || safePayload.label || safePayload.visibleText,
+      phase: safePayload.phase,
     });
   }
 }
@@ -337,6 +338,7 @@ async function markBrowserLabCleanupReady(message, sender) {
   if (!isTrustedBridgeSender(sender)) return { ok: false, error: "untrusted_origin" };
   if (activeBrowserLab && (!message.attemptId || message.attemptId === activeBrowserLab.attemptId)) {
     activeBrowserLab.phase = "cleanup";
+    await recordLabEvent("cleanup_started", {});
     return { ok: true, phase: "cleanup" };
   }
   return { ok: false, error: "no_active_lab" };
