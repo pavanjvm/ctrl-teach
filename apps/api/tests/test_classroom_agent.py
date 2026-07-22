@@ -9,7 +9,7 @@ from PIL import Image
 
 from app.agents.tutor_agent import build_tutor_agent
 from app.agents.tars_agent import build_tars_agent
-from app.main import _turn_detection_for_mode, _turn_requires_learner_response
+from app.main import _send_json, _turn_detection_for_mode, _turn_requires_learner_response
 from app.services.tars_visual_locator import (
     LocalizationResult,
     crop_image_region,
@@ -178,6 +178,17 @@ class ClassroomPointGroundingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["groundingRegion"], "course_image")
         self.assertEqual(locator.await_args.kwargs["width"], 30)
         self.assertEqual(locator.await_args.kwargs["height"], 25)
+
+
+class WebSocketSendTests(unittest.IsolatedAsyncioTestCase):
+    async def test_send_json_reports_delivery_result(self) -> None:
+        websocket = type("WebSocketStub", (), {})()
+        websocket.send_text = AsyncMock(return_value=None)
+
+        self.assertTrue(await _send_json(websocket, {"type": "tars_draw"}))
+
+        websocket.send_text = AsyncMock(side_effect=RuntimeError("closed"))
+        self.assertFalse(await _send_json(websocket, {"type": "visual_sync_end"}))
 
 
 if __name__ == "__main__":

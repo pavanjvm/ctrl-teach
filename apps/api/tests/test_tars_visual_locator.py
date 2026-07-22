@@ -33,6 +33,13 @@ class SpatialResultTests(unittest.TestCase):
 
         self.assertEqual(result, LocalizationResult(mode="point", start=(42, 57)))
 
+    def test_rejects_click_when_bounds_were_requested(self) -> None:
+        call = SimpleNamespace(actions=[SimpleNamespace(type="click", x=42, y=57)])
+
+        result = _spatial_result(call, "bounds")
+
+        self.assertIsNone(result)
+
     def test_preserves_segment_direction(self) -> None:
         call = SimpleNamespace(actions=[SimpleNamespace(
             type="drag",
@@ -42,6 +49,16 @@ class SpatialResultTests(unittest.TestCase):
         result = _spatial_result(call, "segment")
 
         self.assertEqual(result, LocalizationResult(mode="segment", start=(90, 80), end=(20, 10)))
+
+    def test_normalizes_point_drag_to_its_midpoint(self) -> None:
+        call = SimpleNamespace(actions=[SimpleNamespace(
+            type="drag",
+            path=[SimpleNamespace(x=20, y=10), SimpleNamespace(x=80, y=50)],
+        )])
+
+        result = _spatial_result(call, "point")
+
+        self.assertEqual(result, LocalizationResult(mode="point", start=(50, 30)))
 
 
 class RefinePayloadTests(unittest.IsolatedAsyncioTestCase):
@@ -186,6 +203,40 @@ class RefinePayloadTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(refined["end_y"], 900)
         self.assertEqual(refined["grounding_mode"], "segment")
 
+    async def test_text_localization_uses_anchor_description_not_display_text(self) -> None:
+        payload = {
+            "coordinate_space": "viewport",
+            "shape": "text",
+            "x": 100,
+            "y": 200,
+            "label": "Remember this",
+            "anchor_label": "empty space below the chart",
+        }
+        state = {
+            "tars_viewport_capture": {
+                "data": "full-png-data",
+                "mimeType": "image/png",
+                "width": 1920,
+                "height": 1080,
+            },
+            "last_input_transcript": "write remember this below the chart",
+        }
+        locator = AsyncMock(return_value=LocalizationResult(
+            mode="point",
+            start=(800, 600),
+        ))
+
+        with patch(
+            "app.services.tars_visual_locator.locate_visual_target",
+            new=locator,
+        ):
+            refined = await refine_tars_payload(payload, state, tool_name="draw_on_screen")
+
+        self.assertEqual(refined["label"], "Remember this")
+        self.assertEqual((refined["x"], refined["y"]), (800, 600))
+        self.assertIn("empty space below the chart", locator.await_args.kwargs["description"])
+        self.assertNotIn("remember this", locator.await_args.kwargs["description"].lower())
+
     async def test_failed_drawing_grounding_does_not_authorize_rough_geometry(self) -> None:
         payload = {
             "coordinate_space": "viewport",
@@ -213,6 +264,37 @@ class RefinePayloadTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(refined["grounding"], "failed")
         self.assertEqual(refined["grounding_failure"], "locator_no_result")
+
+    async def test_mismatched_drawing_mode_does_not_authorize_rough_geometry(self) -> None:
+        payload = {
+            "coordinate_space": "viewport",
+            "shape": "rectangle",
+            "x": 10,
+            "y": 20,
+            "end_x": 300,
+            "end_y": 400,
+            "label": "diagram node",
+        }
+        state = {
+            "tars_viewport_capture": {
+                "data": "full-png-data",
+                "mimeType": "image/png",
+                "width": 1920,
+                "height": 1080,
+            },
+        }
+
+        with patch(
+            "app.services.tars_visual_locator.locate_visual_target",
+            new=AsyncMock(return_value=LocalizationResult(
+                mode="point",
+                start=(500, 300),
+            )),
+        ):
+            refined = await refine_tars_payload(payload, state, tool_name="draw_on_screen")
+
+        self.assertEqual(refined["grounding"], "failed")
+        self.assertEqual(refined["grounding_failure"], "locator_mode_mismatch")
 
     async def test_refines_non_dom_viewport_point(self) -> None:
         payload = {

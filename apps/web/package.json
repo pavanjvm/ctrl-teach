@@ -9,7 +9,8 @@
     "lint": "next lint",
     "test:diagram": "node --experimental-strip-types --test src/lib/realtime/diagramLayout.test.mjs",
     "test:classroom-text": "node --experimental-strip-types --test src/lib/realtime/classroomTextLayout.test.mjs",
-    "test:course-editor": "node --experimental-strip-types --test src/lib/courses/editor.test.mjs"
+    "test:course-editor": "node --experimental-strip-types --test src/lib/courses/editor.test.mjs",
+    "test:tars-routes": "node --experimental-strip-types --test src/lib/tars/routes.test.mjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
