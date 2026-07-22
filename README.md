@@ -107,7 +107,7 @@ In another terminal:
 
 ```bash
 cd apps/web
-npm ci
+npm ci --legacy-peer-deps
 ```
 
 Localhost is the default. To set the endpoints explicitly, create
@@ -123,6 +123,10 @@ Start Next.js:
 ```bash
 npm run dev
 ```
+
+The current Radix dependency set declares React 18 peer ranges while the app
+uses React 19. The legacy-peer mode installs the locked dependency graph until
+those upstream peer ranges are updated.
 
 Open `http://localhost:3000`, register a local account, and complete onboarding.
 

@@ -29,7 +29,7 @@ cd apps/api
 uv sync --locked
 
 cd ../web
-npm ci
+npm ci --legacy-peer-deps
 ```
 
 Then run the API from `apps/api` and the web app from `apps/web` using the
