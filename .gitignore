@@ -60,7 +60,7 @@ service-account*.json
 gcp-credentials.json
 *.gcp-key.json
 
-# --- Database / uploaded media (Backend) ---
+# --- Database / uploaded media (apps/api) ---
 *.db
 *.sqlite
 *.sqlite3

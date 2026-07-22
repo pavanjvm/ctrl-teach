@@ -8,8 +8,8 @@ Focused backlog for learner skill profiles and learning memory.
 
 ### Current foundation
 
-- `frontend/src/lib/skillProfile.ts` derives strengths, building skills, focus areas, confidence, and evidence counts.
-- `frontend/src/lib/learner.tsx` updates the profile from lesson, assessment, lab, roleplay, and reflection memories.
+- `apps/web/src/lib/learning/skillProfile.ts` derives strengths, building skills, focus areas, confidence, and evidence counts.
+- `apps/web/src/lib/learning/provider.tsx` updates the profile from lesson, assessment, lab, roleplay, and reflection memories.
 - Dashboard recommendations and `/profile` already consume the derived profile.
 
 ### Work

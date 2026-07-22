@@ -17,7 +17,7 @@ then commit both `pyproject.toml` and `uv.lock`.
 
 Admin accounts use the same signed bearer sessions as learners, with an
 additional database role checked on every admin API request. Seed an admin in
-`Backend/.env` (use a strong local password):
+`apps/api/.env` (use a strong local password):
 
 ```env
 APP_USERS=[{"username":"admin","password":"replace-this","name":"Course Admin","is_admin":true}]
@@ -27,7 +27,7 @@ The account signs in at `/admin/login`. Platform courses are stored separately
 from learner-owned generated courses. Admins can save drafts, publish them to
 the shared learner catalog, and unpublish them without deleting course data.
 
-For local product demos, `Backend/.env.local` can override `APP_USERS` without
+For local product demos, `apps/api/.env.local` can override `APP_USERS` without
 changing the main secret-bearing `.env`. A seeded entry may opt into
 `"force_password": true` when a fixed demo password must be restored on each
 startup. `"force_role": true` similarly restores the declared admin role. Do

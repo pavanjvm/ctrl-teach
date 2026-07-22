@@ -16,7 +16,7 @@ If this file is missing, the tool still works; it just won’t return an `audio_
 
 2. **TTS script:** From the repo root:
    ```bash
-   cd Backend
+   cd apps/api
    uv run --with gtts --with pydub python scripts/generate_image_ok_audio.py
    ```
    (Requires ffmpeg for WAV→PCM, or use the script’s fallback.)

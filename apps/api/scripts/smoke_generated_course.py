@@ -1,6 +1,6 @@
 """Opt-in live smoke test for course, research, and image generation.
 
-Run from Backend/ with:
+Run from apps/api/ with:
     RUN_OPENAI_LIVE_TESTS=1 uv run python scripts/smoke_generated_course.py
 
 The script uses an in-memory database and a temporary uploads directory. It

@@ -212,7 +212,7 @@ async def list_roleplay_faces(
     if not settings.tavus_api_key.strip():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Tavus is not configured. Add TAVUS_API_KEY to Backend/.env.",
+            detail="Tavus is not configured. Add TAVUS_API_KEY to apps/api/.env.",
         )
 
     try:

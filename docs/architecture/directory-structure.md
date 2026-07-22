@@ -1,26 +1,39 @@
-# Directory Structure
+# Repository Directory Structure
 
-This repository uses a feature-oriented source layout. It keeps route URLs and
-backend API contracts stable while making ownership clear for parallel work.
+The repository groups deployable products under `apps/`, keeps shared project
+documentation under `docs/`, and keeps repository-wide utilities under
+`scripts/`. This makes application ownership explicit without creating empty
+shared packages that have no maintained contract.
 
-## Frontend
+## Repository Boundaries
 
-- `frontend/src/app/` contains Next.js routes, layouts, and route-specific CSS.
-- `frontend/src/components/auth/` contains authentication UI and providers.
-- `frontend/src/components/learning/` contains learner workspace modes,
+- `apps/api/` is the FastAPI product: application code, API tests, Python
+  dependency metadata, API Dockerfile, and API-specific maintenance scripts.
+- `apps/web/` is the Next.js product: routes, frontend components, client
+  state, static assets, Node dependency metadata, and web Dockerfile.
+- `apps/extension/` is the Chrome Manifest V3 companion. Its manifest and
+  assets remain together because Chrome resolves them by relative path.
+- `docs/` contains durable architecture, planning, and setup documentation.
+- `scripts/` contains repository-level utilities that are not owned by one app.
+
+## Web Application
+
+- `apps/web/src/app/` contains Next.js routes, layouts, and route-specific CSS.
+- `apps/web/src/components/auth/` contains authentication UI and providers.
+- `apps/web/src/components/learning/` contains learner workspace modes,
   progression UI, and lesson-scoped experiences.
-- `frontend/src/components/labs/` contains hands-on practice surfaces and the
+- `apps/web/src/components/labs/` contains hands-on practice surfaces and the
   TARS coaching overlay.
-- `frontend/src/components/realtime/` contains the whiteboard and transcript
+- `apps/web/src/components/realtime/` contains the whiteboard and transcript
   UI used by live tutoring.
-- `frontend/src/components/tars/` contains global TARS integration UI.
-- `frontend/src/components/courses/` and `frontend/src/components/admin/`
+- `apps/web/src/components/tars/` contains global TARS integration UI.
+- `apps/web/src/components/courses/` and `apps/web/src/components/admin/`
   contain course presentation and authoring UI.
-- `frontend/src/components/ui/` contains reusable presentational primitives.
-- `frontend/src/components/legacy/` holds intentionally retained, unreferenced
+- `apps/web/src/components/ui/` contains reusable presentational primitives.
+- `apps/web/src/components/legacy/` holds intentionally retained, unreferenced
   legacy components. Do not add new production code there.
 
-`frontend/src/lib/` follows the same feature boundaries:
+`apps/web/src/lib/` follows the same feature boundaries:
 
 - `courses/` owns course catalog, generated course helpers, and authoring
   utilities.
@@ -31,21 +44,24 @@ backend API contracts stable while making ownership clear for parallel work.
   profile helpers.
 - `admin/` contains temporary admin mock data until it is replaced by API data.
 
-## Backend and Extension
+## API and Extension
 
-- `Backend/app/` remains layer-oriented: `routers/`, `services/`, `agents/`,
+- `apps/api/app/` remains layer-oriented: `routers/`, `services/`, `agents/`,
   `auth/`, `middleware/`, `tools/`, and shared infrastructure at the app root.
-- `browser-extension/` remains flat because Chrome extension manifests reference
-  its assets by path.
+- `apps/api/tests/` holds backend tests close to the API code they verify.
+- `apps/extension/` remains intentionally flat because Chrome extension
+  manifests reference its assets by relative path.
 
 ## Contribution Rules
 
 1. Keep route files in `app/`; put reusable feature UI in the matching
    `components/<feature>/` directory.
 2. Put feature state, domain helpers, and API adapters in `lib/<feature>/`.
-3. Use the `@/` alias for frontend imports rather than upward relative paths.
+3. Use the `@/` alias for web imports rather than upward relative paths.
 4. Keep behavior-preserving moves separate from feature changes whenever
    possible, so branch merges stay low-conflict.
 5. Do not place secrets or environment-specific values in source files. Use
-   `Backend/.env.example` and `frontend/.env.local` as the configuration
+   `apps/api/.env.example` and `apps/web/.env.local` as the configuration
    contracts.
+6. Add a shared package only after code has a maintained contract and at least
+   two applications depend on it; do not create a catch-all `shared/` folder.

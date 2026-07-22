@@ -1,7 +1,7 @@
 # Ctrl+Teach
 
 <p align="center">
-  <img src="frontend/public/Logo.png" alt="Ctrl+Teach logo" width="112" />
+  <img src="apps/web/public/Logo.png" alt="Ctrl+Teach logo" width="112" />
 </p>
 
 Ctrl+Teach is an AI-led learning workspace that turns a learning objective into
@@ -70,12 +70,12 @@ browser-to-OpenAI WebSocket path, so a camera is not required.
 ### 1. Configure and run the backend
 
 ```bash
-cd Backend
+cd apps/api
 uv sync --locked
 cp .env.example .env
 ```
 
-At minimum, set these values in `Backend/.env`:
+At minimum, set these values in `apps/api/.env`:
 
 ```env
 OPENAI_API_KEY=your-openai-api-key
@@ -106,12 +106,12 @@ connections. Do not disable TLS verification to work around certificate errors.
 In another terminal:
 
 ```bash
-cd frontend
+cd apps/web
 npm ci
 ```
 
 Localhost is the default. To set the endpoints explicitly, create
-`frontend/.env.local`:
+`apps/web/.env.local`:
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
@@ -128,7 +128,7 @@ Open `http://localhost:3000`, register a local account, and complete onboarding.
 
 ## Backend Configuration
 
-`Backend/.env.example` is the source of truth for supported variables. Important
+`apps/api/.env.example` is the source of truth for supported variables. Important
 groups are summarized below.
 
 | Variable | Purpose |
@@ -145,8 +145,8 @@ groups are summarized below.
 | `APP_SESSION_TOKEN_SECRET` | HMAC secret for application sessions |
 | `CORS_ORIGINS` | JSON list of allowed frontend origins |
 
-Never place provider keys in `frontend/.env.local` or commit a populated
-`Backend/.env`.
+Never place provider keys in `apps/web/.env.local` or commit a populated
+`apps/api/.env`.
 
 When updating an existing SQLite deployment, move the database file currently
 referenced by `DATABASE_URL` to `ctrlteach.db` before changing the URL. Updating
@@ -169,11 +169,11 @@ and beacon cleanup paths intact because Tavus starts metering when it creates
 the room.
 
 Voice previews are static WAV files under
-`frontend/public/audio/roleplay-voices`. Playing them does not create a Tavus
+`apps/web/public/audio/roleplay-voices`. Playing them does not create a Tavus
 room or OpenAI request. To regenerate the complete set deliberately:
 
 ```bash
-cd Backend
+cd apps/api
 uv run python scripts/generate_roleplay_voice_previews.py
 ```
 
@@ -226,14 +226,14 @@ original step, and a verified run is terminal.
 
 ```bash
 # Frontend type checking
-cd frontend
+cd apps/web
 npx tsc --noEmit -p tsconfig.json
 
 # Frontend production build
 npm run build
 
 # Backend import smoke test
-cd ../Backend
+cd ../api
 uv run python -c "from app.main import app; print(app.title)"
 
 # Roleplay tests
@@ -243,7 +243,7 @@ uv run python -m unittest tests.test_roleplay
 uv run python -m unittest tests.test_browser_labs
 
 # Browser-extension protocol tests
-cd ../browser-extension
+cd ../extension
 node --test *.test.js
 ```
 
@@ -254,34 +254,32 @@ check. Use TypeScript and the production build until linting is configured.
 
 ```text
 .
-|-- frontend/                  Next.js application
-|   |-- src/app/               routes and route-specific styles
-|   |-- src/components/        feature UI: learning, labs, realtime, TARS, auth, admin
-|   |-- src/lib/               feature domain/state: learning, courses, realtime, TARS
-|   `-- public/                static images and roleplay voice previews
-|-- Backend/                   FastAPI application
-|   |-- app/agents/            realtime tutor and roleplay agents
-|   |-- app/routers/           REST endpoints
-|   |-- app/services/          courses, labs, context, visual location
-|   |-- tests/                 backend tests
-|-- docs/architecture/         repository architecture and ownership rules
-|   `-- scripts/               maintenance and preview generation
-|-- browser-extension/         Chrome Manifest V3 Tars companion
+|-- apps/
+|   |-- api/                   FastAPI application, tests, and API-specific scripts
+|   |-- extension/             Chrome Manifest V3 Tars companion
+|   `-- web/                   Next.js application and static assets
+|-- docs/
+|   |-- architecture/          repository architecture and ownership rules
+|   |-- planning/              product and technical backlog documents
+|   `-- setup/                 local setup and migration guidance
 |-- scripts/                   project-level artifact scripts
 |-- AGENTS.md                  repository guidance for coding agents
-`-- README.md                  project overview and setup
+|-- README.md                  project overview and setup
+`-- skills-lock.json           locked skill metadata
 ```
 
 ## Browser Extension
 
-With the frontend and backend running, load `browser-extension/` as an unpacked
+With the frontend and backend running, load `apps/extension/` as an unpacked
 extension from `chrome://extensions`. See
-[`browser-extension/README.md`](browser-extension/README.md) for permissions,
+[`apps/extension/README.md`](apps/extension/README.md) for permissions,
 controls, and deployed-origin configuration.
 
 ## Deployment
 
-The frontend and backend each include a Dockerfile. The frontend expects public
+The frontend and backend each include a Dockerfile. Build them with
+`docker build -f apps/web/Dockerfile apps/web` and
+`docker build -f apps/api/Dockerfile apps/api`. The frontend expects public
 HTTP and WebSocket backend URLs at build time. The backend should run with a
 persistent database/upload volume or managed equivalents, an explicit CORS
 origin, strong independent session secrets, and provider credentials supplied
