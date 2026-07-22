@@ -52,6 +52,16 @@ shared packages that have no maintained contract.
 - `apps/extension/` remains intentionally flat because Chrome extension
   manifests reference its assets by relative path.
 
+## Learning-Path Progress
+
+Learning-path progression is server-derived. The `course_lesson_progress` table
+records valid lessons completed in path-backed platform or generated courses.
+The learner provider keeps local progress responsive, hydrates these records at
+sign-in, and submits newly completed lessons to
+`/api/learning-paths/progress/lessons`. The backend validates the course and
+lesson IDs, derives full-course completion from its own records, and only then
+updates the matching path-node mastery and unlocks the next node.
+
 ## Contribution Rules
 
 1. Keep route files in `app/`; put reusable feature UI in the matching

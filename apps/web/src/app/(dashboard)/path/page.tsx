@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import { ArrowRight, BookOpen, CheckCircle2, Loader2, Sparkles, Target } from "lucide-react";
@@ -19,6 +19,7 @@ type PathNode = {
   metadata: { sourceKind?: "cprime_curated" | "ai_generated" };
 };
 type LearningPath = { id: string; roleName: string; nodes: PathNode[] };
+type LearningPathList = { paths: LearningPath[] };
 
 export default function LearningPathPage() {
   const router = useRouter();
@@ -30,18 +31,34 @@ export default function LearningPathPage() {
   const [workingNode, setWorkingNode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function headers() {
+  const headers = useCallback(async () => {
     const token = await getToken();
     return token ? { Authorization: token } : undefined;
-  }
+  }, [getToken]);
 
   useEffect(() => {
-    headers()
-      .then((value) => axios.get<{ roles: Role[] }>(`${API_URL}/api/learning-paths/roles`, { headers: value }))
-      .then((response) => setRoles(response.data.roles))
-      .catch(() => setError("Could not load the available role paths."))
-      .finally(() => setLoading(false));
-  }, []);
+    let cancelled = false;
+    async function loadPath() {
+      setLoading(true);
+      try {
+        const requestHeaders = await headers();
+        const [rolesResponse, pathsResponse] = await Promise.all([
+          axios.get<{ roles: Role[] }>(`${API_URL}/api/learning-paths/roles`, { headers: requestHeaders }),
+          axios.get<LearningPathList>(`${API_URL}/api/learning-paths`, { headers: requestHeaders }),
+        ]);
+        if (!cancelled) {
+          setRoles(rolesResponse.data.roles);
+          setPath(pathsResponse.data.paths[0] ?? null);
+        }
+      } catch {
+        if (!cancelled) setError("Could not load the available role paths.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void loadPath();
+    return () => { cancelled = true; };
+  }, [headers]);
 
   async function chooseRole(roleId: string) {
     setLoading(true);
@@ -101,7 +118,11 @@ export default function LearningPathPage() {
         </section>
       ) : (
         <section className="path-route">
-          <div className="path-title"><Target size={19} /><div><span>Target role</span><h2>{path.roleName}</h2></div></div>
+          <div className="path-title">
+            <Target size={19} />
+            <div><span>Target role</span><h2>{path.roleName}</h2></div>
+            <button className="path-change-role" type="button" onClick={() => { setPath(null); setError(null); }}>Choose a different role</button>
+          </div>
           <div className="path-nodes">
             {path.nodes.map((node, index) => {
               const blocked = node.status === "locked";
