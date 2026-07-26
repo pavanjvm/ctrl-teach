@@ -126,9 +126,8 @@ SCENES = {
         "specifically mentioned it."
     ),
     "act-3-ec2-closing.mp3": (
-        "Without leaving the AWS console or juggling between documentation and AI tabs, the "
-        "learner receives guidance directly inside the interface—before a configuration "
-        "mistake reaches the live environment."
+        "Without leaving the AWS console or juggling between tabs, the learner receives "
+        "guidance directly inside the interface."
     ),
     "act-3-across-browser.mp3": (
         "Tars can also move with the learner across supported browser tabs."

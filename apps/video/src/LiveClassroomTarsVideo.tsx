@@ -16,10 +16,10 @@ const clamp = {
 };
 const ease = Easing.bezier(0.16, 1, 0.3, 1);
 
-const EC2_SOURCE_DURATION = 1842;
 const EC2_HOLD_AT = 533;
 const EC2_HOLD_DURATION = 166;
-const EC2_CLEAN_END = 1782;
+const EC2_SCENE_DURATION = 1820;
+const EC2_RECORDING_END = EC2_SCENE_DURATION - EC2_HOLD_DURATION;
 
 export const LIVE_TARS_SCENES = {
   liveIntro: 196,
@@ -28,7 +28,7 @@ export const LIVE_TARS_SCENES = {
   liveExplain: 290,
   labIntro: 192,
   meetTars: 161,
-  acrossBrowser: EC2_SOURCE_DURATION + EC2_HOLD_DURATION,
+  acrossBrowser: EC2_SCENE_DURATION,
   workflow: 960,
 } as const;
 
@@ -725,24 +725,15 @@ const AcrossBrowserScene: React.FC = () => (
       durationInFrames={EC2_HOLD_DURATION}
     >
       <Freeze frame={EC2_HOLD_AT - 1}>
-        <Ec2Recording trimBefore={0} trimAfter={EC2_SOURCE_DURATION} muted />
+        <Ec2Recording trimBefore={0} trimAfter={EC2_RECORDING_END} muted />
       </Freeze>
     </Sequence>
     <Sequence
       name="Learner asks Tars inside AWS"
       from={EC2_HOLD_AT + EC2_HOLD_DURATION}
-      durationInFrames={EC2_CLEAN_END - EC2_HOLD_AT}
+      durationInFrames={EC2_RECORDING_END - EC2_HOLD_AT}
     >
-      <Ec2Recording trimBefore={EC2_HOLD_AT} trimAfter={EC2_CLEAN_END} muted />
-    </Sequence>
-    <Sequence
-      name="Clean AWS hold replacing the screen-recording controls"
-      from={EC2_CLEAN_END + EC2_HOLD_DURATION}
-      durationInFrames={EC2_SOURCE_DURATION - EC2_CLEAN_END}
-    >
-      <Freeze frame={EC2_CLEAN_END - 1}>
-        <Ec2Recording trimBefore={0} trimAfter={EC2_CLEAN_END} muted />
-      </Freeze>
+      <Ec2Recording trimBefore={EC2_HOLD_AT} trimAfter={EC2_RECORDING_END} muted />
     </Sequence>
 
     <AwsAccountMask />
