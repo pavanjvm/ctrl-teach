@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 ws_notify: ContextVar[Optional[Callable[[Dict[str, Any]], None]]] = ContextVar(
     "ws_notify", default=None
 )
+tars_visual_state: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+    "tars_visual_state", default=None
+)
 
 
 def set_ws_notify(fn: Callable[[Dict[str, Any]], None]):
@@ -47,3 +50,9 @@ def set_ws_notify(fn: Callable[[Dict[str, Any]], None]):
     """
     logger.debug("ws_notify registered for session")
     return ws_notify.set(fn)
+
+
+def set_tars_visual_state(state: Dict[str, Any]):
+    """Expose the current mutable visual state to async Tars tool calls."""
+
+    return tars_visual_state.set(state)

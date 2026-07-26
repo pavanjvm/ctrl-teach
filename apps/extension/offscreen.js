@@ -271,6 +271,16 @@ function handleServerEvent(event) {
     void emit({ type: "TARS_STATUS", mode: "idle", text: "Tars ready — hold Ctrl to talk" });
     return;
   }
+  if (event.type === "tars_point_pending") {
+    if (event.status === "started") {
+      void emit({
+        type: "TARS_STATUS",
+        mode: "thinking",
+        text: `Tars locating ${event.label || "that target"}`,
+      });
+    }
+    return;
+  }
   if (event.type === "tars_point") {
     void emit({ type: "TARS_POINT", response: event.response || {} });
     return;

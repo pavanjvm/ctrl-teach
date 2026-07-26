@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from app.auth.dependencies import get_current_user
 from app.config import settings
 from app.services.learning_path import compose_learning_path
+from app.services.roadmap_generation import generate_prompt_roadmap
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,10 @@ class DiscoverRequest(BaseModel):
     platforms: List[str] = Field(default_factory=list)
     level: Optional[str] = None
     time_budget: str = "2 weeks"
+
+
+class GenerateRoadmapRequest(BaseModel):
+    prompt: str = Field(min_length=2, max_length=500)
 
 
 def _openai() -> OpenAI:
@@ -385,6 +390,22 @@ async def build_path(req: DiscoverRequest, user: dict = Depends(get_current_user
     source = "+".join(used_sources) or ("openai-only" if client else "local-fallback")
     _cache[sig] = {"t": time.time(), "path": path}
     return {"path": path, "source": source}
+
+
+@router.post("/roadmap")
+async def build_roadmap(req: GenerateRoadmapRequest, user: dict = Depends(get_current_user)):
+    """Turn a free-form learner prompt into a bounded interactive roadmap."""
+
+    prompt = req.prompt.strip()
+    sig = f"roadmap:{hashlib.sha1(prompt.casefold().encode('utf-8')).hexdigest()}"
+    cached = _cache.get(sig)
+    if cached and time.time() - cached["t"] < _CACHE_TTL:
+        return {"roadmap": cached["roadmap"], "source": "cache"}
+
+    client = _openai() if settings.openai_api_key else None
+    roadmap = generate_prompt_roadmap(client, prompt)
+    _cache[sig] = {"t": time.time(), "roadmap": roadmap}
+    return {"roadmap": roadmap, "source": "openai" if client else "local-fallback"}
 
 
 

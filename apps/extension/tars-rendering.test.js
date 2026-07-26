@@ -18,3 +18,31 @@ test("renders dashed and dotted strokes in physical SVG units", () => {
 test("uses text anchors as top-left positions", () => {
   assert.match(contentSource, /"dominant-baseline":\s*"hanging"/);
 });
+
+test("renders a triangle polygon from DOM and raw bounding boxes", () => {
+  assert.match(contentSource, /\["rectangle",\s*"triangle",\s*"highlight",\s*"circle",\s*"underline"\]/);
+  assert.match(contentSource, /points:\s*`\$\{rect\.left \+ rect\.width \/ 2\},\$\{rect\.top\} \$\{rect\.right\},\$\{rect\.bottom\} \$\{rect\.left\},\$\{rect\.bottom\}`/);
+  assert.match(contentSource, /points:\s*`\$\{left \+ width \/ 2\},\$\{top\} \$\{left \+ width\},\$\{top \+ height\} \$\{left\},\$\{top \+ height\}`/);
+});
+
+test("renders a leader-line label at the grounded endpoint", () => {
+  assert.match(contentSource, /leaderLabelAnchor\s*=\s*end/);
+  assert.match(contentSource, /x:\s*leaderLabelAnchor\.x \+ 8/);
+  assert.match(contentSource, /text\.textContent\s*=\s*leaderLabel/);
+});
+
+test("shows a bottom-right notice when Sol misses batch coordinates", () => {
+  assert.match(contentSource, /coordinate_source === "sol_missing"/);
+  assert.match(contentSource, /Sol missed \$\{named\}; annotation skipped/);
+  assert.match(contentSource, /setStatus\([^\n]+true, 5000\)/);
+});
+
+test("removes a provisional annotation without rendering a replacement", () => {
+  const stableIdRemoval = contentSource.indexOf('child.getAttribute("data-annotation-id") === annotationId');
+  const removalResponse = contentSource.indexOf("if (response.remove === true) return;", stableIdRemoval);
+  const annotationCreation = contentSource.indexOf('const annotationGroup = svgElement("g"', stableIdRemoval);
+
+  assert.ok(stableIdRemoval >= 0);
+  assert.ok(removalResponse > stableIdRemoval);
+  assert.ok(annotationCreation > removalResponse);
+});

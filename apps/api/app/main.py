@@ -87,7 +87,7 @@ from app.services.teaching_profiles import (
     selected_teaching_profile,
 )
 from app.utils.logging_config import setup_logging
-from app.utils.ws_signals import set_ws_notify, ws_notify
+from app.utils.ws_signals import set_tars_visual_state, set_ws_notify, tars_visual_state, ws_notify
 
 logger = logging.getLogger(__name__)
 
@@ -216,8 +216,8 @@ async def lifespan(_app: FastAPI):
     # Ensure SQLite tables exist (idempotent — also runs at db import time).
     from app.db import init_db
     init_db()
-    from app.services.platform_courses import seed_platform_courses
-    seed_platform_courses()
+    from app.services.platform_courses import remove_retired_default_platform_courses
+    remove_retired_default_platform_courses()
 
     # Ensure local uploads directory exists for storage_tools.
     import os
@@ -299,6 +299,18 @@ def _turn_detection_for_mode(*, push_to_talk: bool) -> Optional[dict[str, Any]]:
         "type": "semantic_vad",
         "interrupt_response": True,
     }
+
+
+def _audio_interruption_requires_visual_abort(agent_kind: str) -> bool:
+    """Return whether an audio interruption still owns visual invalidation.
+
+    Page-mode Tars uses explicit push-to-talk. Its client ``interrupt`` message
+    invalidates the old visual generation before the next turn is committed, so
+    the later Realtime ``audio_interrupted`` event is only an acknowledgement.
+    Semantic-VAD modes have no earlier client invalidation and must abort here.
+    """
+
+    return agent_kind != "tars"
 
 
 def _build_runner(
@@ -936,7 +948,9 @@ skipping required work, or weaken lab success criteria or cleanup.
         "highlight_area", "clear_canvas", "plot_function",
     }
     _CLASSROOM_VISUAL_TOOL_NAMES = _CANVAS_TOOL_NAMES | {
-        "point_at_whiteboard", "draw_on_screen", "clear_screen_drawings",
+        "point_at_whiteboard", "draw_on_screen", "draw_screen_diagram",
+        "draw_screen_annotations",
+        "clear_screen_drawings",
     }
     _VISUAL_TOOL_NAMES = _CLASSROOM_VISUAL_TOOL_NAMES | {"point_at"}
     _early_pushed: set[str] = set()
@@ -1086,23 +1100,65 @@ skipping required work, or weaken lab success criteria or cleanup.
         "auto_continue_task": None,
         "visual_generation": 0,
         "accepting_visual_tools": True,
+        "client_turn_serial": 0,
+        "turn_completion_revision": 0,
+        "completion_sent_for_turn": -1,
+        "model_response_active": False,
     }
+    _tars_visual_state_token = set_tars_visual_state(state)
     pending_tars_drawings: list[
         tuple[asyncio.Task[None], dict[str, Any]]
     ] = []
     pending_tars_points: set[asyncio.Task[None]] = set()
+    pending_turn_completions: set[asyncio.Task[None]] = set()
+    pending_realtime_tool_calls: Dict[tuple[str, str], int] = {}
+    visual_grounding_semaphore = asyncio.Semaphore(4)
+
+    def _note_turn_completion_activity() -> int:
+        revision = int(state.get("turn_completion_revision") or 0) + 1
+        state["turn_completion_revision"] = revision
+        return revision
+
+    def _accept_visual_tools_for_turn() -> None:
+        # Interruptions invalidate the previous generation. A fresh response
+        # must explicitly reopen visual tools; agent_start is session-scoped in
+        # some Realtime SDK versions and therefore cannot reliably do this.
+        state["accepting_visual_tools"] = True
+        state["client_turn_serial"] = int(state.get("client_turn_serial") or 0) + 1
+        _note_turn_completion_activity()
 
     async def _cancel_pending_tars_drawings() -> None:
         if not pending_tars_drawings:
             return
         batch = pending_tars_drawings[:]
         pending_tars_drawings.clear()
-        for task, _ in batch:
+        pending_annotation_ids: list[str] = []
+        for task, metadata in batch:
+            if not task.done():
+                pending_annotation_ids.extend(
+                    str(value)
+                    for value in metadata.get("pending_annotation_ids", [])
+                    if value
+                )
             task.cancel()
         await asyncio.gather(
             *(task for task, _ in batch),
             return_exceptions=True,
         )
+        if pending_annotation_ids:
+            await _send_json(websocket, {
+                "type": "tars_draw_batch",
+                "tool": "draw_on_screen",
+                "responses": [
+                    {
+                        "annotation_id": annotation_id,
+                        "remove": True,
+                        "provisional": False,
+                        "replace": True,
+                    }
+                    for annotation_id in pending_annotation_ids
+                ],
+            })
 
     async def _flush_pending_tars_drawings() -> None:
         if not pending_tars_drawings:
@@ -1118,6 +1174,81 @@ skipping required work, or weaken lab success criteria or cleanup.
         for item in batch:
             if item in pending_tars_drawings:
                 pending_tars_drawings.remove(item)
+
+    async def _flush_pending_tars_visuals() -> None:
+        """Wait until every drawing and point known to this turn has settled."""
+
+        while True:
+            await _flush_pending_tars_drawings()
+            point_tasks = list(pending_tars_points)
+            if point_tasks:
+                await asyncio.gather(*point_tasks, return_exceptions=True)
+            # Yield once so tool_end handlers queued behind the SDK's
+            # asynchronous tool worker can register their localization tasks.
+            await asyncio.sleep(0)
+            if not pending_tars_drawings and not pending_tars_points:
+                return
+
+    def _schedule_turn_completion(*, grace_seconds: float) -> None:
+        """Emit one logical completion only after late tool work is delivered.
+
+        The Realtime SDK can publish ``agent_end`` before its asynchronous
+        ``tool_start`` event. Activity revisions make those intermediate ends
+        stale, while a tool-start fallback prevents a missing final lifecycle
+        event from leaving the browser permanently busy.
+        """
+
+        revision = int(state.get("turn_completion_revision") or 0)
+        turn_serial = int(state.get("client_turn_serial") or 0)
+
+        async def complete_when_stable() -> None:
+            try:
+                await asyncio.sleep(grace_seconds)
+                if (
+                    int(state.get("turn_completion_revision") or 0) != revision
+                    or state.get("model_response_active")
+                    or pending_realtime_tool_calls
+                    or int(state.get("completion_sent_for_turn", -1)) == turn_serial
+                ):
+                    return
+                await _flush_pending_tars_visuals()
+                # Require a short quiet window after the last locator finishes;
+                # another SDK tool task may have been queued by its tool output.
+                await asyncio.sleep(0.12)
+                if (
+                    int(state.get("turn_completion_revision") or 0) != revision
+                    or state.get("model_response_active")
+                    or pending_realtime_tool_calls
+                    or pending_tars_drawings
+                    or pending_tars_points
+                    or int(state.get("completion_sent_for_turn", -1)) == turn_serial
+                ):
+                    return
+                state["completion_sent_for_turn"] = turn_serial
+                await _send_json(websocket, {
+                    "turnComplete": True,
+                    "turnId": int(state.get("assistant_turn_id") or 0),
+                })
+            except asyncio.CancelledError:
+                return
+
+        task = asyncio.create_task(complete_when_stable())
+        pending_turn_completions.add(task)
+        task.add_done_callback(pending_turn_completions.discard)
+
+    def _register_realtime_tool_call(tool_name: str, args_json: str) -> None:
+        key = (tool_name, args_json)
+        pending_realtime_tool_calls[key] = pending_realtime_tool_calls.get(key, 0) + 1
+        _note_turn_completion_activity()
+
+    def _finish_realtime_tool_call(tool_name: str, args_json: str) -> None:
+        key = (tool_name, args_json)
+        count = pending_realtime_tool_calls.get(key, 0)
+        if count <= 1:
+            pending_realtime_tool_calls.pop(key, None)
+        else:
+            pending_realtime_tool_calls[key] = count - 1
+        _schedule_turn_completion(grace_seconds=0.12)
 
     async def _release_open_visual_syncs() -> None:
         pending = [
@@ -1137,6 +1268,14 @@ skipping required work, or weaken lab success criteria or cleanup.
     async def _abort_pending_visuals() -> None:
         state["visual_generation"] = int(state.get("visual_generation") or 0) + 1
         state["accepting_visual_tools"] = False
+        _note_turn_completion_activity()
+        pending_realtime_tool_calls.clear()
+        if pending_turn_completions:
+            completion_tasks = list(pending_turn_completions)
+            pending_turn_completions.clear()
+            for task in completion_tasks:
+                task.cancel()
+            await asyncio.gather(*completion_tasks, return_exceptions=True)
         await _cancel_pending_tars_drawings()
         if pending_tars_points:
             point_tasks = list(pending_tars_points)
@@ -1166,6 +1305,7 @@ skipping required work, or weaken lab success criteria or cleanup.
                 return
             if state.get("classroom_waiting_for_learner") or state.get("classroom_lesson_complete"):
                 return
+            _accept_visual_tools_for_turn()
             await session.send_message(
                 "[Classroom control: Continue teaching from exactly where you stopped. "
                 "Do not greet again, repeat the previous explanation, or ask a question "
@@ -1236,6 +1376,7 @@ skipping required work, or weaken lab success criteria or cleanup.
                     if msg_type == "roleplay_start":
                         instruction = (json_msg.get("instruction") or "").strip()
                         if requested_mode == "roleplay" and instruction:
+                            _accept_visual_tools_for_turn()
                             await session.send_message(instruction[:6000])
 
                     elif msg_type == "classroom_start":
@@ -1244,6 +1385,7 @@ skipping required work, or weaken lab success criteria or cleanup.
                             _cancel_auto_continue()
                             state["classroom_waiting_for_learner"] = False
                             state["classroom_lesson_complete"] = False
+                            _accept_visual_tools_for_turn()
                             await session.send_message(instruction)
 
                     elif msg_type == "companion_context":
@@ -1279,6 +1421,7 @@ skipping required work, or weaken lab success criteria or cleanup.
                             if classroom_mode:
                                 _cancel_auto_continue()
                                 state["classroom_waiting_for_learner"] = False
+                            _accept_visual_tools_for_turn()
                             await session.send_message(text)
 
                     elif msg_type == "interrupt":
@@ -1361,6 +1504,7 @@ skipping required work, or weaken lab success criteria or cleanup.
                             "image I'm showing you and tell me what you see. If it's homework "
                             "or a problem, help me solve it."
                         )
+                        _accept_visual_tools_for_turn()
                         await session.send_message({
                             "type": "message",
                             "role": "user",
@@ -1422,6 +1566,7 @@ skipping required work, or weaken lab success criteria or cleanup.
                                 "Use target_area='course_image' for targets inside the generated lesson image. "
                                 "Use top-left origin, x increasing right, y increasing down. Do not speak coordinates."
                             )
+                        _accept_visual_tools_for_turn()
                         await session.send_message({
                             "type": "message",
                             "role": "user",
@@ -1591,6 +1736,7 @@ skipping required work, or weaken lab success criteria or cleanup.
                         # Tars has server VAD disabled, so this is the single
                         # operation that closes the input buffer and replies.
                         try:
+                            _accept_visual_tools_for_turn()
                             await session.send_audio(b"\x00\x00" * 1200, commit=True)
                             await session._model.send_event(RealtimeModelSendRawMessage(
                                 message={"type": "response.create", "other_data": {}}
@@ -1610,6 +1756,7 @@ skipping required work, or weaken lab success criteria or cleanup.
                         from app.tools.canvas_tools import update_cursor_from_canvas
                         update_cursor_from_canvas(elements)
                         canvas_text = f"[Canvas Elements JSON]\n{json.dumps(elements, indent=2)}"
+                        _accept_visual_tools_for_turn()
                         await session.send_message(canvas_text)
 
                     elif msg_type == "activity_start":
@@ -1664,47 +1811,91 @@ skipping required work, or weaken lab success criteria or cleanup.
                 ).to_ws_json())
                 return
 
+            def _screen_drawing_response(
+                payload: dict[str, Any],
+                annotation_id: str,
+                *,
+                provisional: bool,
+                grounding: Optional[str] = None,
+            ) -> dict[str, Any]:
+                response = {
+                    **payload,
+                    "annotation_id": annotation_id,
+                    "provisional": provisional,
+                    "replace": True,
+                }
+                if grounding:
+                    response["grounding"] = grounding
+                return response
+
+            def _screen_drawing_removal(
+                annotation_id: str,
+                *,
+                reason: str = "grounding_failed",
+                payload: Optional[dict[str, Any]] = None,
+            ) -> dict[str, Any]:
+                return {
+                    "shape": (payload or {}).get("shape"),
+                    "label": (payload or {}).get("label") or "",
+                    "annotation_id": annotation_id,
+                    "remove": True,
+                    "provisional": False,
+                    "replace": True,
+                    "grounding": "failed",
+                    "grounding_failure": reason,
+                    "coordinate_source": "sol_missing",
+                }
+
+            async def _ground_tars_drawing(
+                original_payload: dict[str, Any],
+                grounding_state: dict[str, Any],
+                annotation_id: str,
+            ) -> Optional[dict[str, Any]]:
+                from app.services.tars_visual_locator import refine_tars_payload
+
+                try:
+                    async with visual_grounding_semaphore:
+                        refined = await refine_tars_payload(
+                            original_payload,
+                            grounding_state,
+                            tool_name="draw_on_screen",
+                        )
+                except Exception as exc:
+                    logger.warning("Tars drawing localization failed: %s", exc)
+                    return None
+                if refined.get("grounding") not in {"computer_use", "dom"}:
+                    logger.warning(
+                        "Tars drawing refinement suppressed target=%r reason=%s",
+                        original_payload.get("label"),
+                        refined.get("grounding_failure") or "ungrounded",
+                    )
+                    return None
+                return _screen_drawing_response(
+                    refined,
+                    annotation_id,
+                    provisional=False,
+                )
+
             async def _deliver_tars_drawing(
                 original_payload: dict[str, Any],
                 grounding_state: dict[str, Any],
                 annotation_id: str,
                 visual_sync_id: Optional[str] = None,
             ) -> None:
-                """Ground one annotation and ship it the moment the result exists.
+                """Deliver one annotation after final screenshot grounding."""
 
-                Mirrors the Swift Tars: the drawing action starts as soon as
-                the visual locator resolves, instead of being held until turn
-                end. A multi-shape diagram therefore paints progressively as
-                each shape's coordinates are grounded, which feels far snappier
-                than waiting for the whole turn to finish.
-                """
-                from app.services.tars_visual_locator import refine_tars_payload
                 delivered = False
                 try:
-                    try:
-                        refined = await refine_tars_payload(
-                            original_payload,
-                            grounding_state,
-                            tool_name="draw_on_screen",
-                        )
-                    except Exception as exc:
-                        logger.warning("Tars drawing localization failed: %s", exc)
-                        return
-                    has_dom_geometry = any(
-                        refined.get(key)
-                        for key in ("target_id", "from_target_id", "to_target_id")
+                    refined = await _ground_tars_drawing(
+                        original_payload,
+                        grounding_state,
+                        annotation_id,
                     )
-                    if refined.get("grounding") != "computer_use" and not has_dom_geometry:
-                        logger.warning(
-                            "Tars drawing suppressed target=%r reason=%s",
-                            original_payload.get("label"),
-                            refined.get("grounding_failure") or "ungrounded",
+                    if refined is None:
+                        refined = _screen_drawing_removal(
+                            annotation_id,
+                            payload=original_payload,
                         )
-                        return
-                    refined = {
-                        **refined,
-                        "annotation_id": annotation_id,
-                    }
                     delivered = await _send_json(websocket, {
                         "type": "tars_draw",
                         "tool": "draw_on_screen",
@@ -1728,6 +1919,74 @@ skipping required work, or weaken lab success criteria or cleanup.
                                 visual_sync_id,
                                 exc,
                             )
+
+            async def _deliver_tars_drawing_batch(
+                entries: list[tuple[dict[str, Any], str]],
+                grounding_state: dict[str, Any],
+                visual_sync_id: Optional[str] = None,
+                batch_tool_name: str = "draw_screen_diagram",
+            ) -> None:
+                """Ground every batch member in one Sol call and render atomically."""
+
+                delivered = False
+                try:
+                    from app.services.tars_visual_locator import refine_tars_payloads_batch
+
+                    try:
+                        async with visual_grounding_semaphore:
+                            results = await refine_tars_payloads_batch(
+                                [payload for payload, _ in entries],
+                                grounding_state,
+                            )
+                    except Exception as exc:
+                        logger.warning("Tars batch localization failed; annotations skipped: %s", exc)
+                        results = [
+                            {
+                                **payload,
+                                "grounding": "failed",
+                                "grounding_failure": "batch_exception",
+                                "coordinate_source": "sol_missing",
+                            }
+                            for payload, _ in entries
+                        ]
+                    refined: list[dict[str, Any]] = []
+                    for result, (original_payload, annotation_id) in zip(results, entries):
+                        if (
+                            isinstance(result, dict)
+                            and result.get("grounding") in {"computer_use_batch", "dom"}
+                        ):
+                            refined.append(_screen_drawing_response(
+                                result,
+                                annotation_id,
+                                provisional=False,
+                            ))
+                        else:
+                            reason = (
+                                result.get("grounding_failure")
+                                if isinstance(result, dict)
+                                else "batch_unresolved"
+                            )
+                            refined.append(_screen_drawing_removal(
+                                annotation_id,
+                                reason=str(reason or "batch_unresolved"),
+                                payload=original_payload,
+                            ))
+                    delivered = await _send_json(websocket, {
+                        "type": "tars_draw_batch",
+                        "tool": "draw_on_screen",
+                        "visualSyncId": visual_sync_id,
+                        "responses": refined,
+                    })
+                    if delivered:
+                        logger.info("Tars diagram batch delivered count=%d", len(refined))
+                finally:
+                    if visual_sync_id and not delivered:
+                        await _send_json(websocket, {
+                            "type": "visual_sync_end",
+                            "syncId": visual_sync_id,
+                            "tool": batch_tool_name,
+                            "rendered": False,
+                        })
 
             async def _deliver_tars_point(
                 original_payload: dict[str, Any], grounding_state: dict[str, Any]
@@ -1854,6 +2113,8 @@ skipping required work, or weaken lab success criteria or cleanup.
 
                         # ── Agent lifecycle ────────────────────────────────
                         elif etype == "agent_start":
+                            state["model_response_active"] = True
+                            _note_turn_completion_activity()
                             agent_obj = getattr(event, "agent", None)
                             if agent_obj is not None and getattr(agent_obj, "name", None):
                                 state["current_agent"] = agent_obj.name
@@ -1862,14 +2123,20 @@ skipping required work, or weaken lab success criteria or cleanup.
                                 state["assistant_turn_id"] = int(state.get("assistant_turn_id") or 0) + 1
                                 state["assistant_turn_in_progress"] = True
                                 state["last_output_transcript"] = ""
-                            state["accepting_visual_tools"] = True
+                            # Page Tars reopens only at the explicit client
+                            # commit. A delayed start from an interrupted model
+                            # response must not revive that stale generation.
+                            if agent_kind != "tars":
+                                state["accepting_visual_tools"] = True
                         elif etype == "agent_end":
-                            await _flush_pending_tars_drawings()
-                            state["accepting_visual_tools"] = False
-                            await _send_json(websocket, {
-                                "turnComplete": True,
-                                "turnId": int(state.get("assistant_turn_id") or 0),
-                            })
+                            state["model_response_active"] = False
+                            # Realtime tool execution is asynchronous: the SDK
+                            # may emit turn_ended before the corresponding
+                            # tool_start/tool_end events reach this consumer.
+                            # Keep this generation open until an explicit
+                            # interruption invalidates it; closing here marks
+                            # legitimate point/draw calls as stale (-1).
+                            _schedule_turn_completion(grace_seconds=0.12)
 
                         # ── Handoff ────────────────────────────────────────
                         elif etype == "handoff":
@@ -1888,6 +2155,11 @@ skipping required work, or weaken lab success criteria or cleanup.
                                 and not state.get("accepting_visual_tools")
                             ):
                                 continue
+                            _note_turn_completion_activity()
+                            # If the SDK omits the final lifecycle event after a
+                            # tool output, this candidate still completes once
+                            # the tool, localization, and response are quiet.
+                            _schedule_turn_completion(grace_seconds=0.75)
                             if tool_name == "generate_and_show_image":
                                 await _send_json(websocket, {
                                     "type": "generating_image",
@@ -1915,52 +2187,96 @@ skipping required work, or weaken lab success criteria or cleanup.
                                         "tool": tool_name,
                                         "rendered": False,
                                     })
-                                logger.info("Discarded stale visual tool result tool=%s", tool_name)
+                                logger.info(
+                                    "Discarded stale visual tool result tool=%s generation=%s current=%s accepting=%s",
+                                    tool_name,
+                                    visual_generation,
+                                    int(state.get("visual_generation") or 0),
+                                    bool(state.get("accepting_visual_tools")),
+                                )
+                                _finish_realtime_tool_call(tool_name, args_json)
                                 continue
 
                             # ── Tars screen annotations ─────────────────
-                            if tool_name in {"draw_on_screen", "clear_screen_drawings"}:
+                            if tool_name in {
+                                "draw_on_screen",
+                                "draw_screen_diagram",
+                                "draw_screen_annotations",
+                                "clear_screen_drawings",
+                            }:
                                 payload = output if isinstance(output, dict) else {}
-                                if tool_name == "draw_on_screen":
-                                    # Snapshot the grounding state now — the live
-                                    # `state` mutates as the turn continues, but a
-                                    # drawing must be grounded against the screenshot
-                                    # that was current when the model emitted it.
-                                    grounding_state = {
-                                        key: dict(value) if isinstance(value, dict) else value
-                                        for key, value in state.items()
-                                        if key in {
-                                            "tars_media_crop",
-                                            "tars_viewport_capture",
-                                            "classroom_canvas_capture",
-                                            "last_input_transcript",
-                                        }
-                                    }
-                                    original_payload = dict(payload)
-                                    annotation_id = uuid.uuid4().hex
-                                    # Never paint Realtime's rough coordinates. Deliver
-                                    # exactly one stable annotation after the full-frame
-                                    # computer-use locator resolves its final geometry.
-                                    pending_tars_drawings.append((
-                                        asyncio.create_task(
-                                            _deliver_tars_drawing(
-                                                original_payload,
-                                                grounding_state,
-                                                annotation_id,
-                                                visual_sync_id,
-                                            )
-                                        ),
-                                        original_payload,
-                                    ))
+                                if tool_name == "clear_screen_drawings":
+                                    await _cancel_pending_tars_drawings()
+                                    await _send_json(websocket, {
+                                        "type": "tars_draw",
+                                        "tool": tool_name,
+                                        "visualSyncId": visual_sync_id,
+                                        "response": payload,
+                                    })
+                                    logger.info("Tars drawing tool=%s payload=%s", tool_name, payload)
+                                    _finish_realtime_tool_call(tool_name, args_json)
                                     continue
-                                await _cancel_pending_tars_drawings()
-                                await _send_json(websocket, {
-                                    "type": "tars_draw",
-                                    "tool": tool_name,
-                                    "visualSyncId": visual_sync_id,
-                                    "response": payload,
-                                })
-                                logger.info("Tars drawing tool=%s payload=%s", tool_name, payload)
+
+                                raw_annotations = (
+                                    payload.get("annotations", [])
+                                    if tool_name in {"draw_screen_diagram", "draw_screen_annotations"}
+                                    else [payload]
+                                )
+                                annotations = [
+                                    dict(item)
+                                    for item in raw_annotations[:24]
+                                    if isinstance(item, dict)
+                                ] if isinstance(raw_annotations, list) else []
+                                # Freeze the frame associated with this tool call.
+                                grounding_state = {
+                                    key: dict(value) if isinstance(value, dict) else value
+                                    for key, value in state.items()
+                                    if key in {
+                                        "tars_media_crop",
+                                        "tars_viewport_capture",
+                                        "classroom_canvas_capture",
+                                        "last_input_transcript",
+                                    }
+                                }
+                                grounding_entries = [
+                                    (original_payload, uuid.uuid4().hex)
+                                    for original_payload in annotations
+                                ]
+
+                                if not grounding_entries:
+                                    if visual_sync_id:
+                                        await _send_json(websocket, {
+                                            "type": "visual_sync_end",
+                                            "syncId": visual_sync_id,
+                                            "tool": tool_name,
+                                            "rendered": False,
+                                        })
+                                    _finish_realtime_tool_call(tool_name, args_json)
+                                    continue
+
+                                if grounding_entries:
+                                    if tool_name in {"draw_screen_diagram", "draw_screen_annotations"}:
+                                        task = asyncio.create_task(_deliver_tars_drawing_batch(
+                                            grounding_entries,
+                                            grounding_state,
+                                            visual_sync_id,
+                                            tool_name,
+                                        ))
+                                    else:
+                                        original_payload, annotation_id = grounding_entries[0]
+                                        task = asyncio.create_task(_deliver_tars_drawing(
+                                            original_payload,
+                                            grounding_state,
+                                            annotation_id,
+                                            visual_sync_id,
+                                        ))
+                                    pending_tars_drawings.append((task, {
+                                        "pending_annotation_ids": [
+                                            annotation_id
+                                            for _, annotation_id in grounding_entries
+                                        ],
+                                    }))
+                                _finish_realtime_tool_call(tool_name, args_json)
                                 continue
 
                             # ── Tars point_at → emit a lightweight envelope ─
@@ -1981,10 +2297,19 @@ skipping required work, or weaken lab success criteria or cleanup.
                                 )
                                 pending_tars_points.add(point_task)
                                 point_task.add_done_callback(pending_tars_points.discard)
+                                _finish_realtime_tool_call(tool_name, args_json)
                                 continue
 
                             if tool_name == "point_at":
                                 payload = output if isinstance(output, dict) else {}
+                                if payload.get("browser_delivery") in {"complete", "cancelled"}:
+                                    logger.info(
+                                        "Tars blocking point tool settled status=%s grounding=%s",
+                                        payload.get("status"),
+                                        payload.get("grounding"),
+                                    )
+                                    _finish_realtime_tool_call(tool_name, args_json)
+                                    continue
                                 grounding_state = {
                                     key: dict(value) if isinstance(value, dict) else value
                                     for key, value in state.items()
@@ -1994,13 +2319,14 @@ skipping required work, or weaken lab success criteria or cleanup.
                                         "last_input_transcript",
                                     }
                                 }
-                                # Non-blocking: ground + deliver on a detached task so
-                                # realtime voice keeps streaming while the locator runs.
+                                # Compatibility fallback for sessions without the
+                                # per-WebSocket async point context.
                                 point_task = asyncio.create_task(
                                     _deliver_tars_point(dict(payload), grounding_state)
                                 )
                                 pending_tars_points.add(point_task)
                                 point_task.add_done_callback(pending_tars_points.discard)
+                                _finish_realtime_tool_call(tool_name, args_json)
                                 continue
 
                             if tool_name == "interact_with_page":
@@ -2016,6 +2342,7 @@ skipping required work, or weaken lab success criteria or cleanup.
                                     },
                                 })
                                 logger.info("Tars browser action payload=%s", payload)
+                                _finish_realtime_tool_call(tool_name, args_json)
                                 continue
 
                             if tool_name in _early_pushed:
@@ -2037,11 +2364,17 @@ skipping required work, or weaken lab success criteria or cleanup.
                                 )
                                 if envelope is not None:
                                     await _send_json(websocket, envelope)
+                            _finish_realtime_tool_call(tool_name, args_json)
 
                         # ── Interruption ────────────────────────────────────
                         elif etype == "audio_interrupted":
                             state["assistant_turn_in_progress"] = False
-                            await _abort_pending_visuals()
+                            if _audio_interruption_requires_visual_abort(agent_kind):
+                                await _abort_pending_visuals()
+                            else:
+                                logger.debug(
+                                    "Tars audio interruption acknowledged without re-invalidating visuals"
+                                )
                             await _send_json(websocket, {"interrupted": True})
 
                         # ── Error ──────────────────────────────────────────
@@ -2078,9 +2411,19 @@ skipping required work, or weaken lab success criteria or cleanup.
                             data = getattr(event, "data", None)
                             dtype = getattr(data, "type", None)
 
+                            # Raw function calls are queued before the SDK's
+                            # asynchronous tool task. Tracking them here makes
+                            # completion deterministic even when agent_end is
+                            # delivered before tool_start.
+                            if dtype == "function_call":
+                                _register_realtime_tool_call(
+                                    str(getattr(data, "name", "") or ""),
+                                    str(getattr(data, "arguments", "") or ""),
+                                )
+
                             # Assistant (output) speech transcript — streaming
-                            # deltas. Finalised on turnComplete (agent_end).
-                            if dtype == "transcript_delta":
+                            # deltas. Finalised on logical turn completion.
+                            elif dtype == "transcript_delta":
                                 delta = getattr(data, "delta", "") or ""
                                 if delta:
                                     state["last_output_transcript"] = (
@@ -2233,6 +2576,7 @@ skipping required work, or weaken lab success criteria or cleanup.
             except Exception as _db_exc:
                 logger.warning("Failed to save session end: %s", _db_exc)
 
+        tars_visual_state.reset(_tars_visual_state_token)
         ws_notify.reset(_notify_token)
         state["session"] = None
         logger.info("WS session cleaned up: user=%s session=%s", user_id, session_id)
@@ -2329,5 +2673,5 @@ if __name__ == "__main__":
         host=settings.host,
         port=settings.port,
         log_level=settings.log_level,
-        reload=True,
+        loop="asyncio",
     )

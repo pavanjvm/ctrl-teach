@@ -19,3 +19,9 @@ test("suspension clears offscreen playback and microphone turn state", () => {
     /changedIdentity \|\| !message\.config\?\.enabled \|\| message\.config\?\.suspended\) \{\s*clearPlayback\(\);\s*cancelPtt\(\);/,
   );
 });
+
+test("point localization keeps the loading ring visible until coordinates arrive", () => {
+  assert.match(offscreenSource, /event\.type === "tars_point_pending"/);
+  assert.match(offscreenSource, /mode:\s*"thinking"/);
+  assert.match(offscreenSource, /Tars locating/);
+});

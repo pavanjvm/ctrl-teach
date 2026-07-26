@@ -1,0 +1,65 @@
+[
+  {
+    "text": "World-class expertise shouldn’t have office hours.",
+    "startMs": 200,
+    "endMs": 4016,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "Yet every new cohort adds another calendar,\nanother constraint, another wait.",
+    "startMs": 4267,
+    "endMs": 9667,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "The learner needs the skill now.\nThe next class starts later.",
+    "startMs": 10167,
+    "endMs": 14871,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "And when the answer isn’t available, learners don’t wait.",
+    "startMs": 15200,
+    "endMs": 18920,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "They search.",
+    "startMs": 19000,
+    "endMs": 20056,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "They ask AI.",
+    "startMs": 20500,
+    "endMs": 22012,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "They go somewhere else.",
+    "startMs": 22400,
+    "endMs": 24752,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "This isn’t a content problem.\nIt’s a delivery problem.",
+    "startMs": 25600,
+    "endMs": 29800,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "So we removed the calendar.",
+    "startMs": 31033,
+    "endMs": 33481,
+    "timestampMs": null,
+    "confidence": null
+  }
+]

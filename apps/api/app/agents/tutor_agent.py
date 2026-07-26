@@ -19,7 +19,12 @@ from agents.realtime import RealtimeAgent, realtime_handoff
 from app.agents.companion_identity import COMPANION_AGENT_NAME, with_companion_identity
 from app.agents.planner_agent import build_planner_agent
 from app.agents.progress_agent import build_progress_agent
-from app.agents.tars_agent import draw_on_screen, clear_screen_drawings
+from app.agents.tars_agent import (
+    clear_screen_drawings,
+    draw_on_screen,
+    draw_screen_annotations,
+    draw_screen_diagram,
+)
 from app.tools.canvas_tools import canvas_tools as _canvas_tool_fns
 from app.tools.canvas_tools import (
     add_image_to_canvas,
@@ -230,13 +235,15 @@ BOARD_TARS_DRAWING_INSTRUCTION = """\
 Tars's cursor is the visible tutor companion on the whiteboard. In addition
 to persistent Excalidraw canvas tools, you can draw temporary explanations over
 the current whiteboard viewport:
-- `draw_on_screen` supports circle, rectangle, highlight, underline, arrow, and line.
+- `draw_on_screen` supports circle, rectangle, triangle, highlight, underline, arrow, and line.
+- Use one `draw_screen_diagram` call for newly created explanations with two or
+  more primitives. Use one `draw_screen_annotations` call when multiple marks
+  align to existing visible content. Never issue a sequence of individual calls.
+- Never calculate or supply numeric coordinates. Use a real DOM target id when
+  available; otherwise one dedicated Sol request calculates all coordinates
+  from each primitive's shape, label, and anchor_label.
 - Use this for temporary emphasis while speaking. Use the normal canvas tools
   for diagrams or content that should remain on the board.
-- Whiteboard screenshots provide their exact pixel dimensions. For temporary
-  annotations, pass raw x/y/end_x/end_y in that screenshot coordinate space.
-- For circle/rectangle/highlight, x/y is the top-left and end_x/end_y is the
-  bottom-right of the area. For underline/line/arrow, they are the two endpoints.
 - `target_id` is only available outside the whiteboard; do not invent one here.
 - Keep temporary marks minimal. Use `clear_screen_drawings` when they are no longer useful.
 """
@@ -279,6 +286,8 @@ def build_tutor_agent(
     direct_tools = [
         *[_wrap(fn) for fn in _canvas_tool_fns if fn.__name__ not in excluded],
         draw_on_screen,
+        draw_screen_diagram,
+        draw_screen_annotations,
         clear_screen_drawings,
     ]
     if include_progress_tools:

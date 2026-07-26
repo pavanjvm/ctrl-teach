@@ -1,6 +1,6 @@
 export type TarsDrawCommand = {
   tool: "draw_on_screen" | "clear_screen_drawings";
-  shape?: "circle" | "rectangle" | "highlight" | "underline" | "arrow" | "line" | "text";
+  shape?: "circle" | "rectangle" | "triangle" | "highlight" | "underline" | "arrow" | "line" | "text";
   style?: "solid" | "dashed" | "dotted";
   targetId?: string | null;
   fromTargetId?: string | null;
@@ -16,6 +16,9 @@ export type TarsDrawCommand = {
   annotationId?: string;
   provisional?: boolean;
   replace?: boolean;
+  remove?: boolean;
+  coordinateSource?: "dom" | "sol" | "sol_missing";
+  groundingFailure?: string;
   coordinateSpace?: "screenshot" | "viewport";
 };
 

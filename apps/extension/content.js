@@ -215,7 +215,7 @@
     bubble.classList.toggle("visible", Boolean(clean));
   }
 
-  function setStatus(text, temporary = false) {
+  function setStatus(text, temporary = false, durationMs = 2200) {
     statusText = String(text || "").trim();
     status.textContent = statusText;
     status.classList.toggle("visible", Boolean(statusText));
@@ -223,7 +223,7 @@
       const expected = statusText;
       setTimeout(() => {
         if (statusText === expected) setStatus("");
-      }, 2200);
+      }, durationMs);
     }
   }
 
@@ -841,9 +841,11 @@
     for (const child of [...drawings.children]) {
       if (child.getAttribute("data-annotation-id") === annotationId) child.remove();
     }
+    if (response.remove === true) return;
     const annotationGroup = svgElement("g", {
       "data-annotation-id": annotationId,
       class: "annotation",
+      opacity: response.provisional === true ? 0.42 : 1,
     });
     const colors = { blue: "#3380ff", teal: "#14b8a6", red: "#ef4444", amber: "#f59e0b", purple: "#8b5cf6" };
     const color = colors[response.color] || colors.blue;
@@ -887,16 +889,19 @@
 
     let element = null;
     let extraElements = [];
+    let leaderLabelAnchor = null;
 
-    if (["rectangle", "highlight", "circle", "underline"].includes(shape) && rect) {
-      if (shape === "circle") {
+    if (["rectangle", "triangle", "highlight", "circle", "underline"].includes(shape) && rect) {
+      if (shape === "triangle") {
+        element = svgElement("polygon", { points: `${rect.left + rect.width / 2},${rect.top} ${rect.right},${rect.bottom} ${rect.left},${rect.bottom}`, fill: "none", stroke: color, "stroke-width": 3, "stroke-linejoin": "round", "pathLength": 1, ...strokeAttrs });
+      } else if (shape === "circle") {
         element = svgElement("ellipse", { cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2, rx: rect.width / 2 + 8, ry: rect.height / 2 + 8, fill: "none", stroke: color, "stroke-width": 3, "pathLength": 1, ...strokeAttrs });
       } else if (shape === "underline") {
         element = svgElement("line", { x1: rect.left, y1: rect.bottom + 4, x2: rect.right, y2: rect.bottom + 4, stroke: color, "stroke-width": 4, "stroke-linecap": "round", "pathLength": 1, ...strokeAttrs });
       } else {
         element = svgElement("rect", { x: rect.left - 6, y: rect.top - 6, width: rect.width + 12, height: rect.height + 12, rx: 8, fill: shape === "highlight" ? color : "none", "fill-opacity": shape === "highlight" ? .18 : 0, stroke: color, "stroke-width": shape === "highlight" ? 1.5 : 3, "pathLength": 1, ...strokeAttrs });
       }
-    } else if (["rectangle", "highlight", "circle", "underline"].includes(shape) && rawStart) {
+    } else if (["rectangle", "triangle", "highlight", "circle", "underline"].includes(shape) && rawStart) {
       // Pixels inside videos, canvas elements, and cross-origin iframes have no
       // DOM target. Draw directly in the calibrated screenshot coordinate
       // space instead of silently dropping the annotation.
@@ -909,7 +914,9 @@
         const top = Math.min(rawStart.y, end.y);
         const width = Math.max(12, Math.abs(end.x - rawStart.x));
         const height = Math.max(12, Math.abs(end.y - rawStart.y));
-        if (shape === "circle") {
+        if (shape === "triangle") {
+          element = svgElement("polygon", { points: `${left + width / 2},${top} ${left + width},${top + height} ${left},${top + height}`, fill: "none", stroke: color, "stroke-width": 3, "stroke-linejoin": "round", "pathLength": 1, ...strokeAttrs });
+        } else if (shape === "circle") {
           element = svgElement("ellipse", { cx: left + width / 2, cy: top + height / 2, rx: width / 2, ry: height / 2, fill: "none", stroke: color, "stroke-width": 3, "pathLength": 1, ...strokeAttrs });
         } else {
           element = svgElement("rect", { x: left, y: top, width, height, rx: 8, fill: shape === "highlight" ? color : "none", "fill-opacity": shape === "highlight" ? .18 : 0, stroke: color, "stroke-width": shape === "highlight" ? 1.5 : 3, "pathLength": 1, ...strokeAttrs });
@@ -919,6 +926,7 @@
       const start = fromRect ? { x: fromRect.left + fromRect.width / 2, y: fromRect.top + fromRect.height / 2 } : rawStart;
       const end = toRect ? { x: toRect.left + toRect.width / 2, y: toRect.top + toRect.height / 2 } : rawEnd;
       if (start && end) {
+        leaderLabelAnchor = end;
         // Shorten the line slightly so the arrowhead tip sits exactly at end.
         const angle = Math.atan2(end.y - start.y, end.x - start.x);
         const headLen = 14;
@@ -944,6 +952,7 @@
       const start = fromRect ? { x: fromRect.left + fromRect.width / 2, y: fromRect.top + fromRect.height / 2 } : rawStart;
       const end = toRect ? { x: toRect.left + toRect.width / 2, y: toRect.top + toRect.height / 2 } : rawEnd;
       if (start && end) {
+        leaderLabelAnchor = end;
         element = svgElement("line", { x1: start.x, y1: start.y, x2: end.x, y2: end.y, stroke: color, "stroke-width": 3, "stroke-linecap": "round", "pathLength": 1, ...strokeAttrs });
       }
     }
@@ -953,8 +962,35 @@
     }
     annotationGroup.appendChild(element);
     for (const extra of extraElements) annotationGroup.appendChild(extra);
+    const leaderLabel = String(response.label || "").trim().slice(0, 120);
+    if (leaderLabelAnchor && leaderLabel) {
+      const text = svgElement("text", {
+        x: leaderLabelAnchor.x + 8,
+        y: leaderLabelAnchor.y - 8,
+        fill: color,
+        class: "draw-text",
+      });
+      text.textContent = leaderLabel;
+      annotationGroup.appendChild(text);
+    }
     drawings.appendChild(annotationGroup);
     drawingLifetime.markDrawn();
+  }
+
+  function showSolMissingNotice(responses) {
+    const missed = (responses || []).filter((response) =>
+      response?.coordinate_source === "sol_missing"
+      || response?.grounding_failure === "batch_locator_missing"
+      || response?.grounding_failure === "batch_exception"
+    );
+    if (!missed.length) return;
+    const labels = [...new Set(missed
+      .map((response) => String(response.label || "").trim())
+      .filter(Boolean))];
+    const named = labels.length
+      ? labels.slice(0, 3).join(", ") + (labels.length > 3 ? ` +${labels.length - 3} more` : "")
+      : `${missed.length} target${missed.length === 1 ? "" : "s"}`;
+    setStatus(`Sol missed ${named}; annotation skipped`, true, 5000);
   }
 
   window.addEventListener("mousemove", (event) => {
@@ -1103,10 +1139,12 @@
     } else if (message.type === "TARS_POINT") {
       handlePoint(message.context, message.response);
     } else if (message.type === "TARS_DRAW") {
+      showSolMissingNotice([message.response]);
       handleDraw(message.context, message.tool, message.response);
     } else if (message.type === "TARS_DRAW_BATCH") {
       // All nodes are appended in this message handler, before the browser's
       // next paint, so a diagram appears as one coherent visual.
+      showSolMissingNotice(message.responses || []);
       for (const response of message.responses || []) {
         handleDraw(message.context, message.tool, response);
       }

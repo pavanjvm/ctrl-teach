@@ -41,6 +41,11 @@ export function useWebSocket() {
     label?: string;
     id: string;
   } | null>(null);
+  const [tarsPointPending, setTarsPointPending] = useState<{
+    status: "started" | "completed" | "failed" | "cancelled";
+    label: string;
+    id: string;
+  } | null>(null);
   // Page-mode Tars pointing events. Payload is
   // either `{targetId}` for DOM-exact pointing or `{x,y}` for vision fallback.
   const [tarsAgentPoint, setTarsAgentPoint] = useState<{
@@ -596,6 +601,18 @@ export function useWebSocket() {
         return;
       }
 
+      if (event.type === "tars_point_pending") {
+        const pendingStatus = ["started", "completed", "failed", "cancelled"].includes(event.status)
+          ? event.status
+          : "failed";
+        setTarsPointPending({
+          status: pendingStatus,
+          label: typeof event.label === "string" ? event.label : "that target",
+          id: typeof event.pendingId === "string" ? event.pendingId : crypto.randomUUID(),
+        });
+        return;
+      }
+
       if (event.type === "visual_sync_start") {
         const syncId = typeof event.syncId === "string" ? event.syncId : "";
         const tool = typeof event.tool === "string" ? event.tool : "visual";
@@ -691,7 +708,7 @@ export function useWebSocket() {
           typeof event.visualSyncId === "string"
           && endedVisualSyncIdsRef.current.has(event.visualSyncId)
         ) return;
-        const allowedShapes = new Set(["circle", "rectangle", "highlight", "underline", "arrow", "line", "text"]);
+        const allowedShapes = new Set(["circle", "rectangle", "triangle", "highlight", "underline", "arrow", "line", "text"]);
         const allowedColors = new Set(["blue", "teal", "red", "amber", "purple"]);
         const allowedStyles = new Set(["solid", "dashed", "dotted"]);
         const responses = event.type === "tars_draw_batch" ? event.responses : [event.response];
@@ -724,6 +741,17 @@ export function useWebSocket() {
             annotationId,
             provisional,
             replace: response.replace === true,
+            remove: response.remove === true,
+            coordinateSource: response.coordinate_source === "dom"
+              ? "dom"
+              : response.coordinate_source === "sol"
+                ? "sol"
+                : response.coordinate_source === "sol_missing"
+                  ? "sol_missing"
+                  : undefined,
+            groundingFailure: typeof response.grounding_failure === "string"
+              ? response.grounding_failure
+              : undefined,
           } as TarsDrawCommand);
         });
         setTarsAgentDraws((current) => [...current, ...drawEvents].slice(-32));
@@ -983,6 +1011,7 @@ export function useWebSocket() {
     canvasCommands,
     tarsPoint,
     tarsAgentPoint,
+    tarsPointPending,
     tarsAgentDraws,
     isGeneratingImage,
     isSavingProgress,

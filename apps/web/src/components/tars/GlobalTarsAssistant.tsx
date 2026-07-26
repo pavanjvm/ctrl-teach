@@ -50,7 +50,7 @@ type CapturedViewportFrame = {
 };
 type ScreenAnnotation = {
   id: string;
-  shape: "circle" | "rectangle" | "highlight" | "underline" | "arrow" | "line" | "text";
+  shape: "circle" | "rectangle" | "triangle" | "highlight" | "underline" | "arrow" | "line" | "text";
   style: "solid" | "dashed" | "dotted";
   color: "blue" | "teal" | "red" | "amber" | "purple";
   label: string;
@@ -1155,6 +1155,13 @@ export default function GlobalTarsAssistant() {
 
   // ── Handle incoming Tars `point_at` envelope ─────────────────────────────
   useEffect(() => {
+    const pending = wsHook.tarsPointPending;
+    if (!pending || pending.status !== "started") return;
+    setMode("thinking");
+    setStatus(`Tars locating ${pending.label}`);
+  }, [wsHook.tarsPointPending, setStatus]);
+
+  useEffect(() => {
     if (!wsHook.tarsAgentPoint) return;
     const pt = wsHook.tarsAgentPoint;
     if (pt.id === lastPointIdRef.current) return;
@@ -1224,6 +1231,18 @@ export default function GlobalTarsAssistant() {
         return;
       }
 
+      if (draw.coordinateSource === "sol_missing") {
+        setStatus(`Sol missed ${draw.label || "a target"}; annotation skipped`);
+      }
+
+      if (draw.remove === true) {
+        const annotationId = draw.annotationId;
+        if (annotationId) {
+          setScreenAnnotations((current) => current.filter((item) => item.id !== annotationId));
+        }
+        return;
+      }
+
       const shape = draw.shape ?? "rectangle";
       const color = draw.color ?? "blue";
       const style = draw.style ?? "solid";
@@ -1270,7 +1289,7 @@ export default function GlobalTarsAssistant() {
         ({ x: x1, y: y1 } = start);
         ({ x: x2, y: y2 } = end);
       } else if (targetRect) {
-        const padding = shape === "highlight" ? 3 : 8;
+        const padding = shape === "triangle" ? 0 : shape === "highlight" ? 3 : 8;
         x1 = targetRect.left - padding;
         y1 = targetRect.top - padding;
         x2 = targetRect.right + padding;
@@ -1492,6 +1511,12 @@ export default function GlobalTarsAssistant() {
                 )}
                 {annotation.shape === "rectangle" && (
                   <rect {...commonStroke} x={left} y={top} width={width} height={height} rx={9} />
+                )}
+                {annotation.shape === "triangle" && (
+                  <polygon
+                    {...commonStroke}
+                    points={`${left + width / 2},${top} ${left + width},${top + height} ${left},${top + height}`}
+                  />
                 )}
                 {annotation.shape === "highlight" && (
                   <rect

@@ -32,6 +32,10 @@ import type {
 } from "@/lib/types";
 import { SEED_COURSES } from "@/lib/courses/catalog";
 import {
+  sanitizeCustomRoadmaps,
+  type LearningRoadmap,
+} from "@/lib/learning/roadmaps";
+import {
   appendLearningMemory,
   createAssessmentMemory,
   createFeedbackMemory,
@@ -136,6 +140,12 @@ interface PersistedState {
   activeCourseId: string | null;
   activeLessonId: string | null;
   progress: ProgressState;
+  /** Roadmap topics the learner has explicitly marked complete. */
+  completedRoadmapTopics: string[];
+  /** Roadmaps where the learner has completed a topic or opened learning options. */
+  startedRoadmaps: string[];
+  /** Learner-owned roadmaps created from free-form prompts. */
+  customRoadmaps: LearningRoadmap[];
   savedCourses: Course[];
   learningMemories: LearningMemory[];
 }
@@ -169,6 +179,9 @@ function loadState(): PersistedState {
     activeCourseId: null,
     activeLessonId: null,
     progress: defaultProgress(),
+    completedRoadmapTopics: [],
+    startedRoadmaps: [],
+    customRoadmaps: [],
     savedCourses: [],
     learningMemories: [],
   };
@@ -202,6 +215,18 @@ function loadState(): PersistedState {
         ...parsed,
         activeCourseId,
         progress: { ...progress, courseCompletedAt },
+        completedRoadmapTopics: Array.isArray(parsed?.completedRoadmapTopics)
+          ? parsed.completedRoadmapTopics.filter((item: unknown): item is string => typeof item === "string")
+          : [],
+        startedRoadmaps: Array.isArray(parsed?.startedRoadmaps)
+          ? parsed.startedRoadmaps.filter((item: unknown): item is string => typeof item === "string")
+          : Array.isArray(parsed?.completedRoadmapTopics)
+            ? Array.from(new Set(parsed.completedRoadmapTopics
+                .filter((item: unknown): item is string => typeof item === "string")
+                .map((item: string) => item.split(":")[0])
+                .filter(Boolean)))
+            : [],
+        customRoadmaps: sanitizeCustomRoadmaps(parsed?.customRoadmaps),
         learningMemories: sanitizeLearningMemories(parsed?.learningMemories),
       };
     }
@@ -212,15 +237,51 @@ function loadState(): PersistedState {
 function onboardingPrefsFromRemote(value: unknown): OnboardingPrefs | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
-  if (!raw.onboarded) return null;
+  const hasOnboardingData = [
+    raw.name,
+    raw.role,
+    raw.experienceLevel,
+    raw.careerGoal,
+    raw.preparingFor,
+    raw.learningPreferences,
+    raw.availableHoursPerWeek,
+    raw.interests,
+  ].some((item) => item !== undefined && item !== null);
+  if (!hasOnboardingData) return null;
+  const experienceLevel = raw.experienceLevel === "Beginner"
+    || raw.experienceLevel === "Intermediate"
+    || raw.experienceLevel === "Advanced"
+    ? raw.experienceLevel
+    : "";
+  const careerGoal = typeof raw.careerGoal === "string"
+    ? raw.careerGoal
+    : typeof raw.preparingFor === "string"
+      ? raw.preparingFor
+      : "";
+  const learningPreferences = Array.isArray(raw.learningPreferences)
+    ? raw.learningPreferences.filter((item): item is OnboardingPrefs["learningPreferences"][number] => (
+        item === "Visual explanations"
+        || item === "Hands-on practice"
+        || item === "Reading"
+        || item === "Live, interactive teaching"
+      ))
+    : [];
+  const availableHoursPerWeek = typeof raw.availableHoursPerWeek === "number"
+    && Number.isFinite(raw.availableHoursPerWeek)
+    ? Math.min(40, Math.max(0, Math.round(raw.availableHoursPerWeek)))
+    : 0;
   return {
     name: typeof raw.name === "string" ? raw.name : "",
     role: typeof raw.role === "string" ? raw.role : "",
+    experienceLevel,
+    careerGoal,
+    learningPreferences,
+    availableHoursPerWeek,
     interests: Array.isArray(raw.interests)
       ? raw.interests.filter((item): item is string => typeof item === "string").slice(0, 12)
       : [],
-    preparingFor: typeof raw.preparingFor === "string" ? raw.preparingFor : "",
-    onboarded: true,
+    preparingFor: typeof raw.preparingFor === "string" ? raw.preparingFor : careerGoal,
+    onboarded: Boolean(raw.onboarded),
   };
 }
 
@@ -238,12 +299,20 @@ interface LearnerContextValue {
   activeLessonId: string | null;
   progress: ProgressState;
   isLessonComplete: (courseId: string, lessonId: string) => boolean;
+  completedRoadmapTopics: string[];
+  startedRoadmaps: string[];
+  customRoadmaps: LearningRoadmap[];
+  addCustomRoadmap: (roadmap: LearningRoadmap) => void;
+  startRoadmap: (roadmapId: string) => void;
+  toggleRoadmapTopic: (topicId: string) => void;
   learningMemories: LearningMemory[];
   skillProfile: LearnerSkillProfile;
   /** All known courses — seeded catalog + discovered courses saved by id. */
   courses: Course[];
   savedCourses: Course[];
   setPrefs: (prefs: OnboardingPrefs) => void;
+  /** Persist onboarding answers without recording them as completed evidence. */
+  setOnboardingDraft: (prefs: OnboardingPrefs) => void;
   setCoursePrefs: (courseId: string, prefs: CourseOnboardingPrefs) => void;
   setActiveCourse: (courseId: string, lessonId?: string) => void;
   setActiveLesson: (lessonId: string) => void;
@@ -327,6 +396,9 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
         activeCourseId: null,
         activeLessonId: null,
         progress: defaultProgress(),
+        completedRoadmapTopics: [],
+        startedRoadmaps: [],
+        customRoadmaps: [],
         savedCourses: [],
         learningMemories: [],
       };
@@ -341,6 +413,17 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
         const remoteCtrlTeach = res.data?.metadata?.preferences?.ctrlteach;
         const remotePrefs = onboardingPrefsFromRemote(remoteCtrlTeach);
         const remoteMemories = sanitizeLearningMemories(remoteCtrlTeach?.learnerMemory?.events);
+        const remoteRoadmapTopics = Array.isArray(remoteCtrlTeach?.roadmapProgress?.completedTopicIds)
+          ? remoteCtrlTeach.roadmapProgress.completedTopicIds.filter(
+              (item: unknown): item is string => typeof item === "string",
+            )
+          : [];
+        const remoteStartedRoadmaps = Array.isArray(remoteCtrlTeach?.roadmapProgress?.startedRoadmapIds)
+          ? remoteCtrlTeach.roadmapProgress.startedRoadmapIds.filter(
+              (item: unknown): item is string => typeof item === "string",
+            )
+          : [];
+        const remoteCustomRoadmaps = sanitizeCustomRoadmaps(remoteCtrlTeach?.roadmapProgress?.customRoadmaps);
         if (!cancelled) {
           setState((current) => ({
             ...current,
@@ -350,6 +433,19 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
               current.ownerUserId === user.uid ? current.learningMemories : [],
               remoteMemories,
             ),
+            completedRoadmapTopics: Array.from(new Set([
+              ...(current.ownerUserId === user.uid ? current.completedRoadmapTopics : []),
+              ...remoteRoadmapTopics,
+            ])),
+            startedRoadmaps: Array.from(new Set([
+              ...(current.ownerUserId === user.uid ? current.startedRoadmaps : []),
+              ...remoteStartedRoadmaps,
+              ...remoteRoadmapTopics.map((topicId: string) => topicId.split(":")[0]).filter(Boolean),
+            ])),
+            customRoadmaps: sanitizeCustomRoadmaps([
+              ...(current.ownerUserId === user.uid ? current.customRoadmaps : []),
+              ...remoteCustomRoadmaps,
+            ]),
           }));
         }
       } catch {
@@ -419,6 +515,12 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
         version: 1,
         events: state.learningMemories,
       },
+      roadmapProgress: {
+        version: 1,
+        completedTopicIds: state.completedRoadmapTopics,
+        startedRoadmapIds: state.startedRoadmaps,
+        customRoadmaps: state.customRoadmaps,
+      },
     };
     const sig = JSON.stringify(ctrlteach);
     if (sig === lastSyncRef.current) return;
@@ -457,7 +559,7 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
       if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.prefs, state.learningMemories, user, hydratedUserId, getToken]);
+  }, [state.prefs, state.learningMemories, state.completedRoadmapTopics, state.startedRoadmaps, state.customRoadmaps, user, hydratedUserId, getToken]);
 
   const learnerReady = !user || hydratedUserId === user.uid;
   const ownsCachedState = user
@@ -467,6 +569,9 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
   const exposedMemories = ownsCachedState ? state.learningMemories : [];
   const exposedProgress = ownsCachedState ? state.progress : defaultProgress();
   const exposedCoursePrefs = ownsCachedState ? state.coursePrefs : {};
+  const exposedRoadmapTopics = ownsCachedState ? state.completedRoadmapTopics : [];
+  const exposedStartedRoadmaps = ownsCachedState ? state.startedRoadmaps : [];
+  const exposedCustomRoadmaps = ownsCachedState ? state.customRoadmaps : [];
   const courses = useMemo(() => {
     const learnerCourses = ownsCachedState ? state.savedCourses : [];
     const ordered = [
@@ -503,6 +608,35 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
     isLessonComplete: (courseId, lessonId) => (
       exposedProgress.completedLessons.includes(lessonProgressId(courseId, lessonId))
     ),
+    completedRoadmapTopics: exposedRoadmapTopics,
+    startedRoadmaps: exposedStartedRoadmaps,
+    customRoadmaps: exposedCustomRoadmaps,
+    addCustomRoadmap: (roadmap) =>
+      setState((current) => ({
+        ...current,
+        customRoadmaps: sanitizeCustomRoadmaps([
+          roadmap,
+          ...current.customRoadmaps.filter((item) => item.id !== roadmap.id),
+        ]),
+      })),
+    startRoadmap: (roadmapId) =>
+      setState((current) => current.startedRoadmaps.includes(roadmapId)
+        ? current
+        : { ...current, startedRoadmaps: [...current.startedRoadmaps, roadmapId] }),
+    toggleRoadmapTopic: (topicId) =>
+      setState((current) => {
+        const complete = current.completedRoadmapTopics.includes(topicId);
+        const roadmapId = topicId.split(":")[0];
+        return {
+          ...current,
+          completedRoadmapTopics: complete
+            ? current.completedRoadmapTopics.filter((id) => id !== topicId)
+            : [...current.completedRoadmapTopics, topicId],
+          startedRoadmaps: !complete && roadmapId && !current.startedRoadmaps.includes(roadmapId)
+            ? [...current.startedRoadmaps, roadmapId]
+            : current.startedRoadmaps,
+        };
+      }),
     learningMemories: exposedMemories,
     skillProfile,
     courses,
@@ -512,6 +646,10 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
       prefs,
       learningMemories: appendLearningMemory(s.learningMemories, createInterestMemory(prefs)),
     })),
+    setOnboardingDraft: (prefs) => setState((s) => {
+      if (JSON.stringify(s.prefs) === JSON.stringify(prefs)) return s;
+      return { ...s, prefs };
+    }),
     setCoursePrefs: (courseId, cp) =>
       setState((s) => ({
         ...s,
@@ -715,6 +853,9 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
         activeCourseId: null,
         activeLessonId: null,
         progress: defaultProgress(),
+        completedRoadmapTopics: [],
+        startedRoadmaps: [],
+        customRoadmaps: [],
         savedCourses: [],
         learningMemories: [],
       });

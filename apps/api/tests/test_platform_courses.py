@@ -303,8 +303,8 @@ class PlatformCourseRouterTests(unittest.TestCase):
             self.assertEqual(list(db.scalars(select(PlatformCourse))), [])
 
 
-class PlatformCourseSeedTests(unittest.TestCase):
-    def test_seed_is_idempotent_and_never_overwrites_admin_edits(self) -> None:
+class RetiredPlatformCourseTests(unittest.TestCase):
+    def test_cleanup_removes_only_retired_defaults(self) -> None:
         engine = create_engine(
             "sqlite://",
             connect_args={"check_same_thread": False},
@@ -313,24 +313,28 @@ class PlatformCourseSeedTests(unittest.TestCase):
         Base.metadata.create_all(engine)
         session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
-        with patch.object(platform_service, "SessionLocal", session_factory):
-            platform_service.seed_platform_courses()
-            with session_factory() as db:
-                row = db.get(PlatformCourse, "platform-product-discovery")
-                assert row is not None
-                changed = dict(row.course)
-                changed["title"] = "Admin-edited title"
-                row.course = changed
-                db.commit()
+        with session_factory() as db:
+            db.add_all([
+                PlatformCourse(
+                    id="platform-product-discovery",
+                    status="published",
+                    course={"title": "Old demo"},
+                ),
+                PlatformCourse(
+                    id="platform-admin-course",
+                    status="published",
+                    course={"title": "Admin course"},
+                ),
+            ])
+            db.commit()
 
-            platform_service.seed_platform_courses()
+        with patch.object(platform_service, "SessionLocal", session_factory):
+            platform_service.remove_retired_default_platform_courses()
+            platform_service.remove_retired_default_platform_courses()
 
         with session_factory() as db:
             rows = list(db.scalars(select(PlatformCourse)))
-            edited = db.get(PlatformCourse, "platform-product-discovery")
-            self.assertEqual(len(rows), len(platform_service.DEFAULT_PLATFORM_COURSES))
-            assert edited is not None
-            self.assertEqual(edited.course["title"], "Admin-edited title")
+            self.assertEqual([row.id for row in rows], ["platform-admin-course"])
 
 
 if __name__ == "__main__":
