@@ -34,6 +34,10 @@
     "render:breakthrough": "remotion render Breakthrough out/breakthrough.mp4",
     "render:complete-pitch": "remotion render CombinedPitchSlowVoiceover out/ctrlteach-complete-pitch-with-breakthrough-voiceover.mp4",
     "render:captioned-pitch": "remotion render CombinedPitchSlowVoiceover out/ctrlteach-complete-pitch-captioned.mp4",
+    "render:product-demo": "remotion render ProductDemoThroughRoadmap out/ctrlteach-product-demo-through-roadmap.mp4",
+    "render:through-roadmap": "remotion render CtrlTeachThroughRoadmap out/ctrlteach-pitch-through-roadmap.mp4",
+    "render:live-through-tars": "remotion render LiveClassroomThroughTars out/ctrlteach-live-classroom-through-tars.mp4",
+    "render:through-tars": "remotion render CtrlTeachThroughTars out/ctrlteach-pitch-through-tars.mp4",
     "still": "remotion still TrainingCapacity out/training-capacity-poster.png --frame=330",
     "upgrade": "remotion upgrade",
     "lint": "eslint src && tsc --noEmit"

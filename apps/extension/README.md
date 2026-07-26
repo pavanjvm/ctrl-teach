@@ -8,4 +8,6 @@
 
 The extension captures only the active visible tab when a spoken turn ends. It does not use continuous screen sharing. Chrome internal pages, the Web Store, the address bar, and the tab strip cannot host content-script overlays.
 
+Tars keeps one top-level overlay while relaying trusted pointer and Control-key input through embedded frames. This allows the cursor and push-to-talk interaction to continue inside iframe-based consoles such as AWS EC2 without duplicating the assistant.
+
 For a deployed Ctrl+Teach origin, add its exact origin to `CTRLTEACH_ORIGINS` in `service-worker.js` and `content.js` before packaging the extension.

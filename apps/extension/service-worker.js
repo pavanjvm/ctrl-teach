@@ -97,14 +97,14 @@ async function ensureContentScript(tabId) {
   if (ready?.ok) return true;
   try {
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId, allFrames: true },
       func: () => {
         delete window.__ctrlTeachTarsExtensionLoaded;
         document.getElementById("ctrlteach-tars-extension")?.remove();
       },
     });
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: { tabId, allFrames: true },
       // Recovery injection must match manifest order. content.js depends on
       // both helpers and must never be injected by itself on an existing tab.
       files: [...TarsExtensionAssets.CONTENT_SCRIPT_FILES],
@@ -564,9 +564,10 @@ void loadState().then(async () => {
   if (state.enabled && accessToken) {
     await sendToOffscreen({ type: "TARS_CONFIG", config: { ...state, accessToken } });
   }
-  const appTabs = await chrome.tabs.query({
-    url: ["http://localhost:3000/*", "http://127.0.0.1:3000/*"],
-  }).catch(() => []);
-  await Promise.all(appTabs.map((tab) => publishState(tab.id)));
-  if (!appTabs.some((tab) => tab.id === activeTabId)) await publishState(activeTabId);
+  // Reloading an unpacked extension invalidates every existing content-script
+  // context. Refresh all normal tabs immediately—including background AWS
+  // tabs—so an in-console SPA transition cannot keep a stale top-only cursor.
+  const tabs = await chrome.tabs.query({}).catch(() => []);
+  const normalTabs = tabs.filter((tab) => isNormalPage(tab.url || ""));
+  await Promise.all(normalTabs.map((tab) => publishState(tab.id)));
 });

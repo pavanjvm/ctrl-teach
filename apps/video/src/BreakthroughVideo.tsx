@@ -16,6 +16,8 @@ const clamp = {
   extrapolateRight: "clamp" as const,
 };
 
+export const BREAKTHROUGH_DURATION = 330;
+
 const fragments = [
   {clip: "polygon(0 0, 43% 0, 34% 25%, 0 31%)", x: -510, y: -300, rotate: -24},
   {clip: "polygon(43% 0, 72% 0, 66% 29%, 34% 25%)", x: -80, y: -440, rotate: 12},
@@ -191,6 +193,11 @@ export const BreakthroughVideo: React.FC = () => {
           src={staticFile("voiceover/combined-pitch/act-3-breakthrough.mp3")}
         />
       </Sequence>
+      <Sequence name="Introducing Ctrl+Teach" from={90} layout="none">
+        <Audio
+          src={staticFile("voiceover/combined-pitch/act-3-ctrlteach-intro.mp3")}
+        />
+      </Sequence>
       <div
         style={{
           position: "absolute",
@@ -199,7 +206,7 @@ export const BreakthroughVideo: React.FC = () => {
           backgroundImage:
             "linear-gradient(#292925 1px, transparent 1px), linear-gradient(90deg, #292925 1px, transparent 1px)",
           backgroundSize: "66px 66px",
-          scale: interpolate(frame, [0, 120], [1.08, 1.22], {...clamp, easing: Easing.linear}),
+          scale: interpolate(frame, [0, BREAKTHROUGH_DURATION], [1.08, 1.24], {...clamp, easing: Easing.linear}),
         }}
       />
       <div
@@ -265,7 +272,12 @@ export const BreakthroughVideo: React.FC = () => {
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          opacity: interpolate(frame, [42, 62, 111, 119], [0, 1, 1, 0], {...clamp, easing: ease}),
+          opacity: interpolate(
+            frame,
+            [42, 62, BREAKTHROUGH_DURATION - 9, BREAKTHROUGH_DURATION - 1],
+            [0, 1, 1, 0],
+            {...clamp, easing: ease},
+          ),
           scale: interpolate(frame, [42, 66, 88], [0.76, 1.035, 1], {...clamp, easing: ease}),
         }}
       >
@@ -315,7 +327,12 @@ export const BreakthroughVideo: React.FC = () => {
           fontFamily: "monospace",
           fontSize: 20,
           letterSpacing: "0.12em",
-          opacity: interpolate(frame, [64, 78], [0, 1], {...clamp, easing: ease}),
+          opacity: interpolate(
+            frame,
+            [64, 78, BREAKTHROUGH_DURATION - 9, BREAKTHROUGH_DURATION - 1],
+            [0, 1, 1, 0],
+            {...clamp, easing: ease},
+          ),
         }}
       >
         ACT 03 / BREAKTHROUGH

@@ -1,13 +1,13 @@
 import {Audio} from "@remotion/media";
 import {AbsoluteFill, Sequence, staticFile} from "remotion";
-import {BreakthroughVideo} from "./BreakthroughVideo";
+import {BREAKTHROUGH_DURATION, BreakthroughVideo} from "./BreakthroughVideo";
 import {CombinedPitchVideo} from "./CombinedPitchVideo";
-import {PitchCaptions} from "./PitchCaptions";
 
 const PACE = 1.25;
 const ACT_ONE_FRAMES = Math.round(360 * PACE);
 const ACT_TWO_FRAMES = Math.round(375 * PACE);
 const BREAKTHROUGH_START = ACT_ONE_FRAMES + ACT_TWO_FRAMES;
+export const COMBINED_PITCH_SLOW_DURATION = BREAKTHROUGH_START + BREAKTHROUGH_DURATION;
 
 const Narration: React.FC<{from: number; name: string; src: string}> = ({
   from,
@@ -26,7 +26,7 @@ export const CombinedPitchSlowVoiceoverVideo: React.FC = () => {
       <Sequence
         name="Act 3 - Breakthrough"
         from={BREAKTHROUGH_START}
-        durationInFrames={120}
+        durationInFrames={BREAKTHROUGH_DURATION}
       >
         <BreakthroughVideo />
       </Sequence>
@@ -72,7 +72,6 @@ export const CombinedPitchSlowVoiceoverVideo: React.FC = () => {
         from={ACT_ONE_FRAMES + 318}
         src="act-2-reframe.mp3"
       />
-      <PitchCaptions />
     </AbsoluteFill>
   );
 };

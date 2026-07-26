@@ -25,6 +25,65 @@
     };
   }
 
+  function framePointToParentViewport({
+    x,
+    y,
+    childViewportWidth,
+    childViewportHeight,
+    frameLeft,
+    frameTop,
+    frameWidth,
+    frameHeight,
+    frameOffsetWidth,
+    frameOffsetHeight,
+    frameClientLeft = 0,
+    frameClientTop = 0,
+    frameClientWidth,
+    frameClientHeight,
+  }) {
+    const required = [
+      x,
+      y,
+      childViewportWidth,
+      childViewportHeight,
+      frameLeft,
+      frameTop,
+      frameWidth,
+      frameHeight,
+    ];
+    if (!required.every(Number.isFinite)) return null;
+    if (
+      childViewportWidth <= 0
+      || childViewportHeight <= 0
+      || frameWidth <= 0
+      || frameHeight <= 0
+    ) return null;
+
+    const safeOffsetWidth = Number.isFinite(frameOffsetWidth) && frameOffsetWidth > 0
+      ? frameOffsetWidth
+      : frameWidth;
+    const safeOffsetHeight = Number.isFinite(frameOffsetHeight) && frameOffsetHeight > 0
+      ? frameOffsetHeight
+      : frameHeight;
+    const scaleX = frameWidth / safeOffsetWidth;
+    const scaleY = frameHeight / safeOffsetHeight;
+    const safeClientWidth = Number.isFinite(frameClientWidth) && frameClientWidth > 0
+      ? frameClientWidth
+      : safeOffsetWidth;
+    const safeClientHeight = Number.isFinite(frameClientHeight) && frameClientHeight > 0
+      ? frameClientHeight
+      : safeOffsetHeight;
+    const contentLeft = frameLeft + Math.max(0, frameClientLeft) * scaleX;
+    const contentTop = frameTop + Math.max(0, frameClientTop) * scaleY;
+    const contentWidth = safeClientWidth * scaleX;
+    const contentHeight = safeClientHeight * scaleY;
+
+    return {
+      x: contentLeft + (Math.max(0, Math.min(childViewportWidth, x)) / childViewportWidth) * contentWidth,
+      y: contentTop + (Math.max(0, Math.min(childViewportHeight, y)) / childViewportHeight) * contentHeight,
+    };
+  }
+
   function shouldCropFocusRegion(region) {
     const kind = String(region?.kind || "").toLowerCase();
     return Boolean(region?.rect) && kind !== "img" && kind !== "image";
@@ -124,6 +183,7 @@
   }
 
   return {
+    framePointToParentViewport,
     screenshotToViewportPoint,
     shouldCropFocusRegion,
     scaleCtrlGesture,

@@ -6,8 +6,24 @@ import {ContentLockedCalendarVideo} from "./ContentLockedCalendarVideo";
 import {DemandDoesNotWaitVideo} from "./DemandDoesNotWaitVideo";
 import {CombinedPitchVideo} from "./CombinedPitchVideo";
 import {CombinedPitchVoiceoverVideo} from "./CombinedPitchVoiceoverVideo";
-import {CombinedPitchSlowVoiceoverVideo} from "./CombinedPitchSlowVoiceoverVideo";
-import {BreakthroughVideo} from "./BreakthroughVideo";
+import {
+  COMBINED_PITCH_SLOW_DURATION,
+  CombinedPitchSlowVoiceoverVideo,
+} from "./CombinedPitchSlowVoiceoverVideo";
+import {BREAKTHROUGH_DURATION, BreakthroughVideo} from "./BreakthroughVideo";
+import {
+  PRODUCT_DEMO_DURATION,
+  ProductDemoVideo,
+} from "./ProductDemoVideo";
+import {ExtendedPitchVideo, OPENING_DURATION} from "./ExtendedPitchVideo";
+import {
+  LIVE_TARS_DURATION,
+  LiveClassroomTarsVideo,
+} from "./LiveClassroomTarsVideo";
+import {
+  FULL_DEMO_THROUGH_TARS_DURATION,
+  FullDemoThroughTarsVideo,
+} from "./FullDemoThroughTarsVideo";
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -63,7 +79,7 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="Breakthrough"
         component={BreakthroughVideo}
-        durationInFrames={120}
+        durationInFrames={BREAKTHROUGH_DURATION}
         fps={30}
         width={1920}
         height={1080}
@@ -71,7 +87,39 @@ export const RemotionRoot: React.FC = () => {
       <Composition
         id="CombinedPitchSlowVoiceover"
         component={CombinedPitchSlowVoiceoverVideo}
-        durationInFrames={1039}
+        durationInFrames={COMBINED_PITCH_SLOW_DURATION}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+      <Composition
+        id="ProductDemoThroughRoadmap"
+        component={ProductDemoVideo}
+        durationInFrames={PRODUCT_DEMO_DURATION}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+      <Composition
+        id="CtrlTeachThroughRoadmap"
+        component={ExtendedPitchVideo}
+        durationInFrames={OPENING_DURATION + PRODUCT_DEMO_DURATION}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+      <Composition
+        id="LiveClassroomThroughTars"
+        component={LiveClassroomTarsVideo}
+        durationInFrames={LIVE_TARS_DURATION}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+      <Composition
+        id="CtrlTeachThroughTars"
+        component={FullDemoThroughTarsVideo}
+        durationInFrames={FULL_DEMO_THROUGH_TARS_DURATION}
         fps={30}
         width={1920}
         height={1080}

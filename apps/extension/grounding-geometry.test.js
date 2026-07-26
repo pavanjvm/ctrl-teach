@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
   classifyCtrlGesture,
+  framePointToParentViewport,
   scaleCtrlGesture,
   screenshotToViewportPoint,
   shouldCropFocusRegion,
@@ -58,6 +59,44 @@ test("rejects unusable screenshot dimensions", () => {
     viewportWidth: 100,
     viewportHeight: 100,
   }), null);
+});
+
+test("maps a child-frame pointer into the parent viewport", () => {
+  assert.deepEqual(framePointToParentViewport({
+    x: 400,
+    y: 300,
+    childViewportWidth: 800,
+    childViewportHeight: 600,
+    frameLeft: 120,
+    frameTop: 80,
+    frameWidth: 804,
+    frameHeight: 604,
+    frameOffsetWidth: 804,
+    frameOffsetHeight: 604,
+    frameClientLeft: 2,
+    frameClientTop: 2,
+    frameClientWidth: 800,
+    frameClientHeight: 600,
+  }), { x: 522, y: 382 });
+});
+
+test("frame mapping accounts for a scaled iframe", () => {
+  assert.deepEqual(framePointToParentViewport({
+    x: 800,
+    y: 600,
+    childViewportWidth: 800,
+    childViewportHeight: 600,
+    frameLeft: 50,
+    frameTop: 40,
+    frameWidth: 402,
+    frameHeight: 302,
+    frameOffsetWidth: 804,
+    frameOffsetHeight: 604,
+    frameClientLeft: 2,
+    frameClientTop: 2,
+    frameClientWidth: 800,
+    frameClientHeight: 600,
+  }), { x: 451, y: 341 });
 });
 
 test("does not crop static images", () => {

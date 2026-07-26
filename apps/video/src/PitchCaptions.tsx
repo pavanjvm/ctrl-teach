@@ -15,7 +15,10 @@ const clamp = {
   extrapolateRight: "clamp" as const,
 };
 
-export const PitchCaptions: React.FC = () => {
+export const PitchCaptions: React.FC<{
+  src?: string;
+  fontSize?: number;
+}> = ({src = "captions/combined-pitch.json", fontSize = 38}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const [captions, setCaptions] = useState<Caption[] | null>(null);
@@ -24,7 +27,7 @@ export const PitchCaptions: React.FC = () => {
 
   const loadCaptions = useCallback(async () => {
     try {
-      const response = await fetch(staticFile("captions/combined-pitch.json"));
+      const response = await fetch(staticFile(src));
       if (!response.ok) {
         throw new Error(`Unable to load captions: ${response.status}`);
       }
@@ -34,7 +37,7 @@ export const PitchCaptions: React.FC = () => {
     } catch (error) {
       cancelRender(error);
     }
-  }, [cancelRender, continueRender, handle]);
+  }, [cancelRender, continueRender, handle, src]);
 
   useEffect(() => {
     loadCaptions();
@@ -78,7 +81,7 @@ export const PitchCaptions: React.FC = () => {
           background: "rgba(4,4,4,0.82)",
           boxShadow: "0 18px 55px rgba(0,0,0,0.58)",
           color: "#f6f4ed",
-          fontSize: 38,
+          fontSize,
           fontWeight: 750,
           lineHeight: 1.24,
           letterSpacing: "-0.018em",
