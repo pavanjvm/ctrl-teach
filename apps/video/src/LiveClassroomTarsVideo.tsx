@@ -10,6 +10,8 @@ import {
   staticFile,
   useCurrentFrame,
 } from "remotion";
+import {TarsMemoryScene} from "./TarsMemoryScene";
+import {PitchConclusionScene} from "./PitchConclusionScene";
 const clamp = {
   extrapolateLeft: "clamp" as const,
   extrapolateRight: "clamp" as const,
@@ -30,6 +32,10 @@ export const LIVE_TARS_SCENES = {
   meetTars: 161,
   acrossBrowser: EC2_SCENE_DURATION,
   workflow: 960,
+  anatomyLabeling: 390,
+  roleplay: 1440,
+  memory: 1260,
+  conclusion: 415,
 } as const;
 
 export const LIVE_TARS_DURATION = Object.values(LIVE_TARS_SCENES).reduce<number>(
@@ -813,6 +819,48 @@ const WorkflowScene: React.FC = () => {
   );
 };
 
+const AnatomyLabelingScene: React.FC = () => (
+  <SceneBase>
+    <Video
+      src={shot("tars-labelling.mov")}
+      trimBefore={390}
+      trimAfter={780}
+      muted
+      objectFit="cover"
+      style={{width: "100%", height: "100%"}}
+    />
+    <SceneAudio src="act-3-anatomy-labeling.mp3" from={24} />
+  </SceneBase>
+);
+
+const RoleplayScene: React.FC = () => (
+  <SceneBase>
+    <Sequence name="Roleplay setup" durationInFrames={1160}>
+      <Video
+        src={shot("tars-roleplay.mov")}
+        trimBefore={210}
+        trimAfter={1080}
+        muted
+        playbackRate={0.75}
+        objectFit="cover"
+        style={{width: "100%", height: "100%"}}
+      />
+    </Sequence>
+    <Sequence name="Live interviewer response" from={1160} durationInFrames={280}>
+      <Video
+        src={shot("tars-roleplay.mov")}
+        trimBefore={1080}
+        trimAfter={1360}
+        muted
+        objectFit="cover"
+        style={{width: "100%", height: "100%"}}
+      />
+    </Sequence>
+    <SceneAudio src="act-3-roleplay.mp3" from={12} />
+    <SceneAudio src="act-3-roleplay-interviewer.mp3" from={1214} />
+  </SceneBase>
+);
+
 export const LiveClassroomTarsVideo: React.FC = () => (
   <AbsoluteFill style={{background: "#060606"}}>
     <Sequence name="Open Live Classroom" durationInFrames={196}>
@@ -847,6 +895,52 @@ export const LiveClassroomTarsVideo: React.FC = () => (
       durationInFrames={LIVE_TARS_SCENES.workflow}
     >
       <WorkflowScene />
+    </Sequence>
+    <Sequence
+      name="Tars labels an anatomy diagram"
+      from={1341 + LIVE_TARS_SCENES.acrossBrowser + LIVE_TARS_SCENES.workflow}
+      durationInFrames={LIVE_TARS_SCENES.anatomyLabeling}
+    >
+      <AnatomyLabelingScene />
+    </Sequence>
+    <Sequence
+      name="Roleplay setup and live interview"
+      from={
+        1341 +
+        LIVE_TARS_SCENES.acrossBrowser +
+        LIVE_TARS_SCENES.workflow +
+        LIVE_TARS_SCENES.anatomyLabeling
+      }
+      durationInFrames={LIVE_TARS_SCENES.roleplay}
+    >
+      <RoleplayScene />
+    </Sequence>
+    <Sequence
+      name="Tars memory and personalization"
+      from={
+        1341 +
+        LIVE_TARS_SCENES.acrossBrowser +
+        LIVE_TARS_SCENES.workflow +
+        LIVE_TARS_SCENES.anatomyLabeling +
+        LIVE_TARS_SCENES.roleplay
+      }
+      durationInFrames={LIVE_TARS_SCENES.memory}
+    >
+      <TarsMemoryScene />
+    </Sequence>
+    <Sequence
+      name="Conclusion and final hook"
+      from={
+        1341 +
+        LIVE_TARS_SCENES.acrossBrowser +
+        LIVE_TARS_SCENES.workflow +
+        LIVE_TARS_SCENES.anatomyLabeling +
+        LIVE_TARS_SCENES.roleplay +
+        LIVE_TARS_SCENES.memory
+      }
+      durationInFrames={LIVE_TARS_SCENES.conclusion}
+    >
+      <PitchConclusionScene />
     </Sequence>
   </AbsoluteFill>
 );
