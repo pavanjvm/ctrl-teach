@@ -2,8 +2,9 @@
 
 Replaces Firebase / Firestore entirely.  Exposes:
   - engine, SessionLocal, Base
-  - ORM models: User, Profile, Session, Progress, Quiz, StudyPlan, Tutor,
-    ScheduledSession, GeneratedCourse, BrowserLabRun, BrowserLabRecovery
+  - ORM models: User, Profile, Session, Progress, CourseLessonProgress, Quiz,
+    StudyPlan, Tutor, ScheduledSession, GeneratedCourse, BrowserLabRun,
+    BrowserLabRecovery
   - get_session() generator (FastAPI dependency)
   - init_db() called at import time: creates tables + seeds users from
     settings.app_users (bcrypt-hashed).
@@ -127,6 +128,26 @@ class Progress(Base):
     mastery_level: Mapped[int] = mapped_column(Integer, default=1)
     details: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class CourseLessonProgress(Base):
+    __tablename__ = "course_lesson_progress"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "course_id",
+            "lesson_id",
+            name="uq_course_lesson_progress_user_course_lesson",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    course_id: Mapped[str] = mapped_column(String(128), index=True)
+    lesson_id: Mapped[str] = mapped_column(String(128), index=True)
+    completed_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
 

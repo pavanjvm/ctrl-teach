@@ -8,10 +8,18 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.auth.dependencies import get_current_user
-from app.db import GeneratedCourse, LearningPath, PathNode, PlatformCourse, Progress, SessionLocal
+from app.db import (
+    CourseLessonProgress,
+    GeneratedCourse,
+    LearningPath,
+    PathNode,
+    PlatformCourse,
+    Progress,
+    SessionLocal,
+)
 from app.routers.generated_courses import _schedule
 
 router = APIRouter(prefix="/api/learning-paths", tags=["learning-paths"])
@@ -55,6 +63,11 @@ class CreatePathRequest(BaseModel):
     roleId: str = Field(min_length=2, max_length=128)
 
 
+class RecordPathLessonRequest(BaseModel):
+    courseId: str = Field(min_length=1, max_length=128)
+    lessonId: str = Field(min_length=1, max_length=128)
+
+
 def _serialize_node(node: PathNode) -> dict[str, Any]:
     return {
         "id": node.id,
@@ -87,7 +100,63 @@ def _serialize_path(path: LearningPath, nodes: list[PathNode]) -> dict[str, Any]
 def _progress_by_skill(user_id: int) -> dict[str, int]:
     with SessionLocal() as db:
         rows = list(db.scalars(select(Progress).where(Progress.user_id == user_id)))
-    return {row.topic.casefold(): max(1, min(5, row.mastery_level)) for row in rows if row.topic}
+    mastery: dict[str, int] = {}
+    for row in rows:
+        if not row.topic:
+            continue
+        key = row.topic.casefold()
+        mastery[key] = max(mastery.get(key, 0), max(1, min(5, row.mastery_level)))
+    return mastery
+
+
+def _load_owned_path(user_id: int, path_id: str) -> tuple[LearningPath, list[PathNode]] | None:
+    with SessionLocal() as db:
+        path = db.scalar(
+            select(LearningPath).where(
+                LearningPath.id == path_id,
+                LearningPath.owner_user_id == user_id,
+            )
+        )
+        if path is None:
+            return None
+        nodes = list(db.scalars(select(PathNode).where(PathNode.path_id == path.id)))
+        db.expunge(path)
+        for node in nodes:
+            db.expunge(node)
+    return path, nodes
+
+
+def _course_lesson_ids(db: Any, user_id: int, course_id: str) -> list[str]:
+    platform_course = db.scalar(
+        select(PlatformCourse).where(
+            PlatformCourse.id == course_id,
+            PlatformCourse.status == "published",
+        )
+    )
+    if platform_course is not None:
+        course = platform_course.course or {}
+    else:
+        generated_course = db.scalar(
+            select(GeneratedCourse).where(
+                GeneratedCourse.id == course_id,
+                GeneratedCourse.owner_user_id == user_id,
+                GeneratedCourse.status == "ready",
+            )
+        )
+        course = (generated_course.payload or {}).get("course") if generated_course else {}
+    if not isinstance(course, dict):
+        return []
+    lesson_ids: list[str] = []
+    for module in course.get("modules") or []:
+        if not isinstance(module, dict):
+            continue
+        for lesson in module.get("lessons") or []:
+            if not isinstance(lesson, dict) or lesson.get("status") == "pending":
+                continue
+            lesson_id = str(lesson.get("id") or "").strip()
+            if lesson_id and lesson_id not in lesson_ids:
+                lesson_ids.append(lesson_id)
+    return lesson_ids
 
 
 def _curated_course_ids_by_skill() -> dict[str, str]:
@@ -181,7 +250,7 @@ def _refresh_nodes(user_id: int, path: LearningPath, nodes: list[PathNode]) -> l
                 node.status = next_status
                 node.updated_at = datetime.now(timezone.utc)
                 changed = True
-    if changed:
+    if changed or (path.skill_snapshot or {}) != mastery:
         path.skill_snapshot = mastery
         path.updated_at = datetime.now(timezone.utc)
         with SessionLocal() as db:
@@ -212,22 +281,179 @@ async def create_learning_path(body: CreatePathRequest, user: dict = Depends(get
     return _serialize_path(path, nodes)
 
 
+@router.get("")
+async def list_learning_paths(user: dict = Depends(get_current_user)):
+    user_id = int(user["uid"])
+    with SessionLocal() as db:
+        path_ids = list(
+            db.scalars(
+                select(LearningPath.id)
+                .where(LearningPath.owner_user_id == user_id)
+                .order_by(LearningPath.updated_at.desc(), LearningPath.created_at.desc())
+            )
+        )
+    paths: list[dict[str, Any]] = []
+    for path_id in path_ids:
+        loaded = _load_owned_path(user_id, path_id)
+        if loaded is None:
+            continue
+        path, nodes = loaded
+        paths.append(_serialize_path(path, _refresh_nodes(user_id, path, nodes)))
+    return {"paths": paths}
+
+
+@router.get("/progress/lessons")
+async def list_completed_path_lessons(user: dict = Depends(get_current_user)):
+    with SessionLocal() as db:
+        rows = list(
+            db.scalars(
+                select(CourseLessonProgress)
+                .where(CourseLessonProgress.user_id == int(user["uid"]))
+                .order_by(CourseLessonProgress.completed_at.asc(), CourseLessonProgress.id.asc())
+            )
+        )
+    return {
+        "completedLessons": [
+            {
+                "courseId": row.course_id,
+                "lessonId": row.lesson_id,
+                "completedAt": row.completed_at.isoformat(),
+            }
+            for row in rows
+        ]
+    }
+
+
 @router.get("/{path_id}")
 async def get_learning_path(path_id: str, user: dict = Depends(get_current_user)):
-    with SessionLocal() as db:
-        path = db.scalar(select(LearningPath).where(LearningPath.id == path_id, LearningPath.owner_user_id == int(user["uid"])))
-        if path is None:
-            raise HTTPException(status_code=404, detail="Learning path not found.")
-        nodes = list(db.scalars(select(PathNode).where(PathNode.path_id == path.id)))
-        db.expunge(path)
-        for node in nodes:
-            db.expunge(node)
+    loaded = _load_owned_path(int(user["uid"]), path_id)
+    if loaded is None:
+        raise HTTPException(status_code=404, detail="Learning path not found.")
+    path, nodes = loaded
     return _serialize_path(path, _refresh_nodes(int(user["uid"]), path, nodes))
 
 
 @router.post("/{path_id}/refresh")
 async def refresh_learning_path(path_id: str, user: dict = Depends(get_current_user)):
     return await get_learning_path(path_id, user)
+
+
+@router.post("/progress/lessons")
+async def record_completed_path_lesson(
+    body: RecordPathLessonRequest,
+    user: dict = Depends(get_current_user),
+):
+    user_id = int(user["uid"])
+    matched_node_ids: set[str] = set()
+    matched_path_ids: set[str] = set()
+    now = datetime.now(timezone.utc)
+    recorded = False
+    course_completed = False
+    with SessionLocal() as db:
+        matches = list(
+            db.execute(
+                select(PathNode, LearningPath)
+                .join(LearningPath, LearningPath.id == PathNode.path_id)
+                .where(
+                    LearningPath.owner_user_id == user_id,
+                    or_(
+                        PathNode.course_ref == body.courseId,
+                        PathNode.generated_course_id == body.courseId,
+                    ),
+                )
+            ).all()
+        )
+        if not matches:
+            return {
+                "courseId": body.courseId,
+                "lessonId": body.lessonId,
+                "recorded": False,
+                "courseCompleted": False,
+                "updatedNodeIds": [],
+                "paths": [],
+            }
+        lesson_ids = _course_lesson_ids(db, user_id, body.courseId)
+        if not lesson_ids:
+            raise HTTPException(status_code=409, detail="Course lessons are not ready for progress tracking.")
+        if body.lessonId not in lesson_ids:
+            raise HTTPException(status_code=404, detail="Lesson does not belong to this path-backed course.")
+        completion = db.scalar(
+            select(CourseLessonProgress).where(
+                CourseLessonProgress.user_id == user_id,
+                CourseLessonProgress.course_id == body.courseId,
+                CourseLessonProgress.lesson_id == body.lessonId,
+            )
+        )
+        if completion is None:
+            db.add(CourseLessonProgress(
+                user_id=user_id,
+                course_id=body.courseId,
+                lesson_id=body.lessonId,
+                completed_at=now,
+            ))
+            db.flush()
+            recorded = True
+        completed_lesson_ids = set(
+            db.scalars(
+                select(CourseLessonProgress.lesson_id).where(
+                    CourseLessonProgress.user_id == user_id,
+                    CourseLessonProgress.course_id == body.courseId,
+                )
+            )
+        )
+        course_completed = set(lesson_ids).issubset(completed_lesson_ids)
+        if course_completed:
+            for node, path in matches:
+                subject = f"Learning path: {path.role_name}"[:128]
+                details = f"Completed course {body.courseId} for learning path {path.id}."
+                progress = db.scalar(
+                    select(Progress)
+                    .where(
+                        Progress.user_id == user_id,
+                        Progress.subject == subject,
+                        Progress.topic == node.skill,
+                    )
+                    .order_by(Progress.mastery_level.desc())
+                )
+                target_level = max(1, min(5, node.target_level))
+                if progress is None:
+                    db.add(
+                        Progress(
+                            user_id=user_id,
+                            subject=subject,
+                            topic=node.skill,
+                            mastery_level=target_level,
+                            details=details,
+                            updated_at=now,
+                        )
+                    )
+                else:
+                    progress.mastery_level = max(progress.mastery_level or 0, target_level)
+                    progress.details = details
+                    progress.updated_at = now
+                if node.status != "completed":
+                    node.status = "completed"
+                    node.updated_at = now
+                path.updated_at = now
+                matched_node_ids.add(node.id)
+                matched_path_ids.add(path.id)
+        db.commit()
+
+    paths: list[dict[str, Any]] = []
+    for path_id in sorted(matched_path_ids):
+        loaded = _load_owned_path(user_id, path_id)
+        if loaded is None:
+            continue
+        path, nodes = loaded
+        paths.append(_serialize_path(path, _refresh_nodes(user_id, path, nodes)))
+    return {
+        "courseId": body.courseId,
+        "lessonId": body.lessonId,
+        "recorded": recorded,
+        "courseCompleted": course_completed,
+        "updatedNodeIds": sorted(matched_node_ids),
+        "paths": paths,
+    }
 
 
 @router.post("/{path_id}/nodes/{node_id}/generate", status_code=status.HTTP_202_ACCEPTED)

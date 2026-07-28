@@ -294,7 +294,19 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<PersistedState>(loadState);
   const [platformCourses, setPlatformCourses] = useState<Course[]>([]);
   const [hydratedUserId, setHydratedUserId] = useState<string | null>(null);
+  const [pathLessonSyncVersion, setPathLessonSyncVersion] = useState(0);
   const lastSyncRef = useRef<string>("");
+  const syncedPathLessonsRef = useRef<Set<string>>(new Set());
+  const syncingPathLessonsRef = useRef<Set<string>>(new Set());
+  const pathLessonSyncUserRef = useRef<string | null>(null);
+  const pathLessonSyncWorkerRef = useRef(false);
+
+  useEffect(() => {
+    syncedPathLessonsRef.current.clear();
+    syncingPathLessonsRef.current.clear();
+    pathLessonSyncUserRef.current = user?.uid ?? null;
+    pathLessonSyncWorkerRef.current = false;
+  }, [user?.uid]);
 
   // Persist to localStorage on every change.
   useEffect(() => {
@@ -405,6 +417,97 @@ export function LearnerProvider({ children }: { children: React.ReactNode }) {
       } catch {}
     })();
   }, [user, getToken]);
+
+  useEffect(() => {
+    if (!user || (state.ownerUserId && state.ownerUserId !== user.uid)) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const response = await axios.get<{
+          completedLessons?: Array<{ courseId?: string; lessonId?: string }>;
+        }>(`${API_URL}/api/learning-paths/progress/lessons`, {
+          headers: { Authorization: token },
+        });
+        const remoteCompletedLessons = Array.from(new Set(
+          (response.data.completedLessons ?? [])
+            .map(({ courseId, lessonId }) => (
+              typeof courseId === "string" && typeof lessonId === "string" && courseId && lessonId
+                ? lessonProgressId(courseId, lessonId)
+                : null
+            ))
+            .filter((completionId): completionId is string => Boolean(completionId)),
+        ));
+        if (!remoteCompletedLessons.length || cancelled) return;
+        setState((current) => {
+          if (current.ownerUserId && current.ownerUserId !== user.uid) return current;
+          const completedLessons = Array.from(new Set([
+            ...current.progress.completedLessons,
+            ...remoteCompletedLessons,
+          ]));
+          if (completedLessons.length === current.progress.completedLessons.length) return current;
+          return {
+            ...current,
+            ownerUserId: current.ownerUserId ?? user.uid,
+            progress: { ...current.progress, completedLessons },
+          };
+        });
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [getToken, state.ownerUserId, user]);
+
+  useEffect(() => {
+    if (!user || state.ownerUserId !== user.uid || hydratedUserId !== user.uid) return;
+    if (pathLessonSyncWorkerRef.current) return;
+    const pendingLessons: Array<{ courseId: string; lessonId: string; key: string }> = [];
+    for (const key of state.progress.completedLessons) {
+      const separatorIndex = key.indexOf(LESSON_PROGRESS_SEPARATOR);
+      if (separatorIndex <= 0 || separatorIndex >= key.length - LESSON_PROGRESS_SEPARATOR.length) continue;
+      if (syncedPathLessonsRef.current.has(key) || syncingPathLessonsRef.current.has(key)) continue;
+      const courseId = key.slice(0, separatorIndex);
+      const lessonId = key.slice(separatorIndex + LESSON_PROGRESS_SEPARATOR.length);
+      if (!courseId || !lessonId) continue;
+      syncingPathLessonsRef.current.add(key);
+      pendingLessons.push({ courseId, lessonId, key });
+    }
+    if (!pendingLessons.length) return;
+    pathLessonSyncWorkerRef.current = true;
+    const userId = user.uid;
+    void (async () => {
+      let failed = false;
+      for (const { courseId, lessonId, key } of pendingLessons) {
+        try {
+          const token = await getToken();
+          if (!token) throw new Error("Missing session token");
+          await axios.post(
+            `${API_URL}/api/learning-paths/progress/lessons`,
+            { courseId, lessonId },
+            { headers: { Authorization: token } },
+          );
+          if (pathLessonSyncUserRef.current === userId) {
+            syncedPathLessonsRef.current.add(key);
+          }
+        } catch {
+          failed = true;
+          if (pathLessonSyncUserRef.current === userId) {
+            window.setTimeout(() => {
+              if (pathLessonSyncUserRef.current === userId) {
+                setPathLessonSyncVersion((version) => version + 1);
+              }
+            }, 5_000);
+          }
+        } finally {
+          syncingPathLessonsRef.current.delete(key);
+        }
+      }
+      pathLessonSyncWorkerRef.current = false;
+      if (!failed && pathLessonSyncUserRef.current === userId) {
+        setPathLessonSyncVersion((version) => version + 1);
+      }
+    })();
+  }, [getToken, hydratedUserId, pathLessonSyncVersion, state.ownerUserId, state.progress.completedLessons, user]);
 
   // Mirror onboarding preferences and the bounded evidence log to the profile.
   useEffect(() => {
