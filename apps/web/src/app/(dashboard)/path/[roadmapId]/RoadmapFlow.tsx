@@ -248,7 +248,7 @@ export default function RoadmapFlow({ roadmap }: { roadmap: LearningRoadmap }) {
                   <small>Curated and published in Ctrl+Teach</small>
                 </div>
                 <div className="roadmap-learning-course-list">
-                  {recommendedCourses.map((course) => (
+                  {recommendedCourses.length > 0 ? recommendedCourses.map((course) => (
                     <article key={course.id}>
                       <div>
                         <span>{course.id.startsWith("platform-") ? "Published by Cprime" : "Cprime course"}</span>
@@ -257,7 +257,11 @@ export default function RoadmapFlow({ roadmap }: { roadmap: LearningRoadmap }) {
                       </div>
                       <button type="button" onClick={() => openCourse(course)}>Open <ArrowRight size={13} /></button>
                     </article>
-                  ))}
+                  )) : (
+                    <p className="roadmap-learning-course-empty">
+                      No published Ctrl+Teach course is mapped to this topic yet. Generate a focused course below instead.
+                    </p>
+                  )}
                 </div>
               </section>
 

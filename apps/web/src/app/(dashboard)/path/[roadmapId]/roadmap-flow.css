@@ -349,6 +349,7 @@
 .roadmap-learning-bootcamps strong { display: block; margin-top: 4px; font-size: 11px; font-weight: 680; line-height: 1.35; }
 .roadmap-learning-course-list p,
 .roadmap-learning-bootcamps p { margin-top: 4px; color: var(--text-muted, #666); font-size: 8px; line-height: 1.45; }
+.roadmap-learning-course-list .roadmap-learning-course-empty { margin: 0; padding: 13px; border: 1px dashed #c9c5be; background: #fbfbf9; color: var(--text-muted, #666); font-size: 10px; line-height: 1.5; }
 .roadmap-learning-course-list article > button { display: flex; padding: 7px 9px; align-items: center; gap: 5px; border: 1px solid #252723; background: #252723; color: #fff; font-size: 9px; font-weight: 700; }
 .roadmap-learning-bootcamps a:hover { border-color: #6d9438; background: #f3f8ea; }
 .roadmap-learning-bootcamps a > svg { color: #5f842e; }

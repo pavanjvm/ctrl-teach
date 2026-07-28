@@ -348,6 +348,79 @@ class GeneratedCourseServiceTests(unittest.TestCase):
         self.assertIn("Grounded source text about GitHub", outline_prompt)
         self.assertIn("Authoritative research brief", lesson_prompt)
 
+    def test_designated_visual_lesson_can_complete_without_an_image_block(self) -> None:
+        outline_lesson = generated_service.OutlineLesson(
+            title="Cloud architecture foundations",
+            summary="Understand how cloud services are organized into a reliable system.",
+        )
+        lesson_content = LessonContent.model_validate({
+            "summary": "A complete lesson about the core parts of cloud architecture.",
+            "duration": "20m",
+            "blocks": [
+                {
+                    "type": "content",
+                    "heading": "Architecture model",
+                    "paragraphs": [
+                        "Cloud architectures combine compute, networking, storage, and identity services into an intentionally designed system."
+                    ],
+                    "citationIds": [],
+                },
+                {
+                    "type": "grid_cards",
+                    "heading": "Core layers",
+                    "cards": [
+                        {"title": "Compute", "body": "Runs the application workload."},
+                        {"title": "Network", "body": "Connects users and services safely."},
+                    ],
+                    "citationIds": [],
+                },
+                {
+                    "type": "numbered_list",
+                    "heading": "Design sequence",
+                    "items": [
+                        {"title": "Identify", "body": "Start with the business workload and constraints."},
+                        {"title": "Separate", "body": "Define the trust and failure boundaries."},
+                    ],
+                    "citationIds": [],
+                },
+                {
+                    "type": "quiz",
+                    "heading": "Check",
+                    "questions": [
+                        {
+                            "question": "Which layer runs the application workload?",
+                            "choices": ["Compute", "Storage"],
+                            "answerIndex": 0,
+                            "explanation": "Compute services run the application workload.",
+                        },
+                        {
+                            "question": "What should guide an architecture first?",
+                            "choices": ["Business constraints", "A random service list"],
+                            "answerIndex": 0,
+                            "explanation": "Architecture starts with the workload and its constraints.",
+                        },
+                    ],
+                    "citationIds": [],
+                },
+            ],
+        })
+        lesson_parse = AsyncMock(return_value=SimpleNamespace(output_parsed=lesson_content))
+        lesson_client = SimpleNamespace(responses=SimpleNamespace(parse=lesson_parse))
+
+        with patch.object(generated_service, "_client", return_value=lesson_client):
+            result = asyncio.run(generated_service.generate_lesson(
+                course_title="Cloud architecture",
+                module_title="Foundations",
+                lesson=outline_lesson,
+                research={"brief": "Cloud architecture research brief.", "citations": []},
+                answers={},
+                require_image=True,
+            ))
+
+        self.assertIs(result, lesson_content)
+        self.assertEqual(lesson_parse.await_count, 1)
+        self.assertFalse(any(block.type == "image" for block in result.blocks))
+
     def test_intake_normalization_keeps_one_beginner_safe_question(self) -> None:
         parsed = generated_service.IntakeResult.model_validate({
             **INTAKE,

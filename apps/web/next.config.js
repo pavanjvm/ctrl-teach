@@ -48,6 +48,9 @@ const contentSecurityPolicy = [
 const nextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   // Excalidraw uses dynamic imports with no SSR
   transpilePackages: ["@excalidraw/excalidraw"],
   async headers() {

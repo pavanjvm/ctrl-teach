@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   ArrowUpRight,
   Check,
@@ -24,10 +23,6 @@ import {
 
 import "./teaching-profiles.css";
 
-
-const TEACHING_PROFILES_ENABLED = false;
-
-
 function initials(name: string) {
   return name
     .split(/\s+/)
@@ -39,7 +34,6 @@ function initials(name: string) {
 
 
 export default function TeachingProfilesPage() {
-  const router = useRouter();
   const { getToken } = useAuth();
   const [catalog, setCatalog] = useState<TeachingProfileCatalog | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -52,11 +46,6 @@ export default function TeachingProfilesPage() {
   const detailRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (!TEACHING_PROFILES_ENABLED) router.replace("/profile");
-  }, [router]);
-
-  useEffect(() => {
-    if (!TEACHING_PROFILES_ENABLED) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -143,8 +132,6 @@ export default function TeachingProfilesPage() {
       if (keyboardInitiated) detail?.focus({ preventScroll: true });
     });
   }, []);
-
-  if (!TEACHING_PROFILES_ENABLED) return null;
 
   if (loading) {
     return (

@@ -101,12 +101,12 @@ export default function RichLessonPage() {
   const isBrowserLab = Boolean(lesson?.browserLab);
   const quizBlocks = lesson?.contentBlocks?.filter((block) => block.type === "quiz") ?? [];
   const lessonAlreadyComplete = Boolean(lesson && course && isLessonComplete(course.id, lesson.id));
-  const quizzesDone = isBrowserLab
-    ? browserLabVerified
-    : lessonAlreadyComplete || quizBlocks.every((block) => (
-        block.questions.length > 0
-        && quizProgress[block.id]?.answered === block.questions.length
-      ));
+  const quizzesComplete = quizBlocks.every((block) => (
+    block.questions.length > 0
+    && quizProgress[block.id]?.answered === block.questions.length
+  ));
+  const completionReady = lessonAlreadyComplete
+    || (quizzesComplete && (!isBrowserLab || browserLabVerified));
 
   function goTo(lessonId: string) {
     setActiveLesson(lessonId);
@@ -114,7 +114,7 @@ export default function RichLessonPage() {
   }
 
   function finishLesson() {
-    if (!course || !lesson || lesson.status === "pending" || !quizzesDone) return;
+    if (!course || !lesson || lesson.status === "pending" || !completionReady) return;
     const quizResult = Object.values(quizProgress).reduce<QuizProgress>(
       (total, result) => ({
         answered: total.answered + result.answered,
@@ -160,15 +160,29 @@ export default function RichLessonPage() {
             <ChevronLeft size={15} /> Previous
           </button>
           <div>
-            {!quizzesDone && <small>{isBrowserLab ? "Complete the lab and cleanup after backend verification." : "Answer every quiz question to complete this lesson."}</small>}
-            <button type="button" className="rich-primary" disabled={!quizzesDone} onClick={finishLesson}>
+            {!completionReady && <small>{isBrowserLab && quizBlocks.length > 0 ? "Answer every quiz question, then complete the lab and cleanup after backend verification." : isBrowserLab ? "Complete the lab and cleanup after backend verification." : "Answer every quiz question to complete this lesson."}</small>}
+            <button type="button" className="rich-primary" disabled={!completionReady} onClick={finishLesson}>
               {next ? "Complete & continue" : course.partial ? "Complete lesson" : "Complete course"} <ChevronRight size={15} />
             </button>
           </div>
         </footer>
       )}
     >
-      {lesson.browserLab ? (
+      {lesson.contentBlocks?.map((block, index) => (
+        <motion.div
+          key={block.id}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: Math.min(index * .045, .3) }}
+        >
+          <CourseBlockRenderer
+            block={block}
+            citations={course.citations ?? []}
+            onQuizProgress={(progress) => setQuizProgress((current) => ({ ...current, [block.id]: progress }))}
+          />
+        </motion.div>
+      ))}
+      {lesson.browserLab && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
           <BrowserLabPanel
             courseId={params.courseId}
@@ -195,24 +209,10 @@ export default function RichLessonPage() {
                 recovery,
               });
               setBrowserLabVerified(true);
-              completeLesson(lesson.id);
             }}
           />
         </motion.div>
-      ) : lesson.contentBlocks?.map((block, index) => (
-        <motion.div
-          key={block.id}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: Math.min(index * .045, .3) }}
-        >
-          <CourseBlockRenderer
-            block={block}
-            citations={course.citations ?? []}
-            onQuizProgress={(progress) => setQuizProgress((current) => ({ ...current, [block.id]: progress }))}
-          />
-        </motion.div>
-      ))}
+      )}
     </CourseLessonView>
   );
 }

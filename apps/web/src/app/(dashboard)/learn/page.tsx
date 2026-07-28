@@ -55,10 +55,8 @@ function Workspace({ course, activeLessonId, setActiveLesson, completeLesson, ro
     return null;
   }, [course, currentLessonId]);
 
-  // The mode defaults to the lesson's type but the learner can override it
-  // via the bottom mode switcher (so they can re-study, re-practice, etc.).
-  const [mode, setMode] = useState<LessonType>(lesson?.type ?? "study");
-  React.useEffect(() => { setMode(lesson?.type ?? "study"); }, [currentLessonId, lesson?.type]);
+  const [mode, setMode] = useState<LessonType>("study");
+  React.useEffect(() => { setMode("study"); }, [currentLessonId]);
 
   const onSelectLesson = (id: string) => {
     setActiveLesson(id);

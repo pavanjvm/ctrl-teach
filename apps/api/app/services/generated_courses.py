@@ -1252,7 +1252,10 @@ payment details, destructive production changes, or irreversible actions.
         if not any(block.type == "content" for block in parsed.blocks):
             raise ValueError(f"Lesson '{lesson.title}' needs a content block.")
         if require_image and not any(block.type == "image" for block in parsed.blocks):
-            raise ValueError(f"Lesson '{lesson.title}' needs its planned image block.")
+            logger.info(
+                "Generated designated visual lesson without an image block: %s",
+                lesson.title,
+            )
         if not _lesson_depth_valid(parsed, long_course=long_course):
             raise ValueError(f"Lesson '{lesson.title}' was too thin for the requested course size.")
         return parsed
