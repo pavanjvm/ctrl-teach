@@ -7,8 +7,12 @@ resolved in `uv.lock`.
 
 ```bash
 uv sync --locked
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --port 8000 --loop asyncio
 ```
+
+Keep course-generation development on the single-process command above. The
+Uvicorn reload subprocess can stall outbound TLS requests on macOS; restart the
+API manually after backend edits.
 
 Add or remove dependencies with `uv add <package>` and `uv remove <package>`,
 then commit both `pyproject.toml` and `uv.lock`.
@@ -62,10 +66,11 @@ depend on an unload-time CORS preflight.
 
 ## Tars visual-grounding trials
 
-Tars's production visual locator defaults to `gpt-5.5` with `medium`
-reasoning effort. Configure it in
-`.env` with `TARS_VISUAL_LOCATOR_MODEL`; candidate trial models are listed in
-`TARS_VISUAL_LOCATOR_TRIAL_MODELS`.
+Tars's production visual locator defaults to `gpt-5.6-sol` with the
+`priority` service tier and `medium` reasoning effort. Configure these in
+`.env` with `TARS_VISUAL_LOCATOR_MODEL`, `TARS_VISUAL_LOCATOR_SERVICE_TIER`,
+and `TARS_VISUAL_LOCATOR_REASONING_EFFORT`; candidate trial models are listed
+in `TARS_VISUAL_LOCATOR_TRIAL_MODELS`.
 
 To compare models on the same labeled screenshots, create a JSON manifest using
 the format documented in `scripts/tars_locator_trial.py`, then run:

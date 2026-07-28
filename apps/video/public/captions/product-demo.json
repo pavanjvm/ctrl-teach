@@ -1,0 +1,135 @@
+[
+  {
+    "text": "In the admin portal, Cprime teams can create a course",
+    "startMs": 400,
+    "endMs": 3400,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "from a learning objective or import an existing curriculum.",
+    "startMs": 3400,
+    "endMs": 7168,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "Here, we ask for an intermediate course on cloud architecture.",
+    "startMs": 7900,
+    "endMs": 12500,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "Ctrl+Teach generates the structure, outcomes, lessons, assessments, and practical activities.",
+    "startMs": 12500,
+    "endMs": 19108,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "Nothing is published automatically.",
+    "startMs": 19900,
+    "endMs": 23300,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "An administrator can review the outline, edit any lesson, inspect the sources, and make changes.",
+    "startMs": 23300,
+    "endMs": 27916,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "After review, one click publishes the course to the learner catalogue.",
+    "startMs": 28900,
+    "endMs": 33148,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "On the learner side, onboarding captures their current role and experience,",
+    "startMs": 34400,
+    "endMs": 38500,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "learning preferences, and goal.",
+    "startMs": 38500,
+    "endMs": 42320,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "This learner is an intermediate software engineer who wants to become a cloud architect",
+    "startMs": 43400,
+    "endMs": 47800,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "and prefers visual, hands-on learning.",
+    "startMs": 47800,
+    "endMs": 51368,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "Ctrl+Teach first checks for a suitable published roadmap.",
+    "startMs": 52400,
+    "endMs": 57000,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "Here, it finds the existing Cloud Architect path and recommends it immediately.",
+    "startMs": 57000,
+    "endMs": 61760,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "The roadmap organizes cloud foundations, networking, automation,",
+    "startMs": 62900,
+    "endMs": 67000,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "reliability, and security into a clear learning sequence.",
+    "startMs": 67000,
+    "endMs": 71252,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "Selecting Cloud Foundations brings together the published Cprime course,",
+    "startMs": 72400,
+    "endMs": 76600,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "the relevant bootcamp, and a personalized generation option.",
+    "startMs": 76600,
+    "endMs": 80752,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "The learner can start with Cprime content or generate a course",
+    "startMs": 81900,
+    "endMs": 85800,
+    "timestampMs": null,
+    "confidence": null
+  },
+  {
+    "text": "when the available material does not fit their exact level, goal, or time.",
+    "startMs": 85800,
+    "endMs": 90252,
+    "timestampMs": null,
+    "confidence": null
+  }
+]

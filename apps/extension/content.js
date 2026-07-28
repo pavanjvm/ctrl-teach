@@ -7,6 +7,154 @@
   // orphan before mounting the live overlay.
   document.getElementById("ctrlteach-tars-extension")?.remove();
 
+  const IS_TOP_FRAME = window === window.top;
+  const FRAME_INPUT_TYPE = "CTRLTEACH_TARS_FRAME_INPUT";
+  const FRAME_INPUT_SOURCE = chrome.runtime.id;
+  const childFrameCache = new WeakMap();
+
+  function findChildFrame(root, source) {
+    for (const frame of root.querySelectorAll("iframe,frame")) {
+      try {
+        if (frame.contentWindow === source) return frame;
+      } catch {
+        // A cross-origin frame still exposes comparable WindowProxy identity,
+        // but ignore a browser-specific access failure and keep searching.
+      }
+    }
+    // Console shells can mount their workspace iframe below an open shadow
+    // root after a client-side navigation. querySelectorAll on document alone
+    // cannot see those frames, so traverse each open component root.
+    for (const element of root.querySelectorAll("*")) {
+      if (!element.shadowRoot) continue;
+      const nested = findChildFrame(element.shadowRoot, source);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  function directChildFrame(source) {
+    if (!source || (typeof source !== "object" && typeof source !== "function")) return null;
+    const cached = childFrameCache.get(source);
+    if (cached?.isConnected) {
+      try {
+        if (cached.contentWindow === source) return cached;
+      } catch {
+        // Fall through to fresh discovery after a restored frame changes.
+      }
+    }
+    const frame = findChildFrame(document, source);
+    if (frame) childFrameCache.set(source, frame);
+    return frame;
+  }
+
+  function mapRelayedFrameInput(event) {
+    const data = event.data;
+    if (
+      event.source === window
+      || data?.type !== FRAME_INPUT_TYPE
+      || data?.source !== FRAME_INPUT_SOURCE
+      || !["pointer", "ptt_start", "ptt_stop"].includes(data.kind)
+    ) return null;
+    const frame = directChildFrame(event.source);
+    if (!(frame instanceof HTMLElement)) return null;
+    const rect = frame.getBoundingClientRect();
+    const point = TarsGroundingGeometry.framePointToParentViewport({
+      x: Number(data.x),
+      y: Number(data.y),
+      childViewportWidth: Number(data.viewportWidth),
+      childViewportHeight: Number(data.viewportHeight),
+      frameLeft: rect.left,
+      frameTop: rect.top,
+      frameWidth: rect.width,
+      frameHeight: rect.height,
+      frameOffsetWidth: frame.offsetWidth,
+      frameOffsetHeight: frame.offsetHeight,
+      frameClientLeft: frame.clientLeft,
+      frameClientTop: frame.clientTop,
+      frameClientWidth: frame.clientWidth,
+      frameClientHeight: frame.clientHeight,
+    });
+    if (!point) return null;
+    return {
+      type: FRAME_INPUT_TYPE,
+      source: FRAME_INPUT_SOURCE,
+      kind: data.kind,
+      x: point.x,
+      y: point.y,
+      viewportWidth: innerWidth,
+      viewportHeight: innerHeight,
+    };
+  }
+
+  function postFrameInput(kind, point) {
+    window.parent.postMessage({
+      type: FRAME_INPUT_TYPE,
+      source: FRAME_INPUT_SOURCE,
+      kind,
+      x: point.x,
+      y: point.y,
+      viewportWidth: innerWidth,
+      viewportHeight: innerHeight,
+    }, "*");
+  }
+
+  // Only the top frame owns the visual overlay and the backend turn. Child
+  // frames relay trusted input upward, one parent at a time, so the pointer is
+  // translated through nested and cross-origin iframe boundaries without
+  // creating duplicate Tars cursors.
+  if (!IS_TOP_FRAME) {
+    let frameMouse = { x: 0, y: 0 };
+    let framePttHeld = false;
+
+    window.addEventListener("mousemove", (event) => {
+      if (!event.isTrusted) return;
+      frameMouse = { x: event.clientX, y: event.clientY };
+      postFrameInput("pointer", frameMouse);
+    }, true);
+
+    window.addEventListener("keydown", (event) => {
+      if (
+        !event.isTrusted
+        || event.key !== "Control"
+        || event.metaKey
+        || event.altKey
+        || event.repeat
+        || framePttHeld
+      ) return;
+      framePttHeld = true;
+      postFrameInput("ptt_start", frameMouse);
+    }, true);
+
+    window.addEventListener("keyup", (event) => {
+      if (!event.isTrusted || event.key !== "Control" || !framePttHeld) return;
+      framePttHeld = false;
+      postFrameInput("ptt_stop", frameMouse);
+    }, true);
+
+    window.addEventListener("blur", (event) => {
+      if (!event.isTrusted || !framePttHeld) return;
+      framePttHeld = false;
+      postFrameInput("ptt_stop", frameMouse);
+    }, true);
+
+    window.addEventListener("message", (event) => {
+      const relayed = mapRelayedFrameInput(event);
+      if (relayed) window.parent.postMessage(relayed, "*");
+    }, true);
+    return;
+  }
+
+  function runtimeSend(message) {
+    try {
+      return Promise.resolve(chrome.runtime.sendMessage(message)).catch(() => null);
+    } catch {
+      // An unpacked-extension reload invalidates scripts already living in a
+      // tab. The new worker reinjects a fresh bundle; the stale instance must
+      // fail quietly while it is being replaced.
+      return Promise.resolve(null);
+    }
+  }
+
   const CTRLTEACH_ORIGINS = new Set([
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -95,8 +243,8 @@
       #confirm-cancel { background: #f3f4f6; color: #374151; }
       #confirm-accept { background: #b7ec52; color: #26320f; }
       .stroke { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw .55s cubic-bezier(.22,.8,.24,1) forwards; }
-      .stroke.dashed { stroke-dasharray: 8 6; }
-      .stroke.dotted { stroke-dasharray: 2 5; stroke-linecap: round; }
+      .stroke.dashed { stroke-dasharray: 8 6; stroke-dashoffset: 0; animation: none; }
+      .stroke.dotted { stroke-dasharray: 2 5; stroke-dashoffset: 0; stroke-linecap: round; animation: none; }
       .ctrl-trail-segment { stroke: #14b8a6; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 6px rgba(20,184,166,.5)); }
       .draw-text { font: 600 13px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 4px; stroke-linejoin: round; animation: draw .35s ease forwards; }
       @keyframes spin { to { transform: rotate(360deg); } }
@@ -215,7 +363,7 @@
     bubble.classList.toggle("visible", Boolean(clean));
   }
 
-  function setStatus(text, temporary = false) {
+  function setStatus(text, temporary = false, durationMs = 2200) {
     statusText = String(text || "").trim();
     status.textContent = statusText;
     status.classList.toggle("visible", Boolean(statusText));
@@ -223,7 +371,7 @@
       const expected = statusText;
       setTimeout(() => {
         if (statusText === expected) setStatus("");
-      }, 2200);
+      }, durationMs);
     }
   }
 
@@ -388,7 +536,7 @@
     if (!extensionState.labActive) return;
     const payload = labElementPayload(element);
     if (!payload) return;
-    void chrome.runtime.sendMessage({ type: "TARS_LAB_INTERACTION", kind, payload });
+    void runtimeSend({ type: "TARS_LAB_INTERACTION", kind, payload });
   }
 
   function collectDomTargets(contextId) {
@@ -672,7 +820,9 @@
 
   function svgElement(name, attributes) {
     const element = document.createElementNS("http://www.w3.org/2000/svg", name);
-    for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, String(value));
+    for (const [key, value] of Object.entries(attributes)) {
+      if (value != null) element.setAttribute(key, String(value));
+    }
     return element;
   }
 
@@ -791,62 +941,12 @@
   function finishCtrlTrail() {
     const points = ctrlGesturePoints.slice();
     scheduleCtrlTrailRender();
-    if (!points.length) return null;
-    const xs = points.map((point) => point.x);
-    const ys = points.map((point) => point.y);
-    const left = Math.min(...xs);
-    const right = Math.max(...xs);
-    const top = Math.min(...ys);
-    const bottom = Math.max(...ys);
-    const width = right - left;
-    const height = bottom - top;
-    const pathLength = points.slice(1).reduce((total, point, index) => {
-      const previous = points[index];
-      return total + Math.hypot(point.x - previous.x, point.y - previous.y);
-    }, 0);
-    const start = points[0];
-    const end = points[points.length - 1];
-    const startEnd = Math.hypot(end.x - start.x, end.y - start.y);
-    let gesture = {
-      type: "point",
-      x: end.x,
-      y: end.y,
-      label: "pointed region",
-      nearestElement: nearestElementSummary(end),
+    const classified = TarsGroundingGeometry.classifyCtrlGesture(points);
+    if (!classified) return null;
+    const gesture = {
+      ...classified.gesture,
+      nearestElement: nearestElementSummary(classified.referencePoint),
     };
-    if (pathLength >= 30 && width >= Math.max(60, height * 2.4)) {
-      const leftPoint = start.x <= end.x ? start : end;
-      const rightPoint = start.x <= end.x ? end : start;
-      gesture = {
-        type: "underline",
-        x: leftPoint.x,
-        y: leftPoint.y,
-        end_x: rightPoint.x,
-        end_y: rightPoint.y,
-        label: "underlined region",
-        nearestElement: nearestElementSummary({ x: (left + right) / 2, y: (top + bottom) / 2 }),
-      };
-    } else if (pathLength >= 80 && width >= 28 && height >= 28 && startEnd <= Math.max(36, Math.min(width, height) * .55)) {
-      gesture = {
-        type: "circle",
-        x: left,
-        y: top,
-        end_x: right,
-        end_y: bottom,
-        label: "circled region",
-        nearestElement: nearestElementSummary({ x: (left + right) / 2, y: (top + bottom) / 2 }),
-      };
-    } else if (width >= 28 || height >= 28) {
-      gesture = {
-        type: "region",
-        x: left,
-        y: top,
-        end_x: right,
-        end_y: bottom,
-        label: "selected region",
-        nearestElement: nearestElementSummary({ x: (left + right) / 2, y: (top + bottom) / 2 }),
-      };
-    }
     ctrlGesture = gesture;
     ctrlGesturePoints = [];
     return gesture;
@@ -889,9 +989,11 @@
     for (const child of [...drawings.children]) {
       if (child.getAttribute("data-annotation-id") === annotationId) child.remove();
     }
+    if (response.remove === true) return;
     const annotationGroup = svgElement("g", {
       "data-annotation-id": annotationId,
       class: "annotation",
+      opacity: response.provisional === true ? 0.42 : 1,
     });
     const colors = { blue: "#3380ff", teal: "#14b8a6", red: "#ef4444", amber: "#f59e0b", purple: "#8b5cf6" };
     const color = colors[response.color] || colors.blue;
@@ -906,8 +1008,8 @@
     // strokeAttrs is spread into every stroked SVG element so dash style is
     // applied uniformly across shapes.
     const strokeAttrs = strokeStyle
-      ? { class: `stroke ${strokeStyle}` }
-      : { class: "stroke" };
+      ? { class: `stroke ${strokeStyle}`, pathLength: null }
+      : { class: "stroke", pathLength: 1 };
 
     // ── Text annotation ──────────────────────────────────────
     // Places a short label at a viewport position. Uses the DOM element rect
@@ -924,6 +1026,7 @@
         y: anchor.y,
         fill: color,
         class: "draw-text",
+        "dominant-baseline": "hanging",
       });
       text.textContent = textContent;
       annotationGroup.appendChild(text);
@@ -934,16 +1037,19 @@
 
     let element = null;
     let extraElements = [];
+    let leaderLabelAnchor = null;
 
-    if (["rectangle", "highlight", "circle", "underline"].includes(shape) && rect) {
-      if (shape === "circle") {
+    if (["rectangle", "triangle", "highlight", "circle", "underline"].includes(shape) && rect) {
+      if (shape === "triangle") {
+        element = svgElement("polygon", { points: `${rect.left + rect.width / 2},${rect.top} ${rect.right},${rect.bottom} ${rect.left},${rect.bottom}`, fill: "none", stroke: color, "stroke-width": 3, "stroke-linejoin": "round", "pathLength": 1, ...strokeAttrs });
+      } else if (shape === "circle") {
         element = svgElement("ellipse", { cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2, rx: rect.width / 2 + 8, ry: rect.height / 2 + 8, fill: "none", stroke: color, "stroke-width": 3, "pathLength": 1, ...strokeAttrs });
       } else if (shape === "underline") {
         element = svgElement("line", { x1: rect.left, y1: rect.bottom + 4, x2: rect.right, y2: rect.bottom + 4, stroke: color, "stroke-width": 4, "stroke-linecap": "round", "pathLength": 1, ...strokeAttrs });
       } else {
         element = svgElement("rect", { x: rect.left - 6, y: rect.top - 6, width: rect.width + 12, height: rect.height + 12, rx: 8, fill: shape === "highlight" ? color : "none", "fill-opacity": shape === "highlight" ? .18 : 0, stroke: color, "stroke-width": shape === "highlight" ? 1.5 : 3, "pathLength": 1, ...strokeAttrs });
       }
-    } else if (["rectangle", "highlight", "circle", "underline"].includes(shape) && rawStart) {
+    } else if (["rectangle", "triangle", "highlight", "circle", "underline"].includes(shape) && rawStart) {
       // Pixels inside videos, canvas elements, and cross-origin iframes have no
       // DOM target. Draw directly in the calibrated screenshot coordinate
       // space instead of silently dropping the annotation.
@@ -956,7 +1062,9 @@
         const top = Math.min(rawStart.y, end.y);
         const width = Math.max(12, Math.abs(end.x - rawStart.x));
         const height = Math.max(12, Math.abs(end.y - rawStart.y));
-        if (shape === "circle") {
+        if (shape === "triangle") {
+          element = svgElement("polygon", { points: `${left + width / 2},${top} ${left + width},${top + height} ${left},${top + height}`, fill: "none", stroke: color, "stroke-width": 3, "stroke-linejoin": "round", "pathLength": 1, ...strokeAttrs });
+        } else if (shape === "circle") {
           element = svgElement("ellipse", { cx: left + width / 2, cy: top + height / 2, rx: width / 2, ry: height / 2, fill: "none", stroke: color, "stroke-width": 3, "pathLength": 1, ...strokeAttrs });
         } else {
           element = svgElement("rect", { x: left, y: top, width, height, rx: 8, fill: shape === "highlight" ? color : "none", "fill-opacity": shape === "highlight" ? .18 : 0, stroke: color, "stroke-width": shape === "highlight" ? 1.5 : 3, "pathLength": 1, ...strokeAttrs });
@@ -966,6 +1074,7 @@
       const start = fromRect ? { x: fromRect.left + fromRect.width / 2, y: fromRect.top + fromRect.height / 2 } : rawStart;
       const end = toRect ? { x: toRect.left + toRect.width / 2, y: toRect.top + toRect.height / 2 } : rawEnd;
       if (start && end) {
+        leaderLabelAnchor = end;
         // Shorten the line slightly so the arrowhead tip sits exactly at end.
         const angle = Math.atan2(end.y - start.y, end.x - start.x);
         const headLen = 14;
@@ -991,6 +1100,7 @@
       const start = fromRect ? { x: fromRect.left + fromRect.width / 2, y: fromRect.top + fromRect.height / 2 } : rawStart;
       const end = toRect ? { x: toRect.left + toRect.width / 2, y: toRect.top + toRect.height / 2 } : rawEnd;
       if (start && end) {
+        leaderLabelAnchor = end;
         element = svgElement("line", { x1: start.x, y1: start.y, x2: end.x, y2: end.y, stroke: color, "stroke-width": 3, "stroke-linecap": "round", "pathLength": 1, ...strokeAttrs });
       }
     }
@@ -1000,17 +1110,251 @@
     }
     annotationGroup.appendChild(element);
     for (const extra of extraElements) annotationGroup.appendChild(extra);
+    const leaderLabel = String(response.label || "").trim().slice(0, 120);
+    if (leaderLabelAnchor && leaderLabel) {
+      const text = svgElement("text", {
+        x: leaderLabelAnchor.x + 8,
+        y: leaderLabelAnchor.y - 8,
+        fill: color,
+        class: "draw-text",
+      });
+      text.textContent = leaderLabel;
+      annotationGroup.appendChild(text);
+    }
     drawings.appendChild(annotationGroup);
     drawingLifetime.markDrawn();
   }
 
-  window.addEventListener("mousemove", (event) => {
-    mouse = { x: event.clientX, y: event.clientY };
+  function showSolMissingNotice(responses) {
+    const missed = (responses || []).filter((response) =>
+      response?.coordinate_source === "sol_missing"
+      || response?.grounding_failure === "batch_locator_missing"
+      || response?.grounding_failure === "batch_exception"
+    );
+    if (!missed.length) return;
+    const labels = [...new Set(missed
+      .map((response) => String(response.label || "").trim())
+      .filter(Boolean))];
+    const named = labels.length
+      ? labels.slice(0, 3).join(", ") + (labels.length > 3 ? ` +${labels.length - 3} more` : "")
+      : `${missed.length} target${missed.length === 1 ? "" : "s"}`;
+    setStatus(`Sol missed ${named}; annotation skipped`, true, 5000);
+  }
+
+  function updateMouse(next) {
+    mouse = { x: next.x, y: next.y };
     recordCtrlTrailPoint(mouse);
     if (visible() && performance.now() - cursorReportAt > 120) {
       cursorReportAt = performance.now();
-      void chrome.runtime.sendMessage({ type: "TARS_CURSOR_POSITION", x: mouse.x, y: mouse.y });
+      void runtimeSend({ type: "TARS_CURSOR_POSITION", x: mouse.x, y: mouse.y });
     }
+  }
+
+  function startPtt(next) {
+    if (next) updateMouse(next);
+    if (!visible() || pttHeld) return;
+    pttHeld = true;
+    startCtrlTrail(mouse);
+    setMode("listening");
+    setStatus("Tars listening — release Ctrl");
+    void runtimeSend({ type: "TARS_PTT_START" });
+  }
+
+  function stopPtt(next) {
+    if (next) updateMouse(next);
+    if (!pttHeld) return;
+    pttHeld = false;
+    finishCtrlTrail();
+    setMode("thinking");
+    setStatus("Tars thinking");
+    void runtimeSend({ type: "TARS_PTT_STOP" });
+  }
+
+  // AWS keeps its service workspace in a same-origin, src-less iframe. During
+  // console navigation it can replace that iframe's Document without a normal
+  // top-level navigation. Chrome does not always reinject a manifest content
+  // script for that replacement document, which used to leave Tars tracking
+  // only the AWS header. Bind the top-frame controller directly to accessible
+  // child windows as a lifecycle-safe fallback. Cross-origin frames continue
+  // to use the postMessage relay above.
+  const directFrameBindings = new WeakMap();
+  const directFrameWatchers = new WeakMap();
+  const observedFrameRoots = new WeakMap();
+  const trackedDirectFrames = new Set();
+
+  function directFramePoint(frameChain, childWindow, point) {
+    let mapped = { x: point.x, y: point.y };
+    let childViewportWidth = Number(childWindow?.innerWidth);
+    let childViewportHeight = Number(childWindow?.innerHeight);
+
+    for (let index = frameChain.length - 1; index >= 0; index -= 1) {
+      const frame = frameChain[index];
+      if (!frame?.isConnected) return null;
+      const rect = frame.getBoundingClientRect();
+      mapped = TarsGroundingGeometry.framePointToParentViewport({
+        x: mapped.x,
+        y: mapped.y,
+        childViewportWidth,
+        childViewportHeight,
+        frameLeft: rect.left,
+        frameTop: rect.top,
+        frameWidth: rect.width,
+        frameHeight: rect.height,
+        frameOffsetWidth: frame.offsetWidth,
+        frameOffsetHeight: frame.offsetHeight,
+        frameClientLeft: frame.clientLeft,
+        frameClientTop: frame.clientTop,
+        frameClientWidth: frame.clientWidth,
+        frameClientHeight: frame.clientHeight,
+      });
+      if (!mapped) return null;
+      const parentWindow = frame.ownerDocument?.defaultView;
+      childViewportWidth = Number(parentWindow?.innerWidth);
+      childViewportHeight = Number(parentWindow?.innerHeight);
+    }
+
+    return mapped;
+  }
+
+  function bindDirectFrame(frame, frameChain) {
+    let childWindow;
+    let childDocument;
+    try {
+      childWindow = frame.contentWindow;
+      childDocument = frame.contentDocument;
+      if (!childWindow || !childDocument) return;
+      // Accessing readyState forces the same-origin check before listeners are
+      // installed. A later load event retries if the frame becomes accessible.
+      void childDocument.readyState;
+    } catch {
+      return;
+    }
+
+    const existing = directFrameBindings.get(frame);
+    if (existing?.window === childWindow && existing?.document === childDocument) {
+      observeDirectFrameRoot(childDocument, frameChain);
+      return;
+    }
+    existing?.cleanup();
+
+    let frameMouse = { x: 0, y: 0 };
+    let framePttHeld = false;
+    const pointer = (event) => {
+      if (!event.isTrusted) return;
+      frameMouse = { x: event.clientX, y: event.clientY };
+      const point = directFramePoint(frameChain, childWindow, frameMouse);
+      if (point) updateMouse(point);
+    };
+    const keydown = (event) => {
+      if (
+        !event.isTrusted
+        || event.key !== "Control"
+        || event.metaKey
+        || event.altKey
+        || event.repeat
+        || framePttHeld
+      ) return;
+      const point = directFramePoint(frameChain, childWindow, frameMouse);
+      framePttHeld = true;
+      if (point) startPtt(point);
+    };
+    const keyup = (event) => {
+      if (!event.isTrusted || event.key !== "Control" || !framePttHeld) return;
+      const point = directFramePoint(frameChain, childWindow, frameMouse);
+      framePttHeld = false;
+      stopPtt(point);
+    };
+    const blur = () => {
+      if (!framePttHeld) return;
+      const point = directFramePoint(frameChain, childWindow, frameMouse);
+      framePttHeld = false;
+      stopPtt(point);
+    };
+
+    childWindow.addEventListener("mousemove", pointer, true);
+    childWindow.addEventListener("keydown", keydown, true);
+    childWindow.addEventListener("keyup", keyup, true);
+    childWindow.addEventListener("blur", blur, true);
+    directFrameBindings.set(frame, {
+      window: childWindow,
+      document: childDocument,
+      cleanup: () => {
+        try {
+          childWindow.removeEventListener("mousemove", pointer, true);
+          childWindow.removeEventListener("keydown", keydown, true);
+          childWindow.removeEventListener("keyup", keyup, true);
+          childWindow.removeEventListener("blur", blur, true);
+        } catch {
+          // The old document may become inaccessible while AWS swaps it.
+        }
+      },
+    });
+    observeDirectFrameRoot(childDocument, frameChain);
+  }
+
+  function watchDirectFrame(frame, parentFrameChain) {
+    if (!frame?.matches?.("iframe,frame")) return;
+    const frameChain = [...parentFrameChain, frame];
+    trackedDirectFrames.add(frame);
+    const watcher = directFrameWatchers.get(frame);
+    if (watcher) watcher.frameChain = frameChain;
+    else {
+      const nextWatcher = { frameChain };
+      nextWatcher.load = () => {
+        // Wait until the new inner Window and Document are observable.
+        queueMicrotask(() => bindDirectFrame(frame, nextWatcher.frameChain));
+        setTimeout(() => bindDirectFrame(frame, nextWatcher.frameChain), 50);
+      };
+      directFrameWatchers.set(frame, nextWatcher);
+      frame.addEventListener("load", nextWatcher.load, true);
+    }
+    bindDirectFrame(frame, frameChain);
+  }
+
+  function scanDirectFrameNode(node, frameChain) {
+    // Nodes observed inside a child document belong to that document's realm,
+    // so an `instanceof Element` check against the top window would reject
+    // them. nodeType is realm-independent.
+    if (node?.nodeType !== 1) return;
+    if (node.matches("iframe,frame")) watchDirectFrame(node, frameChain);
+    if (node.shadowRoot) observeDirectFrameRoot(node.shadowRoot, frameChain);
+    for (const frame of node.querySelectorAll("iframe,frame")) watchDirectFrame(frame, frameChain);
+    for (const element of node.querySelectorAll("*")) {
+      if (element.shadowRoot) observeDirectFrameRoot(element.shadowRoot, frameChain);
+    }
+  }
+
+  function observeDirectFrameRoot(root, frameChain) {
+    const previous = observedFrameRoots.get(root);
+    if (previous) return;
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) scanDirectFrameNode(node, frameChain);
+      }
+    });
+    observer.observe(root, { childList: true, subtree: true });
+    observedFrameRoots.set(root, { observer, frameChain });
+    for (const frame of root.querySelectorAll("iframe,frame")) watchDirectFrame(frame, frameChain);
+    for (const element of root.querySelectorAll("*")) {
+      if (element.shadowRoot) observeDirectFrameRoot(element.shadowRoot, frameChain);
+    }
+  }
+
+  function refreshDirectFrameBindings() {
+    for (const frame of trackedDirectFrames) {
+      if (!frame.isConnected) {
+        directFrameBindings.get(frame)?.cleanup();
+        trackedDirectFrames.delete(frame);
+        continue;
+      }
+      const watcher = directFrameWatchers.get(frame);
+      bindDirectFrame(frame, watcher?.frameChain || [frame]);
+    }
+  }
+
+  window.addEventListener("mousemove", (event) => {
+    if (!event.isTrusted) return;
+    updateMouse({ x: event.clientX, y: event.clientY });
   }, true);
 
   window.addEventListener("click", (event) => {
@@ -1028,29 +1372,28 @@
   }, true);
 
   window.addEventListener("keydown", (event) => {
-    if (event.key !== "Control" || event.metaKey || event.altKey || event.repeat || !visible() || pttHeld) return;
-    pttHeld = true;
-    startCtrlTrail(mouse);
-    setMode("listening");
-    setStatus("Tars listening — release Ctrl");
-    void chrome.runtime.sendMessage({ type: "TARS_PTT_START" });
+    if (!event.isTrusted || event.key !== "Control" || event.metaKey || event.altKey || event.repeat) return;
+    startPtt();
   }, true);
 
   window.addEventListener("keyup", (event) => {
-    if (event.key !== "Control" || !pttHeld) return;
-    pttHeld = false;
-    finishCtrlTrail();
-    setMode("thinking");
-    setStatus("Tars thinking");
-    void chrome.runtime.sendMessage({ type: "TARS_PTT_STOP" });
+    if (!event.isTrusted || event.key !== "Control") return;
+    stopPtt();
   }, true);
 
-  window.addEventListener("blur", () => {
-    if (!pttHeld) return;
-    pttHeld = false;
-    finishCtrlTrail();
-    void chrome.runtime.sendMessage({ type: "TARS_PTT_STOP" });
+  window.addEventListener("blur", (event) => {
+    if (!event.isTrusted) return;
+    stopPtt();
   });
+
+  window.addEventListener("message", (event) => {
+    const relayed = mapRelayedFrameInput(event);
+    if (!relayed) return;
+    const point = { x: relayed.x, y: relayed.y };
+    if (relayed.kind === "pointer") updateMouse(point);
+    else if (relayed.kind === "ptt_start") startPtt(point);
+    else if (relayed.kind === "ptt_stop") stopPtt(point);
+  }, true);
 
   window.addEventListener("message", (event) => {
     if (event.source !== window || !CTRLTEACH_ORIGINS.has(event.origin)) return;
@@ -1061,7 +1404,7 @@
         instanceId: CONTENT_INSTANCE_ID,
       }, event.origin);
     } else if (event.data?.type === "CTRLTEACH_TARS_CONFIG") {
-      void chrome.runtime.sendMessage({ type: "CTRLTEACH_TARS_CONFIG", config: event.data.config }).then((response) => {
+      void runtimeSend({ type: "CTRLTEACH_TARS_CONFIG", config: event.data.config }).then((response) => {
         // Apply the returned state immediately. The service worker also
         // broadcasts it, but this direct path avoids a first-enable race where
         // the cursor otherwise waits for a page refresh.
@@ -1072,7 +1415,7 @@
         window.postMessage({ type: "CTRLTEACH_TARS_CONFIG_ACK", requestId: event.data.requestId, response }, event.origin);
       });
     } else if (event.data?.type === "CTRLTEACH_BROWSER_LAB_START") {
-      void chrome.runtime.sendMessage({
+      void runtimeSend({
         type: "CTRLTEACH_BROWSER_LAB_START",
         attemptId: event.data.attemptId,
         launchUrl: event.data.launchUrl,
@@ -1081,14 +1424,14 @@
         window.postMessage({ type: "CTRLTEACH_BROWSER_LAB_ACK", requestId: event.data.requestId, response }, event.origin);
       });
     } else if (event.data?.type === "CTRLTEACH_BROWSER_LAB_STOP") {
-      void chrome.runtime.sendMessage({
+      void runtimeSend({
         type: "CTRLTEACH_BROWSER_LAB_STOP",
         attemptId: event.data.attemptId,
       }).then((response) => {
         window.postMessage({ type: "CTRLTEACH_BROWSER_LAB_ACK", requestId: event.data.requestId, response }, event.origin);
       });
     } else if (event.data?.type === "CTRLTEACH_BROWSER_LAB_CLEANUP_READY") {
-      void chrome.runtime.sendMessage({
+      void runtimeSend({
         type: "CTRLTEACH_BROWSER_LAB_CLEANUP_READY",
         attemptId: event.data.attemptId,
       }).then((response) => {
@@ -1150,10 +1493,12 @@
     } else if (message.type === "TARS_POINT") {
       handlePoint(message.context, message.response);
     } else if (message.type === "TARS_DRAW") {
+      showSolMissingNotice([message.response]);
       handleDraw(message.context, message.tool, message.response);
     } else if (message.type === "TARS_DRAW_BATCH") {
       // All nodes are appended in this message handler, before the browser's
       // next paint, so a diagram appears as one coherent visual.
+      showSolMissingNotice(message.responses || []);
       for (const response of message.responses || []) {
         handleDraw(message.context, message.tool, response);
       }
@@ -1164,7 +1509,29 @@
     return false;
   });
 
+  function applyExtensionState(nextState) {
+    if (!nextState) return;
+    extensionState = { ...extensionState, ...nextState };
+    const initial = nextState.cursor || position;
+    mouse = { x: initial.x, y: initial.y };
+    position = { x: initial.x + BUDDY_OFFSET_X, y: initial.y + BUDDY_OFFSET_Y };
+    velocity = { x: 0, y: 0 };
+    transformCursor(position.x, position.y);
+    renderVisibility();
+  }
+
+  function refreshExtensionState() {
+    return runtimeSend({ type: "TARS_PAGE_READY" })
+      .then((response) => applyExtensionState(response?.state))
+      .catch(() => undefined);
+  }
+
   mount();
+  observeDirectFrameRoot(document, []);
+  // A cheap identity check over the handful of discovered frame elements also
+  // covers document.open()/document.write() replacements that do not emit a
+  // reliable parent mutation or top-tab navigation event.
+  setInterval(refreshDirectFrameBindings, 750);
   requestAnimationFrame(animateFrame);
   if (CTRLTEACH_ORIGINS.has(window.location.origin)) {
     window.postMessage({
@@ -1172,14 +1539,14 @@
       instanceId: CONTENT_INSTANCE_ID,
     }, window.location.origin);
   }
-  chrome.runtime.sendMessage({ type: "TARS_PAGE_READY" }).then((response) => {
-    if (response?.state) {
-      extensionState = { ...extensionState, ...response.state };
-      const initial = response.state.cursor || position;
-      mouse = { x: initial.x, y: initial.y };
-      position = { x: initial.x + BUDDY_OFFSET_X, y: initial.y + BUDDY_OFFSET_Y };
-      transformCursor(position.x, position.y);
-      renderVisibility();
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) void refreshExtensionState();
+  }, true);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      refreshDirectFrameBindings();
+      void refreshExtensionState();
     }
-  }).catch(() => undefined);
+  }, true);
+  void refreshExtensionState();
 })();

@@ -19,6 +19,7 @@ import {
   type WakeTemplate,
 } from "@/lib/tars/wakeTemplate";
 import { TEACHING_PROFILE_CHANGED_EVENT } from "@/lib/tars/teachingProfiles";
+import { isEmbeddedTarsRoute } from "@/lib/tars/routes";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,8 @@ type CapturedViewportFrame = {
 };
 type ScreenAnnotation = {
   id: string;
-  shape: "circle" | "rectangle" | "highlight" | "underline" | "arrow" | "line";
+  shape: "circle" | "rectangle" | "triangle" | "highlight" | "underline" | "arrow" | "line" | "text";
+  style: "solid" | "dashed" | "dotted";
   color: "blue" | "teal" | "red" | "amber" | "purple";
   label: string;
   x1: number;
@@ -580,11 +582,9 @@ export default function GlobalTarsAssistant() {
   const pathname = usePathname();
   const isLanding = pathname === "/";
   const isAdmin = pathname.startsWith("/admin");
-  const isWhiteboardSession = pathname === "/board"
-    || pathname === "/learn"
-    || pathname === "/role-playing"
-    || /^\/learn\/generated-[^/]+\/classroom$/.test(pathname);
-  const globalTarsActive = enabled && !isWhiteboardSession && extensionAvailable === false;
+  const isWhiteboardSession = isEmbeddedTarsRoute(pathname);
+  const isTarsSuppressed = isWhiteboardSession || isAdmin;
+  const globalTarsActive = enabled && !isTarsSuppressed && extensionAvailable === false;
   const showCursor = globalTarsActive;
 
   const [mounted, setMounted] = useState(false);
@@ -600,6 +600,7 @@ export default function GlobalTarsAssistant() {
 
   // Cursor RAF refs
   const cursorRef = useRef<HTMLDivElement>(null);
+  const waveformRef = useRef<HTMLDivElement>(null);
   const bubbleAnchorRef = useRef<HTMLDivElement>(null);
   const cursorRotationRef = useRef(-35);
   const posRef = useRef({ x: 90, y: 90 });
@@ -700,6 +701,7 @@ export default function GlobalTarsAssistant() {
     if (el) el.style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${rot}deg) scale(${scale})`;
     el?.style.setProperty("opacity", String(opacity));
     cursorRotationRef.current = rot;
+    if (waveformRef.current) waveformRef.current.style.transform = `rotate(${-rot}deg)`;
     if (bubbleAnchorRef.current) bubbleAnchorRef.current.style.transform = `rotate(${-rot}deg)`;
     posRef.current = { x, y };
   }, []);
@@ -901,7 +903,7 @@ export default function GlobalTarsAssistant() {
     }
     // The board tutor owns the active session. Preserve an existing capture so
     // leaving the board does not prompt again, but never start one on /board.
-    if (isWhiteboardSession) return;
+    if (isTarsSuppressed) return;
     let cancelled = false;
     if (screenStreamRef.current) return; // already capturing — reuse across navigations
     void (async () => {
@@ -932,7 +934,7 @@ export default function GlobalTarsAssistant() {
       // logged out — handled in the early-return branch above.
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, user, isWhiteboardSession]);
+  }, [enabled, user, isTarsSuppressed]);
 
   // ── Realtime WS connection ───────────────────────────────────────────────
   // The board owns a single tutor Realtime session. Global Tars disconnects
@@ -1153,6 +1155,13 @@ export default function GlobalTarsAssistant() {
 
   // ── Handle incoming Tars `point_at` envelope ─────────────────────────────
   useEffect(() => {
+    const pending = wsHook.tarsPointPending;
+    if (!pending || pending.status !== "started") return;
+    setMode("thinking");
+    setStatus(`Tars locating ${pending.label}`);
+  }, [wsHook.tarsPointPending, setStatus]);
+
+  useEffect(() => {
     if (!wsHook.tarsAgentPoint) return;
     const pt = wsHook.tarsAgentPoint;
     if (pt.id === lastPointIdRef.current) return;
@@ -1222,8 +1231,21 @@ export default function GlobalTarsAssistant() {
         return;
       }
 
+      if (draw.coordinateSource === "sol_missing") {
+        setStatus(`Sol missed ${draw.label || "a target"}; annotation skipped`);
+      }
+
+      if (draw.remove === true) {
+        const annotationId = draw.annotationId;
+        if (annotationId) {
+          setScreenAnnotations((current) => current.filter((item) => item.id !== annotationId));
+        }
+        return;
+      }
+
       const shape = draw.shape ?? "rectangle";
       const color = draw.color ?? "blue";
+      const style = draw.style ?? "solid";
       const elementRect = (targetId?: string | null) => {
         const element = targetId ? domIdToElementRef.current.get(targetId) : null;
         return element?.isConnected ? element.getBoundingClientRect() : null;
@@ -1248,7 +1270,16 @@ export default function GlobalTarsAssistant() {
       const fromRect = elementRect(draw.fromTargetId);
       const toRect = elementRect(draw.toTargetId);
 
-      if ((shape === "arrow" || shape === "line") && (fromRect || toRect)) {
+      if (shape === "text") {
+        const anchor = targetRect
+          ? { x: targetRect.left + targetRect.width / 2, y: targetRect.top + targetRect.height / 2 }
+          : screenshotPoint(draw.x, draw.y);
+        if (!anchor || !draw.label) return;
+        x1 = anchor.x;
+        y1 = anchor.y;
+        x2 = anchor.x;
+        y2 = anchor.y;
+      } else if ((shape === "arrow" || shape === "line") && (fromRect || toRect)) {
         const start = fromRect
           ? { x: fromRect.left + fromRect.width / 2, y: fromRect.top + fromRect.height / 2 }
           : posRef.current;
@@ -1258,7 +1289,7 @@ export default function GlobalTarsAssistant() {
         ({ x: x1, y: y1 } = start);
         ({ x: x2, y: y2 } = end);
       } else if (targetRect) {
-        const padding = shape === "highlight" ? 3 : 8;
+        const padding = shape === "triangle" ? 0 : shape === "highlight" ? 3 : 8;
         x1 = targetRect.left - padding;
         y1 = targetRect.top - padding;
         x2 = targetRect.right + padding;
@@ -1294,6 +1325,7 @@ export default function GlobalTarsAssistant() {
       addScreenAnnotation({
         id: draw.annotationId ?? draw.id,
         shape,
+        style,
         color,
         label: draw.label ?? "",
         x1,
@@ -1449,6 +1481,11 @@ export default function GlobalTarsAssistant() {
             const top = Math.min(annotation.y1, annotation.y2);
             const width = Math.max(2, Math.abs(annotation.x2 - annotation.x1));
             const height = Math.max(2, Math.abs(annotation.y2 - annotation.y1));
+            const strokeDasharray = annotation.style === "dashed"
+              ? "8 6"
+              : annotation.style === "dotted"
+                ? "2 5"
+                : undefined;
             const commonStroke = {
               fill: "none",
               stroke,
@@ -1456,8 +1493,9 @@ export default function GlobalTarsAssistant() {
               strokeLinecap: "round" as const,
               strokeLinejoin: "round" as const,
               vectorEffect: "non-scaling-stroke" as const,
-              pathLength: 1,
-              className: "tars-annotation-stroke",
+              ...(strokeDasharray
+                ? { strokeDasharray }
+                : { pathLength: 1, className: "tars-annotation-stroke" }),
               style: { filter: `drop-shadow(0 2px 4px ${stroke}55)` },
             };
             return (
@@ -1473,6 +1511,12 @@ export default function GlobalTarsAssistant() {
                 )}
                 {annotation.shape === "rectangle" && (
                   <rect {...commonStroke} x={left} y={top} width={width} height={height} rx={9} />
+                )}
+                {annotation.shape === "triangle" && (
+                  <polygon
+                    {...commonStroke}
+                    points={`${left + width / 2},${top} ${left + width},${top + height} ${left},${top + height}`}
+                  />
                 )}
                 {annotation.shape === "highlight" && (
                   <rect
@@ -1497,7 +1541,24 @@ export default function GlobalTarsAssistant() {
                     markerEnd={annotation.shape === "arrow" ? `url(#tars-arrow-${annotation.color})` : undefined}
                   />
                 )}
-                {!!annotation.label && (
+                {annotation.shape === "text" && !!annotation.label && (
+                  <text
+                    x={annotation.x1}
+                    y={annotation.y1}
+                    fill={stroke}
+                    stroke="rgba(0,0,0,0.55)"
+                    strokeWidth={4}
+                    strokeLinejoin="round"
+                    paintOrder="stroke"
+                    dominantBaseline="hanging"
+                    fontSize={13}
+                    fontWeight={600}
+                    className="tars-annotation-label"
+                  >
+                    {annotation.label.slice(0, 200)}
+                  </text>
+                )}
+                {annotation.shape !== "text" && !!annotation.label && (
                   <text
                     x={annotation.x2 + 8}
                     y={annotation.y2 - 8}
@@ -1525,9 +1586,9 @@ export default function GlobalTarsAssistant() {
           <div style={{ position: "absolute", left: 0, top: 0, opacity: mode === "idle" || mode === "speaking" ? 1 : 0, transition: "opacity 0.13s ease" }}>
             <div style={{ position: "absolute", left: -8, top: 0, width: 16, height: 13.856, background: "#79a925", clipPath: "polygon(50% 0, 100% 100%, 0 100%)", filter: "drop-shadow(0 0 7px rgba(121,169,37,0.42))" }} />
           </div>
-          <div style={{ position: "absolute", left: -7, top: -6, height: 18, display: "flex", alignItems: "center", gap: 1, opacity: mode === "listening" ? 1 : 0, transition: "opacity 0.16s ease", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.55))" }}>
+          <div ref={waveformRef} style={{ position: "absolute", left: -7, top: -6, height: 18, display: "flex", alignItems: "center", gap: 1, opacity: mode === "listening" ? 1 : 0, transformOrigin: "7px 6px", transition: "opacity 0.16s ease", filter: "drop-shadow(0 0 5px rgba(20,184,166,0.6))" }}>
             {[0.25, 0.55, 1, 0.55, 0.25].map((profile, i) => (
-              <span key={i} style={{ width: 2, height: 4 + profile * 9, borderRadius: 2, background: "#79a925", animation: `tars-wave 0.78s ease-in-out ${i * 0.09}s infinite alternate` }} />
+              <span key={i} style={{ width: 2, height: 4 + profile * 9, borderRadius: 2, background: "#14b8a6", animation: `tars-wave 0.78s ease-in-out ${i * 0.09}s infinite alternate` }} />
             ))}
           </div>
           <div style={{ position: "absolute", left: -8, top: -8, width: 12, height: 12, borderRadius: 999, border: "2px solid rgba(121,169,37,0.14)", borderTopColor: "#79a925", borderRightColor: "rgba(121,169,37,0.72)", opacity: mode === "thinking" ? 1 : 0, transition: "opacity 0.16s ease", animation: "tars-spin 0.9s linear infinite", filter: "drop-shadow(0 0 5px rgba(121,169,37,0.42))" }} />

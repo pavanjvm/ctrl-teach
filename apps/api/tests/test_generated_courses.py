@@ -557,6 +557,117 @@ class GeneratedCourseServiceTests(unittest.TestCase):
         self.assertEqual(partial["modules"][0]["lessons"][0]["status"], "pending")
         self.assertEqual(partial["completedLessonCount"], 0)
 
+    def test_generation_checkpoints_first_lesson_before_starting_the_rest(self) -> None:
+        outline = CourseOutline.model_validate(
+            {
+                "title": "Progressive Course",
+                "description": "A course that unlocks its first lesson while the remaining lessons keep generating.",
+                "difficulty": "Beginner",
+                "audience": "Learners who want to begin immediately",
+                "outcomes": ["Begin with a coherent first lesson", "Continue as content arrives"],
+                "prerequisites": [],
+                "skills": ["Progressive learning", "Course navigation"],
+                "coverPrompt": "An editorial educational illustration of a learning path assembling in stages",
+                "modules": [
+                    {"title": "Foundations", "lessons": [
+                        {"title": "Lesson 1", "summary": "Start with the first foundational concept."},
+                        {"title": "Lesson 2", "summary": "Build on the first foundational concept."},
+                    ]},
+                    {"title": "Application", "lessons": [
+                        {"title": "Lesson 3", "summary": "Apply the concepts in a guided example."},
+                        {"title": "Lesson 4", "summary": "Review the complete practical workflow."},
+                    ]},
+                ],
+            }
+        )
+        lesson = LessonContent.model_validate({
+            "summary": "A complete lesson that is ready for the learner to open.",
+            "duration": "15m",
+            "blocks": [
+                {"type": "content", "heading": "Concept", "paragraphs": ["A clear explanation of the concept."], "citationIds": []},
+                {"type": "grid_cards", "heading": "Examples", "cards": [{"title": "One", "body": "The first example."}, {"title": "Two", "body": "The second example."}], "citationIds": []},
+                {"type": "numbered_list", "heading": "Practice", "items": [{"title": "Step one", "body": "Try the first step."}, {"title": "Step two", "body": "Verify the result."}], "citationIds": []},
+                {"type": "quiz", "heading": "Check", "questions": [{"question": "Which step comes first?", "choices": ["Step one", "Step two"], "answerIndex": 0, "explanation": "Step one begins the workflow."}, {"question": "What follows practice?", "choices": ["Verification", "Nothing"], "answerIndex": 0, "explanation": "Verification confirms the result."}], "citationIds": []},
+            ],
+        })
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+        course_id = "generated-progressive"
+        now = datetime.now(timezone.utc)
+        with session_factory() as db:
+            db.add(GeneratedCourse(
+                id=course_id,
+                owner_user_id=7,
+                status="generating",
+                source_type="prompt",
+                source_label="Progressive course",
+                payload={
+                    "version": 2,
+                    "source": {"type": "prompt", "label": "Progressive course"},
+                    "intake": INTAKE,
+                    "answers": {"time_budget": "Up to 1 hour"},
+                    "outline": outline.model_dump(),
+                    "research": {"brief": "Grounded research", "citations": []},
+                    "lessonDrafts": {},
+                },
+                created_at=now,
+                updated_at=now,
+            ))
+            db.commit()
+
+        async def scenario() -> None:
+            release_remaining = asyncio.Event()
+            calls: list[str] = []
+
+            async def fake_generate_lesson(**kwargs):
+                title = kwargs["lesson"].title
+                calls.append(title)
+                if title != "Lesson 1":
+                    await release_remaining.wait()
+                return lesson
+
+            with (
+                patch.object(generated_service, "SessionLocal", session_factory),
+                patch.object(generated_service, "generate_lesson", side_effect=fake_generate_lesson),
+            ):
+                task = asyncio.create_task(generated_service.run_generation_job(course_id))
+                drafts: dict[str, dict] = {}
+                for _ in range(100):
+                    await asyncio.sleep(0.01)
+                    with session_factory() as db:
+                        row = db.get(GeneratedCourse, course_id)
+                        assert row is not None
+                        drafts = dict((row.payload or {}).get("lessonDrafts") or {})
+                    if drafts:
+                        break
+
+                self.assertEqual(calls[0], "Lesson 1")
+                self.assertEqual(list(drafts), [f"{course_id}-m1-l1"])
+                partial = generated_service._partial_course(
+                    course_id,
+                    {
+                        "source": {"type": "prompt", "label": "Progressive course"},
+                        "answers": {"time_budget": "Up to 1 hour"},
+                        "research": {"citations": []},
+                        "outline": outline.model_dump(),
+                        "lessonDrafts": drafts,
+                    },
+                )
+                assert partial is not None
+                self.assertEqual(partial["completedLessonCount"], 1)
+                self.assertEqual(partial["modules"][0]["lessons"][0]["status"], "ready")
+                self.assertEqual(partial["modules"][0]["lessons"][1]["status"], "pending")
+
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+        asyncio.run(scenario())
+
     def test_partial_course_streams_ready_images_and_marks_pending_images(self) -> None:
         outline = CourseOutline.model_validate(
             {

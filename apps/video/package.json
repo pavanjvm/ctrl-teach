@@ -1,0 +1,48 @@
+{
+  "name": "training-capacity-video",
+  "version": "1.0.0",
+  "description": "A 12-second training-capacity story built with Remotion",
+  "repository": {},
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@remotion/captions": "4.0.499",
+    "@remotion/cli": "4.0.499",
+    "@remotion/media": "4.0.499",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.499"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.499",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio --no-open",
+    "build": "remotion bundle",
+    "render": "remotion render TrainingCapacity out/training-capacity.mp4",
+    "render:demand": "remotion render MomentOfDemand out/moment-of-demand.mp4",
+    "render:locked-content": "remotion render ContentLockedCalendar out/content-locked-calendar.mp4",
+    "render:act2": "remotion render DemandDoesNotWait out/act-2-demand-does-not-wait.mp4",
+    "render:combined": "remotion render CombinedPitch out/ctrlteach-calendar-trap-and-demand.mp4",
+    "render:combined-voiceover": "remotion render CombinedPitchVoiceover out/ctrlteach-calendar-trap-and-demand-reference-voiceover.mp4",
+    "render:combined-slow-voiceover": "remotion render CombinedPitchSlowVoiceover out/ctrlteach-calendar-trap-and-demand-slow-female-voiceover.mp4",
+    "render:breakthrough": "remotion render Breakthrough out/breakthrough.mp4",
+    "render:complete-pitch": "remotion render CombinedPitchSlowVoiceover out/ctrlteach-complete-pitch-with-breakthrough-voiceover.mp4",
+    "render:captioned-pitch": "remotion render CombinedPitchSlowVoiceover out/ctrlteach-complete-pitch-captioned.mp4",
+    "render:product-demo": "remotion render ProductDemoThroughRoadmap out/ctrlteach-product-demo-through-roadmap.mp4",
+    "render:through-roadmap": "remotion render CtrlTeachThroughRoadmap out/ctrlteach-pitch-through-roadmap.mp4",
+    "render:live-through-tars": "remotion render LiveClassroomThroughTars out/ctrlteach-live-classroom-through-tars.mp4",
+    "render:through-tars": "remotion render CtrlTeachThroughTars out/ctrlteach-pitch-through-tars.mp4",
+    "still": "remotion still TrainingCapacity out/training-capacity-poster.png --frame=330",
+    "upgrade": "remotion upgrade",
+    "lint": "eslint src && tsc --noEmit"
+  },
+  "sideEffects": [
+    "*.css"
+  ]
+}

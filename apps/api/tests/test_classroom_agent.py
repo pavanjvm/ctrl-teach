@@ -2,14 +2,28 @@ from __future__ import annotations
 
 import base64
 from io import BytesIO
+import inspect
+import re
 import unittest
 from unittest.mock import AsyncMock, patch
 
 from PIL import Image
 
 from app.agents.tutor_agent import build_tutor_agent
-from app.agents.tars_agent import build_tars_agent
-from app.main import _turn_detection_for_mode, _turn_requires_learner_response
+from app.agents.tars_agent import (
+    ScreenDrawingItem,
+    _normalize_screen_annotation_batch,
+    _normalize_screen_drawing_item,
+    build_tars_agent,
+    draw_on_screen,
+)
+from app.main import (
+    _audio_interruption_requires_visual_abort,
+    _send_json,
+    _turn_detection_for_mode,
+    _turn_requires_learner_response,
+    websocket_endpoint,
+)
 from app.services.tars_visual_locator import (
     LocalizationResult,
     crop_image_region,
@@ -26,6 +40,11 @@ class ClassroomAgentTests(unittest.TestCase):
             {"type": "semantic_vad", "interrupt_response": True},
         )
 
+    def test_push_to_talk_interruption_does_not_abort_visuals_twice(self) -> None:
+        self.assertFalse(_audio_interruption_requires_visual_abort("tars"))
+        self.assertTrue(_audio_interruption_requires_visual_abort("tutor"))
+        self.assertTrue(_audio_interruption_requires_visual_abort("roleplay"))
+
     def test_page_and_teacher_modes_share_tars_identity_but_not_tools(self) -> None:
         page_agent = build_tars_agent()
         teacher_agent = build_tutor_agent(
@@ -39,9 +58,64 @@ class ClassroomAgentTests(unittest.TestCase):
         self.assertEqual(page_agent.name, "tars")
         self.assertEqual(teacher_agent.name, "tars")
         self.assertIn("interact_with_page", page_tools)
+        self.assertIn("draw_screen_diagram", page_tools)
+        self.assertIn("draw_screen_annotations", page_tools)
         self.assertNotIn("interact_with_page", teacher_tools)
+        self.assertIn("draw_screen_diagram", teacher_tools)
+        self.assertIn("draw_screen_annotations", teacher_tools)
         self.assertIn("draw_on_canvas", teacher_tools)
         self.assertNotIn("draw_on_canvas", page_tools)
+
+    def test_realtime_drawing_schema_cannot_supply_coordinates(self) -> None:
+        parameters = draw_on_screen.params_json_schema["properties"]
+        self.assertFalse({"x", "y", "end_x", "end_y", "ground_to_screen"} & parameters.keys())
+        self.assertFalse(
+            {"x", "y", "end_x", "end_y", "ground_to_screen"}
+            & ScreenDrawingItem.model_fields.keys()
+        )
+
+    def test_screen_diagram_items_discard_model_geometry(self) -> None:
+        item = _normalize_screen_drawing_item({
+            "shape": "triangle",
+            "x": 10,
+            "y": 20,
+            "end_x": 210,
+            "end_y": 180,
+            "ground_to_screen": False,
+            "color": "purple",
+            "style": "dashed",
+        })
+
+        self.assertEqual(item["shape"], "triangle")
+        self.assertNotIn("ground_to_screen", item)
+        self.assertNotIn("x", item)
+        self.assertNotIn("end_x", item)
+        self.assertEqual((item["color"], item["style"]), ("purple", "dashed"))
+
+    def test_annotation_batch_uses_leader_labels_without_duplicate_text_grounding(self) -> None:
+        result = _normalize_screen_annotation_batch([
+            ScreenDrawingItem(
+                shape="line",
+                x=100,
+                y=100,
+                end_x=240,
+                end_y=80,
+                label="Deltoid",
+            ),
+            ScreenDrawingItem(
+                shape="text",
+                x=248,
+                y=72,
+                label="deltoid",
+                anchor_label="label text",
+            ),
+        ])
+
+        self.assertEqual(len(result["annotations"]), 1)
+        self.assertEqual(result["annotations"][0]["shape"], "line")
+        self.assertEqual(result["annotations"][0]["label"], "Deltoid")
+        self.assertNotIn("ground_to_screen", result["annotations"][0])
+        self.assertNotIn("x", result["annotations"][0])
 
     def test_classroom_can_draw_and_point_but_cannot_generate_images_or_handoff(self) -> None:
         def wait_for_learner():
@@ -178,6 +252,90 @@ class ClassroomPointGroundingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["groundingRegion"], "course_image")
         self.assertEqual(locator.await_args.kwargs["width"], 30)
         self.assertEqual(locator.await_args.kwargs["height"], 25)
+
+
+class WebSocketSendTests(unittest.IsolatedAsyncioTestCase):
+    async def test_send_json_reports_delivery_result(self) -> None:
+        websocket = type("WebSocketStub", (), {})()
+        websocket.send_text = AsyncMock(return_value=None)
+
+        self.assertTrue(await _send_json(websocket, {"type": "tars_draw"}))
+
+        websocket.send_text = AsyncMock(side_effect=RuntimeError("closed"))
+        self.assertFalse(await _send_json(websocket, {"type": "visual_sync_end"}))
+
+
+class VisualTurnLifecycleTests(unittest.TestCase):
+    def test_push_to_talk_commit_reopens_visual_tools_before_response(self) -> None:
+        """A new Ctrl turn must accept points after the prior turn closed them."""
+
+        source = inspect.getsource(websocket_endpoint)
+        branch = re.search(
+            r'elif msg_type == "tars_commit_audio":(?P<body>.*?)(?=\n\s+elif msg_type ==)',
+            source,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(branch)
+        assert branch is not None
+        body = branch.group("body")
+        self.assertIn("_accept_visual_tools_for_turn()", body)
+        self.assertLess(
+            body.index("_accept_visual_tools_for_turn()"),
+            body.index('"type": "response.create"'),
+        )
+
+    def test_turn_end_defers_completion_for_late_tool_events(self) -> None:
+        """The SDK can emit tool events after turn_ended for the same turn."""
+
+        source = inspect.getsource(websocket_endpoint)
+        branch = re.search(
+            r'elif etype == "agent_end":(?P<body>.*?)(?=\n\s+# ── Handoff)',
+            source,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(branch)
+        assert branch is not None
+        body = branch.group("body")
+        self.assertIn("_schedule_turn_completion", body)
+        self.assertNotIn('"turnComplete": True', body)
+        self.assertNotIn('state["accepting_visual_tools"] = False', body)
+
+    def test_page_tars_agent_start_cannot_reopen_interrupted_visuals(self) -> None:
+        source = inspect.getsource(websocket_endpoint)
+        branch = re.search(
+            r'elif etype == "agent_start":(?P<body>.*?)(?=\n\s+elif etype == "agent_end")',
+            source,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(branch)
+        assert branch is not None
+        self.assertIn('if agent_kind != "tars"', branch.group("body"))
+
+    def test_grounded_diagrams_wait_for_concurrent_localization(self) -> None:
+        source = inspect.getsource(websocket_endpoint)
+        self.assertIn('"draw_screen_diagram", "draw_screen_annotations"', source)
+        self.assertIn('"type": "tars_draw_batch"', source)
+        self.assertNotIn('provisional=True', source)
+        self.assertNotIn('Tars immediate drawing delivered', source)
+        self.assertIn('_deliver_tars_drawing_batch', source)
+        self.assertIn('refine_tars_payloads_batch', source)
+        self.assertIn('visual_grounding_semaphore = asyncio.Semaphore(4)', source)
+
+    def test_completion_tracks_raw_tool_calls_before_sdk_workers_start(self) -> None:
+        source = inspect.getsource(websocket_endpoint)
+        self.assertIn('if dtype == "function_call"', source)
+        self.assertIn('_register_realtime_tool_call(', source)
+        self.assertIn('or pending_realtime_tool_calls', source)
+        self.assertIn('_finish_realtime_tool_call(tool_name, args_json)', source)
+
+    def test_failed_grounding_sends_a_safe_matching_removal(self) -> None:
+        source = inspect.getsource(websocket_endpoint)
+        self.assertIn('"remove": True', source)
+        self.assertIn('_screen_drawing_removal(', source)
+        self.assertIn('"coordinate_source": "sol_missing"', source)
 
 
 if __name__ == "__main__":

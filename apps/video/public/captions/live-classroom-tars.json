@@ -1,0 +1,114 @@
+[
+  {
+    "text": "For learners who prefer an interactive explanation, the same course opens in Live Classroom.",
+    "startMs": 400,
+    "endMs": 6112,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "Once the lesson starts, the classroom begins teaching automatically.",
+    "startMs": 6933,
+    "endMs": 11200,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "It already knows the course, the current lesson, and the learner’s context.",
+    "startMs": 11200,
+    "endMs": 15933,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "Welcome to class. Let’s turn a vague application request into a measurable architecture problem.",
+    "startMs": 16733,
+    "endMs": 22853,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "It explains by voice and builds the visual on the whiteboard.",
+    "startMs": 23667,
+    "endMs": 27880,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "Follow-up questions stay inside the lesson—without copying context into another chat.",
+    "startMs": 27880,
+    "endMs": 32523,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "Where hands-on practice is possible, every course includes a lab built directly into the lesson.",
+    "startMs": 33333,
+    "endMs": 38901,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "This is where learners meet Tars, the assistant behind guided practice in Lab Mode.",
+    "startMs": 39533,
+    "endMs": 44597,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "If they get stuck, they hold Control and ask for help without leaving the task.",
+    "startMs": 45100,
+    "endMs": 50068,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "I’m stuck. What should I do next?",
+    "startMs": 50433,
+    "endMs": 53385,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "Open the Architecture Center, then choose the Well-Architected Framework.",
+    "startMs": 53833,
+    "endMs": 57450,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "I’ll point it out.",
+    "startMs": 57450,
+    "endMs": 59833,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "Tars can inspect the current page and point to the exact control.",
+    "startMs": 61033,
+    "endMs": 65580,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "It follows the learner across supported browser tabs—",
+    "startMs": 65580,
+    "endMs": 68980,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "from Ctrl+Teach to cloud documentation and tools.",
+    "startMs": 68980,
+    "endMs": 72385,
+    "timestampMs": null,
+    "confidence": 1
+  },
+  {
+    "text": "The learner stays in the real workflow. The guidance stays with them.",
+    "startMs": 73200,
+    "endMs": 78312,
+    "timestampMs": null,
+    "confidence": 1
+  }
+]

@@ -6,6 +6,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { useTars } from "@/lib/tars/provider";
 import { API_URL, WS_URL } from "@/lib/constants";
 import { TEACHING_PROFILE_CHANGED_EVENT } from "@/lib/tars/teachingProfiles";
+import { isEmbeddedTarsRoute } from "@/lib/tars/routes";
 
 const PROBE_TIMEOUT_MS = 900;
 
@@ -101,10 +102,7 @@ export default function TarsExtensionBridge() {
     let refreshTimer = 0;
 
     const configure = async () => {
-      const suspended = pathname === "/board"
-        || pathname === "/learn"
-        || pathname.startsWith("/admin")
-        || /^\/learn\/generated-[^/]+\/classroom$/.test(pathname);
+      const suspended = pathname.startsWith("/admin") || isEmbeddedTarsRoute(pathname);
       if (!enabled || !user) {
         sessionRef.current = null;
         postBridgeMessage("CTRLTEACH_TARS_CONFIG", {

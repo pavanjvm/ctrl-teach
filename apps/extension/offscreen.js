@@ -271,6 +271,16 @@ function handleServerEvent(event) {
     void emit({ type: "TARS_STATUS", mode: "idle", text: "Tars ready — hold Ctrl to talk" });
     return;
   }
+  if (event.type === "tars_point_pending") {
+    if (event.status === "started") {
+      void emit({
+        type: "TARS_STATUS",
+        mode: "thinking",
+        text: `Tars locating ${event.label || "that target"}`,
+      });
+    }
+    return;
+  }
   if (event.type === "tars_point") {
     void emit({ type: "TARS_POINT", response: event.response || {} });
     return;
@@ -460,7 +470,11 @@ async function finishPtt(turn) {
   }));
   const sourceMedia = turn.context.media || {};
   const sourceFocusRegion = turn.context.focusRegion || null;
-  const ctrlGesture = turn.context.ctrlGesture || null;
+  const ctrlGesture = TarsGroundingGeometry.scaleCtrlGesture(
+    turn.context.ctrlGesture,
+    scaleX,
+    scaleY,
+  );
   const scaleRect = (rect) => rect ? {
     x: Math.round(rect.x * scaleX),
     y: Math.round(rect.y * scaleY),
@@ -530,6 +544,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     let response = { ok: true };
     if (message.type === "TARS_CONFIG") {
       const changedIdentity = config?.accessToken !== message.config?.accessToken || config?.userId !== message.config?.userId;
+      if (changedIdentity || !message.config?.enabled || message.config?.suspended) {
+        clearPlayback();
+        cancelPtt();
+      }
       config = message.config;
       if (changedIdentity) disconnect();
       connect();
