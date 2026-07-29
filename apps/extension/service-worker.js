@@ -2,8 +2,8 @@ importScripts("extension-assets.js");
 
 const LOCAL_STATE_KEY = "ctrlteach_tars_extension_state";
 const SESSION_TOKEN_KEY = "ctrlteach_tars_extension_token";
-const TRUSTED_APP_ORIGINS_KEY = "ctrlteach_tars_trusted_app_origins";
-const { isCtrlTeachAppOrigin, normalizeAppOrigin } = TarsExtensionAssets;
+const FRONTEND_URL_ENV_KEY = "CTRLTEACH_FRONTEND_URL";
+const { isCtrlTeachAppOrigin, normalizeAppOrigin, parseExtensionEnv } = TarsExtensionAssets;
 
 let state = {
   enabled: false,
@@ -21,18 +21,27 @@ let activeContext = null;
 let activeBrowserLab = null;
 let micSetupOpened = false;
 const suspendedTabIds = new Set();
-let trustedAppOrigins = [];
+let configuredAppOrigin = "";
+
+async function loadExtensionEnvironment() {
+  try {
+    const response = await fetch(chrome.runtime.getURL(".env"), { cache: "no-store" });
+    if (!response.ok) return {};
+    return parseExtensionEnv(await response.text());
+  } catch {
+    return {};
+  }
+}
 
 async function loadState() {
   if (loaded) return;
-  const [local, session] = await Promise.all([
-    chrome.storage.local.get([LOCAL_STATE_KEY, TRUSTED_APP_ORIGINS_KEY]),
+  const [local, session, environment] = await Promise.all([
+    chrome.storage.local.get(LOCAL_STATE_KEY),
     chrome.storage.session.get(SESSION_TOKEN_KEY),
+    loadExtensionEnvironment(),
   ]);
   state = { ...state, ...(local[LOCAL_STATE_KEY] || {}), suspended: false };
-  trustedAppOrigins = Array.isArray(local[TRUSTED_APP_ORIGINS_KEY])
-    ? local[TRUSTED_APP_ORIGINS_KEY].map(normalizeAppOrigin).filter(Boolean)
-    : [];
+  configuredAppOrigin = normalizeAppOrigin(environment[FRONTEND_URL_ENV_KEY] || "");
   accessToken = session[SESSION_TOKEN_KEY] || "";
   loaded = true;
   const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -53,7 +62,7 @@ function isNormalPage(url = "") {
 }
 
 function isTrustedBridgeSender(sender) {
-  return isCtrlTeachAppOrigin(sender.tab?.url || sender.url || "", trustedAppOrigins);
+  return isCtrlTeachAppOrigin(sender.tab?.url || sender.url || "", configuredAppOrigin);
 }
 
 function isExtensionPageSender(sender) {
@@ -528,24 +537,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         sendResponse({
           ok: true,
-          configuredAppOrigin: trustedAppOrigins[0] || "",
+          configuredFrontendOrigin: configuredAppOrigin,
           enabled: state.enabled && Boolean(accessToken),
         });
-        return;
-      }
-      case "TARS_SET_APP_ORIGIN": {
-        if (!isExtensionPageSender(sender)) {
-          sendResponse({ ok: false, error: "untrusted_sender" });
-          return;
-        }
-        const origin = normalizeAppOrigin(message.appUrl || "");
-        if (message.appUrl && !origin) {
-          sendResponse({ ok: false, error: "invalid_app_url" });
-          return;
-        }
-        trustedAppOrigins = origin ? [origin] : [];
-        await chrome.storage.local.set({ [TRUSTED_APP_ORIGINS_KEY]: trustedAppOrigins });
-        sendResponse({ ok: true, configuredAppOrigin: origin });
         return;
       }
       case "TARS_CURSOR_POSITION":

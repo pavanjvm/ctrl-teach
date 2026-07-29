@@ -1,40 +1,21 @@
 const button = document.getElementById("enable");
-const saveOriginButton = document.getElementById("save-origin");
-const appOriginInput = document.getElementById("app-origin");
 const status = document.getElementById("status");
 
 async function loadSetupStatus() {
   try {
     const response = await chrome.runtime.sendMessage({ type: "TARS_SETUP_STATUS" });
     if (!response?.ok) return;
-    appOriginInput.value = response.configuredAppOrigin || "";
-    if (response.enabled) status.textContent = "Tars is connected to Ctrl+Teach.";
+    if (!response.configuredFrontendOrigin) {
+      status.textContent = "Set CTRLTEACH_FRONTEND_URL in apps/extension/.env, then reload the extension.";
+    } else if (response.enabled) {
+      status.textContent = `Tars is connected to ${response.configuredFrontendOrigin}.`;
+    } else {
+      status.textContent = `Frontend configured: ${response.configuredFrontendOrigin}.`;
+    }
   } catch {
     status.textContent = "Reload the extension and try again.";
   }
 }
-
-saveOriginButton.addEventListener("click", async () => {
-  saveOriginButton.disabled = true;
-  try {
-    const response = await chrome.runtime.sendMessage({
-      type: "TARS_SET_APP_ORIGIN",
-      appUrl: appOriginInput.value.trim(),
-    });
-    if (response?.ok) {
-      appOriginInput.value = response.configuredAppOrigin || "";
-      status.textContent = response.configuredAppOrigin
-        ? `Saved ${response.configuredAppOrigin}. Return to that app and enable Tars.`
-        : "Saved. Local development origins remain available automatically.";
-    } else {
-      status.textContent = "Enter a valid http or https app address.";
-    }
-  } catch {
-    status.textContent = "Reload the extension and try again.";
-  } finally {
-    saveOriginButton.disabled = false;
-  }
-});
 
 button.addEventListener("click", async () => {
   button.disabled = true;

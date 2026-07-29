@@ -770,7 +770,7 @@ function ProfileContent() {
                                                     : tarsExtensionAvailable === true
                                                         ? "Browser extension connected. Hold Control in any regular web tab to talk."
                                                         : tarsExtensionAvailable === false
-                                                            ? "This-tab fallback active. Load apps/extension locally or configure the extension app address."
+                                                            ? "This-tab fallback active. Configure CTRLTEACH_FRONTEND_URL in apps/extension/.env and reload the extension."
                                                             : "Checking for the Ctrl+Teach browser extension…"}
                                             </p>
                                         </div>

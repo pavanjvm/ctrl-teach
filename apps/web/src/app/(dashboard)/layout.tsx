@@ -140,7 +140,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             : tarsExtensionAvailable === true
                 ? `${tarsStatus}. Hold Control in any regular browser tab to talk.`
                 : tarsExtensionAvailable === false
-                    ? `${tarsStatus}. Install or configure the Ctrl+Teach extension for browser-wide use.`
+                    ? `${tarsStatus}. Set CTRLTEACH_FRONTEND_URL in apps/extension/.env and reload the extension.`
                     : "Checking for the Ctrl+Teach browser extension";
 
     return (

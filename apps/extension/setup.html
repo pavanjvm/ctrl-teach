@@ -11,12 +11,8 @@
       p { color: #625f58; }
       ol { margin: 18px 0 0; padding-left: 22px; color: #3f3d38; }
       li + li { margin-top: 7px; }
-      label { display: block; margin-top: 24px; font-weight: 700; }
-      input { box-sizing: border-box; width: 100%; margin-top: 8px; padding: 11px 12px; border: 1px solid #d8d3c8; border-radius: 6px; font: inherit; }
-      small { display: block; margin-top: 7px; color: #77736b; }
-      .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+      code { padding: 2px 5px; border-radius: 4px; background: #f2f0eb; color: #34322d; }
       button { margin-top: 16px; border: 0; border-radius: 6px; padding: 12px 18px; background: #b7ec52; color: #26320f; font: inherit; font-weight: 700; cursor: pointer; }
-      button.secondary { border: 1px solid #d8d3c8; background: #f2f0eb; color: #34322d; }
       #status { min-height: 24px; margin-top: 16px; color: #4f7716; font-weight: 600; }
     </style>
   </head>
@@ -24,18 +20,13 @@
     <main>
       <h1>Set up browser-wide Tars</h1>
       <p>Chrome requires one-time microphone permission. Audio is sent only while you hold Control.</p>
+      <p>The frontend address is loaded from <code>apps/extension/.env</code> and is never collected on this page.</p>
       <ol>
-        <li>Enable the microphone below.</li>
-        <li>Return to Ctrl+Teach and turn on Tars.</li>
+        <li>Set <code>CTRLTEACH_FRONTEND_URL</code> and reload the extension whenever its origin changes.</li>
+        <li>Enable the microphone below, then return to Ctrl+Teach and turn on Tars.</li>
         <li>On any regular web page, hold Control to talk and release to send the visible tab context.</li>
       </ol>
-      <label for="app-origin">Deployed Ctrl+Teach address</label>
-      <input id="app-origin" type="url" inputmode="url" placeholder="https://learn.example.com">
-      <small>Optional for local development. Any localhost or loopback port is accepted automatically.</small>
-      <div class="actions">
-        <button id="enable" type="button">Enable microphone</button>
-        <button id="save-origin" class="secondary" type="button">Save app address</button>
-      </div>
+      <button id="enable" type="button">Enable microphone</button>
       <div id="status" role="status"></div>
     </main>
     <script src="setup.js"></script>

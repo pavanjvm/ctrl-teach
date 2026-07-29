@@ -556,7 +556,7 @@ export default function BrowserLabPanel({
         </div>
         <small>
           {extensionAvailable === false
-            ? "Tars extension not connected. Load apps/extension locally or configure its app address, then reload."
+            ? "Tars extension not connected. Configure apps/extension/.env, reload the extension, then reload this tab."
             : recovery?.status === "practicing"
               ? "Browser evidence is paused during targeted practice."
               : "Completion waits for backend verification."}

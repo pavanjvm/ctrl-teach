@@ -155,7 +155,6 @@
     }
   }
 
-  const { isCtrlTeachAppOrigin } = TarsExtensionAssets;
   const APP_BRIDGE_MESSAGE_TYPES = new Set([
     "CTRLTEACH_TARS_PROBE",
     "CTRLTEACH_TARS_CONFIG",
@@ -163,8 +162,7 @@
     "CTRLTEACH_BROWSER_LAB_STOP",
     "CTRLTEACH_BROWSER_LAB_CLEANUP_READY",
   ]);
-  async function isBridgeOriginTrusted(origin) {
-    if (isCtrlTeachAppOrigin(origin)) return true;
+  async function isBridgeOriginTrusted() {
     const response = await runtimeSend({ type: "TARS_TRUST_CHECK" });
     return Boolean(response?.trusted);
   }
@@ -1406,7 +1404,7 @@
 
   window.addEventListener("message", async (event) => {
     if (event.source !== window || !APP_BRIDGE_MESSAGE_TYPES.has(event.data?.type)) return;
-    if (!await isBridgeOriginTrusted(event.origin)) return;
+    if (!await isBridgeOriginTrusted()) return;
     if (event.data?.type === "CTRLTEACH_TARS_PROBE") {
       window.postMessage({
         type: "CTRLTEACH_TARS_EXTENSION_READY",
@@ -1543,7 +1541,7 @@
   // reliable parent mutation or top-tab navigation event.
   setInterval(refreshDirectFrameBindings, 750);
   requestAnimationFrame(animateFrame);
-  void isBridgeOriginTrusted(window.location.origin).then((trusted) => {
+  void isBridgeOriginTrusted().then((trusted) => {
     if (!trusted) return;
     window.postMessage({
       type: "CTRLTEACH_TARS_EXTENSION_ATTACHED",
