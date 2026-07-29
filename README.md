@@ -91,7 +91,7 @@ uv run python -c "import secrets; print(secrets.token_urlsafe(48))"
 Start the API:
 
 ```bash
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --port 8000 --loop asyncio
 ```
 
 The API is available at `http://localhost:8000`; interactive documentation is
@@ -141,6 +141,8 @@ groups are summarized below.
 | `REALTIME_MODEL` | Realtime conversation model; defaults to `gpt-realtime-2.1` |
 | `COURSE_GENERATION_MODEL` | Course research and writing model |
 | `IMAGE_MODEL` | Generated course image model |
+| `COURSE_INTAKE_TIMEOUT_SECONDS` | Maximum time for one learner-facing course interview request |
+| `COURSE_GENERATION_REQUEST_TIMEOUT_SECONDS` | Maximum time for one background course or image request |
 | `TAVUS_API_KEY` | Backend-only Tavus credential for live roleplay |
 | `TAVUS_FACE_ID` | Optional default roleplay face |
 | `TAVUS_PAL_ID` | Optional existing Echo PAL; one is created and cached when omitted |

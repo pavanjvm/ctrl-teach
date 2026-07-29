@@ -93,6 +93,26 @@
   font-size: 12.5px;
 }
 
+.gen-capability-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 9%, #fff);
+  color: var(--fg);
+}
+.gen-capability-note > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--accent);
+}
+.gen-capability-note div { display: grid; gap: 3px; }
+.gen-capability-note strong { font-size: 13px; font-weight: 700; }
+.gen-capability-note span { color: var(--muted); font-size: 12px; line-height: 1.45; }
+
 .gen-curriculum-grid { position: relative; }
 .gen-or {
   display: flex;

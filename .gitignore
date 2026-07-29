@@ -49,6 +49,11 @@ yarn-debug.log*
 yarn-error.log*
 .vercel
 
+# Remotion was archived outside this repository.
+/.remotion/
+/apps/video/
+/video-output/
+
 # Virtual environments
 venv/
 .venv/

@@ -6,6 +6,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { useTars } from "@/lib/tars/provider";
 import { API_URL, WS_URL } from "@/lib/constants";
 import { TEACHING_PROFILE_CHANGED_EVENT } from "@/lib/tars/teachingProfiles";
+import { isEmbeddedTarsRoute } from "@/lib/tars/routes";
 
 const PROBE_TIMEOUT_MS = 900;
 
@@ -101,14 +102,11 @@ export default function TarsExtensionBridge() {
     let refreshTimer = 0;
 
     const configure = async () => {
-      const suspended = pathname === "/board"
-        || pathname === "/learn"
-        || pathname.startsWith("/admin")
-        || /^\/learn\/generated-[^/]+\/classroom$/.test(pathname);
+      const suspended = pathname.startsWith("/admin") || isEmbeddedTarsRoute(pathname);
       if (!enabled || !user) {
         sessionRef.current = null;
         postBridgeMessage("CTRLTEACH_TARS_CONFIG", {
-          config: { enabled: false, suspended, userId: "", apiUrl: API_URL, wsUrl: WS_URL },
+          config: { enabled: false, suspended, userId: "", learnerName: "", apiUrl: API_URL, wsUrl: WS_URL },
         });
         return;
       }
@@ -133,6 +131,7 @@ export default function TarsExtensionBridge() {
             enabled: true,
             suspended,
             userId: session.user_id,
+            learnerName: user.displayName || user.username,
             accessToken: session.access_token,
             apiUrl: API_URL,
             wsUrl: WS_URL,
@@ -150,7 +149,7 @@ export default function TarsExtensionBridge() {
         console.warn("[TarsExtension] Falling back to in-app Tars", error);
         sessionRef.current = null;
         postBridgeMessage("CTRLTEACH_TARS_CONFIG", {
-          config: { enabled: false, suspended: false, userId: "", apiUrl: API_URL, wsUrl: WS_URL },
+          config: { enabled: false, suspended: false, userId: "", learnerName: "", apiUrl: API_URL, wsUrl: WS_URL },
         });
         setExtensionAvailable(false);
         setStatus("Tars extension unavailable — using this tab only");

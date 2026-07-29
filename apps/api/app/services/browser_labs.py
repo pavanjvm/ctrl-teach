@@ -10,10 +10,19 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
-from app.db import BrowserLabRecovery, BrowserLabRun, GeneratedCourse, SessionLocal
-from app.services.generated_courses import BROWSER_PLATFORM_CATALOG
+from app.db import (
+    BrowserLabRecovery,
+    BrowserLabRun,
+    GeneratedCourse,
+    PlatformCourse,
+    SessionLocal,
+)
+from app.services.generated_courses import (
+    BROWSER_PLATFORM_CATALOG,
+    normalize_browser_lab_launch_url,
+)
 
 MAX_EVIDENCE_EVENTS = 240
 MAX_TEXT_VALUE = 700
@@ -79,9 +88,18 @@ def _lab_plan_for(owner_user_id: int, course_id: str, lesson_id: str) -> dict[st
                 GeneratedCourse.status == "ready",
             )
         )
-        if row is None:
-            raise HTTPException(status_code=404, detail="Course not found")
-        course = (row.payload or {}).get("course") or {}
+        if row is not None:
+            course = (row.payload or {}).get("course") or {}
+        else:
+            platform_row = db.scalar(
+                select(PlatformCourse).where(
+                    PlatformCourse.id == course_id,
+                    PlatformCourse.status == "published",
+                )
+            )
+            if platform_row is None:
+                raise HTTPException(status_code=404, detail="Course not found")
+            course = platform_row.course or {}
         lesson = _lesson_from_course(course, lesson_id)
         if not lesson:
             raise HTTPException(status_code=404, detail="Lesson not found")
@@ -92,15 +110,32 @@ def _lab_plan_for(owner_user_id: int, course_id: str, lesson_id: str) -> dict[st
         platform = BROWSER_PLATFORM_CATALOG.get(platform_id)
         if not platform:
             raise HTTPException(status_code=422, detail="Unsupported browser lab platform")
-        plan = dict(lab)
-        plan["platformId"] = platform_id
-        plan["platform"] = platform.get("label")
-        plan["launchUrl"] = platform.get("launchUrl")
-        plan["allowedHosts"] = [
+        catalog_hosts = [
             str(host).lower()
             for host in platform.get("allowedHosts") or []
             if str(host).strip()
         ]
+        requested_hosts = [
+            str(host).lower().strip()
+            for host in lab.get("allowedHosts") or []
+            if str(host).strip()
+        ]
+        allowed_hosts = [
+            host for host in requested_hosts
+            if _allowed_host(host, catalog_hosts)
+        ] or catalog_hosts
+        requested_launch_url = normalize_browser_lab_launch_url(lab)
+        launch_url = (
+            requested_launch_url
+            if requested_launch_url
+            and _allowed_host(_host(requested_launch_url), allowed_hosts)
+            else str(platform.get("launchUrl") or "")
+        )
+        plan = dict(lab)
+        plan["platformId"] = platform_id
+        plan["platform"] = platform.get("label")
+        plan["launchUrl"] = launch_url
+        plan["allowedHosts"] = allowed_hosts
         return plan
 
 
@@ -217,6 +252,24 @@ def _match_text(value: str, blob: str) -> bool:
     return all(token in blob for token in wanted[:5])
 
 
+def _structured_state_matches(value: str, event: dict[str, Any]) -> bool:
+    key, separator, expected = value.partition("=")
+    if not separator or not key.strip():
+        return False
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    state = payload.get("state") if isinstance(payload.get("state"), dict) else {}
+    if key.strip() not in state:
+        return False
+    actual = state.get(key.strip())
+    if isinstance(actual, bool):
+        normalized = "true" if actual else "false"
+    elif actual is None:
+        normalized = "null"
+    else:
+        normalized = str(actual).strip().casefold()
+    return normalized == expected.strip().casefold()
+
+
 def _assertion_matched(
     assertion: dict[str, Any],
     evidence: list[dict[str, Any]],
@@ -260,8 +313,11 @@ def _assertion_matched(
             return True
         if kind == "page_text" and event.get("kind") in {"navigation", "page_snapshot"} and _match_text(value, _text_blob(event)):
             return True
+        if kind == "structured_state" and event.get("kind") == "state_snapshot" and _structured_state_matches(value, event):
+            return True
         if (
             kind == "interaction_observed"
+            and value.strip()
             and event.get("kind") in {"click", "input", "change", "navigation", "page_snapshot"}
             and _match_text(value, _text_blob(event))
         ):
@@ -305,7 +361,7 @@ def verify_evidence(plan: dict[str, Any], evidence: list[dict[str, Any]]) -> dic
         for assertion in cleanup_assertions
     }
     task_complete = bool(task_results) and all(task_results.values())
-    cleanup_complete = bool(cleanup_results) and all(cleanup_results.values())
+    cleanup_complete = not cleanup_assertions or all(cleanup_results.values())
     status_value = "verified" if task_complete and cleanup_complete else "needs_cleanup" if task_complete else "running"
     return {
         "status": status_value,
@@ -470,6 +526,9 @@ def _owned_recovery(
 def start_attempt(course_id: str, lesson_id: str, user: dict[str, Any]) -> dict[str, Any]:
     owner_user_id = _owner_id(user)
     now = _now()
+    # Demo mode intentionally creates a fresh attempt whenever the lesson page
+    # mounts. Refreshing therefore never restores verified/evidence state.
+    plan = _lab_plan_for(owner_user_id, course_id, lesson_id)
     with SessionLocal() as db:
         run = db.scalar(
             select(BrowserLabRun).where(
@@ -478,28 +537,31 @@ def start_attempt(course_id: str, lesson_id: str, user: dict[str, Any]) -> dict[
                 BrowserLabRun.lesson_id == lesson_id,
             )
         )
-        if run is not None:
-            # Existing runs keep their original plan, hosts, and success criteria.
-            return public_run(run, db)
-
-    plan = _lab_plan_for(owner_user_id, course_id, lesson_id)
-    with SessionLocal() as db:
-        run = BrowserLabRun(
-            id=f"blr_{secrets.token_urlsafe(18)}",
-            owner_user_id=owner_user_id,
-            course_id=course_id,
-            lesson_id=lesson_id,
-            platform_id=str(plan.get("platformId") or ""),
-            launch_url=str(plan.get("launchUrl") or ""),
-            allowed_hosts=plan.get("allowedHosts") or [],
-            status="running",
-            plan_snapshot=plan,
-            evidence=[],
-            verification=verify_evidence(plan, []),
-            created_at=now,
-            updated_at=now,
-        )
-        db.add(run)
+        if run is None:
+            run = BrowserLabRun(
+                id=f"blr_{secrets.token_urlsafe(18)}",
+                owner_user_id=owner_user_id,
+                course_id=course_id,
+                lesson_id=lesson_id,
+                created_at=now,
+            )
+            db.add(run)
+        else:
+            db.execute(
+                delete(BrowserLabRecovery).where(
+                    BrowserLabRecovery.browser_lab_run_id == run.id,
+                )
+            )
+        run.platform_id = str(plan.get("platformId") or "")
+        run.launch_url = str(plan.get("launchUrl") or "")
+        run.allowed_hosts = plan.get("allowedHosts") or []
+        run.status = "running"
+        run.plan_snapshot = plan
+        run.evidence = []
+        run.verification = verify_evidence(plan, [])
+        run.created_at = now
+        run.updated_at = now
+        run.verified_at = None
         db.commit()
         db.refresh(run)
         return public_run(run, db)

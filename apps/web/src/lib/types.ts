@@ -9,6 +9,12 @@
 
 export type SkillLevel = "Beginner" | "Intermediate" | "Advanced";
 
+export type LearningPreference =
+  | "Visual explanations"
+  | "Hands-on practice"
+  | "Reading"
+  | "Live, interactive teaching";
+
 export type LearningStyle =
   | "Visual learner"
   | "Hands-on learner"
@@ -25,6 +31,7 @@ export type TeachingStyle =
 
 export type ContentPlatform =
   | "Ctrl+Teach"
+  | "Cprime Learning"
   | "LinkedIn Learning"
   | "Udemy"
   | "YouTube"
@@ -49,6 +56,14 @@ export interface OnboardingPrefs {
   name: string;
   /** Current role / identity ("Product Manager", "Engineer", "Student", …). */
   role: string;
+  /** Self-described experience used to calibrate roadmap recommendations. */
+  experienceLevel: SkillLevel | "";
+  /** The outcome the learner wants, expressed in their own words. */
+  careerGoal: string;
+  /** Preferred learning formats; multiple selections are allowed. */
+  learningPreferences: LearningPreference[];
+  /** Realistic weekly time available for this goal. */
+  availableHoursPerWeek: number;
   /** Topics the learner is interested in — drives suggested-topics + discovery seeds. */
   interests: string[];
   /** What the learner is preparing for — career goal, interview, certification, etc. */
@@ -214,7 +229,8 @@ export interface BrowserLabAssertion {
     | "click_text"
     | "input_changed"
     | "page_text"
-    | "interaction_observed";
+    | "interaction_observed"
+    | "structured_state";
   value?: string;
   description: string;
 }
@@ -227,6 +243,7 @@ export interface BrowserLabStep {
 }
 
 export interface BrowserLabBlueprint {
+  workflow?: string;
   platformId: string;
   platform?: string;
   launchUrl: string;

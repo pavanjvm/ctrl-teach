@@ -4,6 +4,7 @@ let reconnectTimer = 0;
 let realtimeReady = false;
 let pttActive = false;
 let currentTurn = null;
+let proactiveQueue = [];
 let micContext = null;
 let micStream = null;
 let micNode = null;
@@ -11,6 +12,7 @@ let micInitPromise = null;
 let playerContext = null;
 let playerNextStart = 0;
 const playerSources = new Set();
+const scheduledPcmChunks = new Set();
 const playbackCompletion = TarsPlaybackGate.createPlaybackCompletionGate(() => {
   void emit({
     type: "TARS_STATUS",
@@ -122,6 +124,7 @@ function clearPlayback() {
     try { source.stop(); } catch {}
   }
   playerSources.clear();
+  scheduledPcmChunks.clear();
   playerNextStart = playerContext?.currentTime || 0;
 }
 
@@ -269,6 +272,17 @@ function handleServerEvent(event) {
     realtimeReady = true;
     void ensureMic();
     void emit({ type: "TARS_STATUS", mode: "idle", text: "Tars ready — hold Ctrl to talk" });
+    void flushProactiveQueue();
+    return;
+  }
+  if (event.type === "tars_point_pending") {
+    if (event.status === "started") {
+      void emit({
+        type: "TARS_STATUS",
+        mode: "thinking",
+        text: `Tars locating ${event.label || "that target"}`,
+      });
+    }
     return;
   }
   if (event.type === "tars_point") {
@@ -303,10 +317,20 @@ function handleServerEvent(event) {
     // here would erase the waveform or spinner with a stale acknowledgement.
   }
   if (event.outputTranscription?.text) {
-    void emit({ type: "TARS_STATUS", mode: "speaking", text: event.outputTranscription.text, append: true });
+    void emit({
+      type: "TARS_STATUS",
+      mode: "speaking",
+      text: event.outputTranscription.text,
+      append: !event.outputTranscription.finished,
+      finished: Boolean(event.outputTranscription.finished),
+    });
   }
   for (const part of event.content?.parts || []) {
     if (part.inlineData?.mimeType?.startsWith("audio/pcm") && part.inlineData.data) {
+      // Some Realtime SDK paths can surface the same PCM envelope twice. A
+      // turn-local exact set prevents scheduling that audio a second time.
+      if (scheduledPcmChunks.has(part.inlineData.data)) continue;
+      scheduledPcmChunks.add(part.inlineData.data);
       void playPcm(part.inlineData.data).catch((error) => {
         console.warn("[Tars] audio playback failed", error);
       });
@@ -320,6 +344,35 @@ function handleServerEvent(event) {
   if (event.type === "error") {
     void emit({ type: "TARS_STATUS", mode: "offline", text: event.message || "Tars error" });
   }
+}
+
+async function sendProactiveText(text) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim().slice(0, 1600);
+  if (!clean) return { ok: false, error: "empty_text" };
+  if (socket?.readyState !== WebSocket.OPEN || !realtimeReady) {
+    proactiveQueue = [...proactiveQueue, clean].slice(-4);
+    connect();
+    return { ok: true, queued: true };
+  }
+  await ensurePlayer();
+  clearPlayback();
+  if (pttActive) cancelPtt();
+  socket.send(JSON.stringify({ type: "interrupt" }));
+  socket.send(JSON.stringify({ type: "text", text: clean }));
+  void emit({
+    type: "TARS_STATUS",
+    mode: "thinking",
+    text: "Tars is preparing your lab guidance",
+    resetTranscript: true,
+  });
+  return { ok: true, queued: false };
+}
+
+async function flushProactiveQueue() {
+  if (socket?.readyState !== WebSocket.OPEN || !realtimeReady || !proactiveQueue.length) return;
+  const latest = proactiveQueue[proactiveQueue.length - 1];
+  proactiveQueue = [];
+  await sendProactiveText(latest);
 }
 
 function imageDimensions(dataUrl) {
@@ -460,7 +513,11 @@ async function finishPtt(turn) {
   }));
   const sourceMedia = turn.context.media || {};
   const sourceFocusRegion = turn.context.focusRegion || null;
-  const ctrlGesture = turn.context.ctrlGesture || null;
+  const ctrlGesture = TarsGroundingGeometry.scaleCtrlGesture(
+    turn.context.ctrlGesture,
+    scaleX,
+    scaleY,
+  );
   const scaleRect = (rect) => rect ? {
     x: Math.round(rect.x * scaleX),
     y: Math.round(rect.y * scaleY),
@@ -492,6 +549,8 @@ async function finishPtt(turn) {
   const context = {
     contextId: turn.contextId,
     tabId: turn.tabId,
+    capturedAt: turn.capturedAt,
+    pageUrl: turn.context.page?.url || "",
     screenshotWidth: dimensions.width,
     screenshotHeight: dimensions.height,
     viewport,
@@ -503,6 +562,7 @@ async function finishPtt(turn) {
   socket.send(JSON.stringify({
     type: "tars_screen",
     contextId: turn.contextId,
+    labAttemptId: String(turn.labAttemptId || ""),
     data,
     mimeType,
     width: dimensions.width,
@@ -530,6 +590,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     let response = { ok: true };
     if (message.type === "TARS_CONFIG") {
       const changedIdentity = config?.accessToken !== message.config?.accessToken || config?.userId !== message.config?.userId;
+      if (changedIdentity || !message.config?.enabled || message.config?.suspended) {
+        clearPlayback();
+        cancelPtt();
+      }
       config = message.config;
       if (changedIdentity) disconnect();
       connect();
@@ -542,6 +606,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       response = { ok: true, ...endPtt(message) };
     } else if (message.type === "TARS_PTT_CONTEXT") {
       await finishPtt(message.turn);
+    } else if (message.type === "TARS_PROACTIVE_TEXT") {
+      response = await sendProactiveText(message.text);
     } else if (message.type === "TARS_RETRY_MIC") {
       if (micStream) micStream.getTracks().forEach((track) => track.stop());
       micStream = null;

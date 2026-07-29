@@ -10,7 +10,7 @@
 - Frontend dev: `cd apps/web && npm run dev`
 - Frontend lint: NOT configured (`next lint` requires `eslint` to be installed). Use `tsc --noEmit` for type checking.
 - Backend install/sync: `cd apps/api && uv sync --locked`
-- Backend dev: `cd apps/api && uv run uvicorn app.main:app --reload --port 8000`
+- Backend dev: `cd apps/api && uv run uvicorn app.main:app --port 8000 --loop asyncio`
 - Backend import smoke-test: `cd apps/api && uv run python -c "from app.main import app"`
 - Backend roleplay tests: `cd apps/api && uv run python -m unittest tests.test_roleplay`
 

@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.auth.dependencies import get_current_admin
 from app.db import GeneratedCourse, PlatformCourse, SessionLocal
+from app.services.generated_courses import normalize_course_for_delivery
 from app.services.platform_courses import platform_course_response
 
 
@@ -167,7 +168,11 @@ async def import_generated_admin_course(
                 GeneratedCourse.owner_user_id == admin_id,
             )
         )
-        course = dict((generated.payload or {}).get("course") or {}) if generated else {}
+        generated_payload = dict(generated.payload or {}) if generated else {}
+        course = normalize_course_for_delivery(
+            generated_payload.get("course"),
+            generated_payload,
+        ) or {}
         if generated is None:
             raise HTTPException(status_code=404, detail="Generated course not found")
         if generated.status != "ready" or not course:

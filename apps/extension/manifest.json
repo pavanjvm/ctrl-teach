@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Ctrl+Teach Tars",
-  "version": "0.1.1",
+  "version": "0.1.5",
   "description": "Browser-wide Tars voice, pointing, and page assistance.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "tabs", "offscreen", "scripting"],
+  "permissions": ["storage", "tabs", "offscreen", "scripting", "debugger"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "service-worker.js"
@@ -15,9 +15,11 @@
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["grounding-geometry.js", "drawing-lifetime.js", "content.js"],
+      "js": ["grounding-geometry.js", "drawing-lifetime.js", "github-lab.js", "content.js"],
       "run_at": "document_start",
-      "all_frames": false
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
     }
   ],
   "options_page": "setup.html"

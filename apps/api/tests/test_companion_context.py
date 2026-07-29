@@ -7,7 +7,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db import Base, GeneratedCourse, Profile, User
+from app.db import Base, BrowserLabRun, GeneratedCourse, Profile, User
 from app.services import companion_context, generated_courses
 
 
@@ -55,9 +55,71 @@ class CompanionContextTests(unittest.TestCase):
                 status="ready",
                 payload={"course": {"title": "Private course", "modules": []}},
             ))
+            db.add(BrowserLabRun(
+                id="blr-owned",
+                owner_user_id=7,
+                course_id="generated-owned",
+                lesson_id="private-repo-lab",
+                platform_id="github",
+                launch_url="https://github.com/",
+                allowed_hosts=["github.com"],
+                status="running",
+                plan_snapshot={
+                    "workflow": "github_create_private_repository",
+                    "objective": "Create a private GitHub repository.",
+                    "taskAssertions": [
+                        {
+                            "id": "created",
+                            "kind": "structured_state",
+                            "value": "repositoryCreated=true",
+                            "description": "The repository was created.",
+                        },
+                        {
+                            "id": "private",
+                            "kind": "structured_state",
+                            "value": "repositoryVisibility=private",
+                            "description": "The repository visibility is Private.",
+                        },
+                    ],
+                    "cleanupAssertions": [],
+                },
+                evidence=[{
+                    "kind": "state_snapshot",
+                    "payload": {
+                        "state": {
+                            "pageKind": "github_repository",
+                            "repositoryCreated": True,
+                            "repositoryVisibility": "public",
+                            "repositoryNameWithOwner": "learner/demo",
+                            "untrustedSecret": "must not pass through",
+                        },
+                    },
+                }],
+                verification={
+                    "taskComplete": False,
+                    "cleanupComplete": True,
+                    "taskAssertions": {"created": True, "private": False},
+                    "cleanupAssertions": {},
+                },
+            ))
+            db.add(BrowserLabRun(
+                id="blr-other",
+                owner_user_id=8,
+                course_id="generated-other",
+                lesson_id="private-repo-lab",
+                platform_id="github",
+                status="verified",
+                plan_snapshot={"objective": "Another learner's private lab."},
+                verification={"taskComplete": True, "cleanupComplete": True},
+            ))
             db.commit()
 
-    def _build(self, page: dict, recovery_summary: dict | None = None) -> dict:
+    def _build(
+        self,
+        page: dict,
+        recovery_summary: dict | None = None,
+        browser_lab_attempt_id: str = "",
+    ) -> dict:
         with (
             patch.object(companion_context, "SessionLocal", self.sessions),
             patch.object(generated_courses, "SessionLocal", self.sessions),
@@ -67,7 +129,11 @@ class CompanionContextTests(unittest.TestCase):
                 return_value=recovery_summary or {},
             ),
         ):
-            return companion_context.build_companion_page_context(7, page)
+            return companion_context.build_companion_page_context(
+                7,
+                page,
+                browser_lab_attempt_id=browser_lab_attempt_id,
+            )
 
     def test_reader_context_is_owner_scoped_and_lesson_grounded(self) -> None:
         context = self._build({
@@ -94,6 +160,67 @@ class CompanionContextTests(unittest.TestCase):
         self.assertEqual(context["route"], "/docs/install")
         self.assertIn("point", context["capabilities"])
         self.assertNotIn("verifiedCourseContext", context)
+
+    def test_external_lab_tab_gets_owner_scoped_verified_lab_state(self) -> None:
+        context = self._build(
+            {"url": "https://github.com/learner/demo", "title": "demo"},
+            browser_lab_attempt_id="blr-owned",
+        )
+
+        self.assertEqual(context["mode"], "browser_lab")
+        self.assertEqual(context["browserLab"]["status"], "running")
+        self.assertFalse(context["browserLab"]["verified"])
+        self.assertEqual(
+            context["browserLab"]["observedState"]["repositoryVisibility"],
+            "public",
+        )
+        self.assertNotIn("untrustedSecret", str(context))
+        self.assertEqual(
+            context["browserLab"]["missingCriteria"],
+            [{"id": "private", "description": "The repository visibility is Private."}],
+        )
+        self.assertIn("lab coach", companion_context.companion_context_prompt(context))
+        self.assertTrue(companion_context.is_github_visibility_help_request(
+            "please do it for me",
+            context,
+        ))
+        self.assertTrue(companion_context.is_github_visibility_help_request(
+            "make this repository private",
+            context,
+        ))
+        self.assertFalse(companion_context.is_github_visibility_help_follow_up(
+            "please, only this time",
+            context,
+            0,
+        ))
+        self.assertTrue(companion_context.is_github_visibility_help_follow_up(
+            "please, only this time",
+            context,
+            1,
+        ))
+        self.assertTrue(companion_context.is_github_visibility_help_follow_up(
+            "at least help me halfway through it",
+            context,
+            1,
+        ))
+        self.assertFalse(companion_context.is_github_visibility_help_follow_up(
+            "why is GitHub showing this page",
+            context,
+            1,
+        ))
+        self.assertFalse(companion_context.is_github_visibility_help_request(
+            "delete the repository",
+            context,
+        ))
+
+    def test_another_learners_lab_attempt_is_not_disclosed(self) -> None:
+        context = self._build(
+            {"url": "https://github.com/other/private"},
+            browser_lab_attempt_id="blr-other",
+        )
+        self.assertEqual(context["mode"], "browser_page")
+        self.assertNotIn("browserLab", context)
+        self.assertNotIn("Another learner", str(context))
 
     def test_teaching_profiles_route_has_a_dedicated_page_mode(self) -> None:
         self.assertEqual(

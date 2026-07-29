@@ -8,6 +8,7 @@
   const CONTENT_SCRIPT_FILES = Object.freeze([
     "grounding-geometry.js",
     "drawing-lifetime.js",
+    "github-lab.js",
     "content.js",
   ]);
 
