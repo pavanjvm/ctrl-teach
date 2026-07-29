@@ -2,13 +2,29 @@
  * Shared constants for the Ctrl+Teach application.
  */
 
-/** WebSocket backend URL — override via NEXT_PUBLIC_WS_URL env var */
-export const WS_URL =
-    process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000";
+function requiredPublicUrl(name: string, value: string | undefined, protocols: string[]) {
+    const configured = value?.trim();
+    if (!configured) throw new Error(`${name} must be configured`);
+    const url = new URL(configured);
+    if (!protocols.includes(url.protocol)) {
+        throw new Error(`${name} must use ${protocols.join(" or ")}`);
+    }
+    return configured.replace(/\/$/, "");
+}
 
-/** HTTP API backend URL — override via NEXT_PUBLIC_API_URL env var */
-export const API_URL =
-    process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+/** WebSocket backend URL configured by NEXT_PUBLIC_WS_URL */
+export const WS_URL = requiredPublicUrl(
+    "NEXT_PUBLIC_WS_URL",
+    process.env.NEXT_PUBLIC_WS_URL,
+    ["ws:", "wss:"],
+);
+
+/** HTTP API backend URL configured by NEXT_PUBLIC_API_URL */
+export const API_URL = requiredPublicUrl(
+    "NEXT_PUBLIC_API_URL",
+    process.env.NEXT_PUBLIC_API_URL,
+    ["http:", "https:"],
+);
 
 /** Interval (ms) between automatic canvas snapshots when connected */
 export const SNAPSHOT_INTERVAL_MS = 5_000;

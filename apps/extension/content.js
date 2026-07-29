@@ -155,10 +155,19 @@
     }
   }
 
-  const CTRLTEACH_ORIGINS = new Set([
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
+  const { isCtrlTeachAppOrigin } = TarsExtensionAssets;
+  const APP_BRIDGE_MESSAGE_TYPES = new Set([
+    "CTRLTEACH_TARS_PROBE",
+    "CTRLTEACH_TARS_CONFIG",
+    "CTRLTEACH_BROWSER_LAB_START",
+    "CTRLTEACH_BROWSER_LAB_STOP",
+    "CTRLTEACH_BROWSER_LAB_CLEANUP_READY",
   ]);
+  async function isBridgeOriginTrusted(origin) {
+    if (isCtrlTeachAppOrigin(origin)) return true;
+    const response = await runtimeSend({ type: "TARS_TRUST_CHECK" });
+    return Boolean(response?.trusted);
+  }
   const CONTENT_INSTANCE_ID = crypto.randomUUID();
   const MAX_TARGETS = 240;
   const BUDDY_OFFSET_X = 35;
@@ -1395,8 +1404,9 @@
     else if (relayed.kind === "ptt_stop") stopPtt(point);
   }, true);
 
-  window.addEventListener("message", (event) => {
-    if (event.source !== window || !CTRLTEACH_ORIGINS.has(event.origin)) return;
+  window.addEventListener("message", async (event) => {
+    if (event.source !== window || !APP_BRIDGE_MESSAGE_TYPES.has(event.data?.type)) return;
+    if (!await isBridgeOriginTrusted(event.origin)) return;
     if (event.data?.type === "CTRLTEACH_TARS_PROBE") {
       window.postMessage({
         type: "CTRLTEACH_TARS_EXTENSION_READY",
@@ -1533,12 +1543,13 @@
   // reliable parent mutation or top-tab navigation event.
   setInterval(refreshDirectFrameBindings, 750);
   requestAnimationFrame(animateFrame);
-  if (CTRLTEACH_ORIGINS.has(window.location.origin)) {
+  void isBridgeOriginTrusted(window.location.origin).then((trusted) => {
+    if (!trusted) return;
     window.postMessage({
       type: "CTRLTEACH_TARS_EXTENSION_ATTACHED",
       instanceId: CONTENT_INSTANCE_ID,
     }, window.location.origin);
-  }
+  });
   window.addEventListener("pageshow", (event) => {
     if (event.persisted) void refreshExtensionState();
   }, true);

@@ -3,21 +3,39 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Enable Tars microphone</title>
+    <title>Set up browser-wide Tars</title>
     <style>
       body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f8f7f4; color: #171717; font: 15px/1.5 Inter, system-ui, sans-serif; }
       main { width: min(520px, calc(100vw - 48px)); padding: 36px; border: 1px solid #e5e1d8; border-radius: 22px; background: white; box-shadow: 0 24px 70px rgba(27,24,18,.1); }
       h1 { margin: 0 0 10px; font-size: 25px; }
       p { color: #625f58; }
+      ol { margin: 18px 0 0; padding-left: 22px; color: #3f3d38; }
+      li + li { margin-top: 7px; }
+      label { display: block; margin-top: 24px; font-weight: 700; }
+      input { box-sizing: border-box; width: 100%; margin-top: 8px; padding: 11px 12px; border: 1px solid #d8d3c8; border-radius: 6px; font: inherit; }
+      small { display: block; margin-top: 7px; color: #77736b; }
+      .actions { display: flex; flex-wrap: wrap; gap: 10px; }
       button { margin-top: 16px; border: 0; border-radius: 6px; padding: 12px 18px; background: #b7ec52; color: #26320f; font: inherit; font-weight: 700; cursor: pointer; }
+      button.secondary { border: 1px solid #d8d3c8; background: #f2f0eb; color: #34322d; }
       #status { min-height: 24px; margin-top: 16px; color: #4f7716; font-weight: 600; }
     </style>
   </head>
   <body>
     <main>
-      <h1>Enable Tars’s microphone</h1>
-      <p>Chrome requires a one-time microphone permission for the extension. Audio is sent only while you hold Control.</p>
-      <button id="enable" type="button">Enable microphone</button>
+      <h1>Set up browser-wide Tars</h1>
+      <p>Chrome requires one-time microphone permission. Audio is sent only while you hold Control.</p>
+      <ol>
+        <li>Enable the microphone below.</li>
+        <li>Return to Ctrl+Teach and turn on Tars.</li>
+        <li>On any regular web page, hold Control to talk and release to send the visible tab context.</li>
+      </ol>
+      <label for="app-origin">Deployed Ctrl+Teach address</label>
+      <input id="app-origin" type="url" inputmode="url" placeholder="https://learn.example.com">
+      <small>Optional for local development. Any localhost or loopback port is accepted automatically.</small>
+      <div class="actions">
+        <button id="enable" type="button">Enable microphone</button>
+        <button id="save-origin" class="secondary" type="button">Save app address</button>
+      </div>
       <div id="status" role="status"></div>
     </main>
     <script src="setup.js"></script>

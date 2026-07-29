@@ -2,10 +2,8 @@ importScripts("extension-assets.js");
 
 const LOCAL_STATE_KEY = "ctrlteach_tars_extension_state";
 const SESSION_TOKEN_KEY = "ctrlteach_tars_extension_token";
-const CTRLTEACH_ORIGINS = new Set([
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-]);
+const TRUSTED_APP_ORIGINS_KEY = "ctrlteach_tars_trusted_app_origins";
+const { isCtrlTeachAppOrigin, normalizeAppOrigin } = TarsExtensionAssets;
 
 let state = {
   enabled: false,
@@ -22,14 +20,19 @@ let currentTurn = null;
 let activeContext = null;
 let activeBrowserLab = null;
 let micSetupOpened = false;
+const suspendedTabIds = new Set();
+let trustedAppOrigins = [];
 
 async function loadState() {
   if (loaded) return;
   const [local, session] = await Promise.all([
-    chrome.storage.local.get(LOCAL_STATE_KEY),
+    chrome.storage.local.get([LOCAL_STATE_KEY, TRUSTED_APP_ORIGINS_KEY]),
     chrome.storage.session.get(SESSION_TOKEN_KEY),
   ]);
-  state = { ...state, ...(local[LOCAL_STATE_KEY] || {}) };
+  state = { ...state, ...(local[LOCAL_STATE_KEY] || {}), suspended: false };
+  trustedAppOrigins = Array.isArray(local[TRUSTED_APP_ORIGINS_KEY])
+    ? local[TRUSTED_APP_ORIGINS_KEY].map(normalizeAppOrigin).filter(Boolean)
+    : [];
   accessToken = session[SESSION_TOKEN_KEY] || "";
   loaded = true;
   const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -50,11 +53,11 @@ function isNormalPage(url = "") {
 }
 
 function isTrustedBridgeSender(sender) {
-  try {
-    return CTRLTEACH_ORIGINS.has(new URL(sender.tab?.url || sender.url || "").origin);
-  } catch {
-    return false;
-  }
+  return isCtrlTeachAppOrigin(sender.tab?.url || sender.url || "", trustedAppOrigins);
+}
+
+function isExtensionPageSender(sender) {
+  return String(sender.url || "").startsWith(chrome.runtime.getURL(""));
 }
 
 async function offscreenExists() {
@@ -120,7 +123,7 @@ async function ensureContentScript(tabId) {
 function publicState(tabId) {
   return {
     enabled: state.enabled && Boolean(accessToken),
-    suspended: state.suspended,
+    suspended: suspendedTabIds.has(tabId),
     active: tabId === activeTabId,
     labActive: Boolean(activeBrowserLab),
     activeLabId: activeBrowserLab?.attemptId || "",
@@ -259,16 +262,33 @@ async function publishState(tabId = activeTabId) {
   await sendToTab(tabId, { type: "TARS_STATE", state: publicState(tabId) });
 }
 
+async function setActiveTab(tabId) {
+  const previous = activeTabId;
+  activeTabId = typeof tabId === "number" ? tabId : null;
+  if (currentTurn && currentTurn.tabId !== activeTabId) await cancelPushToTalk("tab_changed");
+  if (typeof previous === "number" && previous !== activeTabId) await publishState(previous);
+  if (typeof activeTabId === "number") await publishState(activeTabId);
+}
+
 async function configureFromApp(config, sender) {
   if (!isTrustedBridgeSender(sender)) return { ok: false, error: "untrusted_origin" };
-  const shouldSuspend = !config.enabled || Boolean(config.suspended);
-  if (shouldSuspend) {
+  const appTabId = sender.tab?.id;
+  if (!config.enabled) {
+    suspendedTabIds.clear();
+  } else if (typeof appTabId === "number") {
+    if (config.suspended) suspendedTabIds.add(appTabId);
+    else suspendedTabIds.delete(appTabId);
+  }
+  const shouldCancelTurn = !config.enabled || (currentTurn && suspendedTabIds.has(currentTurn.tabId));
+  if (shouldCancelTurn) {
     await cancelPushToTalk("tars_suspended");
+  }
+  if (!config.enabled || (activeContext && suspendedTabIds.has(activeContext.tabId))) {
     activeContext = null;
   }
   state = {
     enabled: Boolean(config.enabled),
-    suspended: Boolean(config.suspended),
+    suspended: false,
     userId: String(config.userId || ""),
     apiUrl: String(config.apiUrl || state.apiUrl || ""),
     wsUrl: String(config.wsUrl || ""),
@@ -351,9 +371,12 @@ async function markBrowserLabCleanupReady(message, sender) {
 
 async function beginPushToTalk(tabId, trigger = "keyboard") {
   await loadState();
-  if (!state.enabled || state.suspended || !accessToken || tabId !== activeTabId || currentTurn) return;
+  if (!state.enabled || suspendedTabIds.has(tabId) || !accessToken) return;
   const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (!tab || !isNormalPage(tab.url || "")) return;
+  const tabWindow = tab ? await chrome.windows.get(tab.windowId).catch(() => null) : null;
+  if (!tab || !tab.active || !tabWindow?.focused || !isNormalPage(tab.url || "")) return;
+  if (tabId !== activeTabId) await setActiveTab(tabId);
+  if (currentTurn) return;
   const contextId = crypto.randomUUID();
   currentTurn = { contextId, tabId, windowId: tab.windowId };
   await sendToTab(tabId, { type: "TARS_PREPARE_PTT", contextId, trigger });
@@ -490,12 +513,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse(await markBrowserLabCleanupReady(message, sender));
         return;
       case "TARS_PAGE_READY":
-        if (sender.tab?.active) activeTabId = sender.tab.id;
         sendResponse({ ok: true, state: publicState(sender.tab?.id) });
         return;
       case "TARS_EXTENSION_PING":
         sendResponse({ ok: true });
         return;
+      case "TARS_TRUST_CHECK":
+        sendResponse({ ok: true, trusted: isTrustedBridgeSender(sender) });
+        return;
+      case "TARS_SETUP_STATUS": {
+        if (!isExtensionPageSender(sender)) {
+          sendResponse({ ok: false, error: "untrusted_sender" });
+          return;
+        }
+        sendResponse({
+          ok: true,
+          configuredAppOrigin: trustedAppOrigins[0] || "",
+          enabled: state.enabled && Boolean(accessToken),
+        });
+        return;
+      }
+      case "TARS_SET_APP_ORIGIN": {
+        if (!isExtensionPageSender(sender)) {
+          sendResponse({ ok: false, error: "untrusted_sender" });
+          return;
+        }
+        const origin = normalizeAppOrigin(message.appUrl || "");
+        if (message.appUrl && !origin) {
+          sendResponse({ ok: false, error: "invalid_app_url" });
+          return;
+        }
+        trustedAppOrigins = origin ? [origin] : [];
+        await chrome.storage.local.set({ [TRUSTED_APP_ORIGINS_KEY]: trustedAppOrigins });
+        sendResponse({ ok: true, configuredAppOrigin: origin });
+        return;
+      }
       case "TARS_CURSOR_POSITION":
         if (sender.tab?.id === activeTabId) latestCursor = { x: Number(message.x) || 0, y: Number(message.y) || 0 };
         sendResponse({ ok: true });
@@ -532,19 +584,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
   await loadState();
-  const previous = activeTabId;
-  activeTabId = tabId;
-  if (currentTurn && currentTurn.tabId !== tabId) await cancelPushToTalk("tab_changed");
-  if (typeof previous === "number" && previous !== tabId) await publishState(previous);
-  await publishState(tabId);
+  const tabWindow = await chrome.windows.get(windowId).catch(() => null);
+  if (!tabWindow?.focused) {
+    await publishState(tabId);
+    return;
+  }
+  await setActiveTab(tabId);
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (tab.active && changeInfo.status === "complete") {
-    activeTabId = tabId;
-    await publishState(tabId);
+    const tabWindow = await chrome.windows.get(tab.windowId).catch(() => null);
+    if (tabWindow?.focused) await setActiveTab(tabId);
+    else await publishState(tabId);
   }
   if (changeInfo.status === "complete" && activeBrowserLab && tab.url) {
     await recordLabEvent("navigation", {
@@ -554,8 +608,29 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
+chrome.tabs.onRemoved.addListener((tabId) => {
+  suspendedTabIds.delete(tabId);
+  if (currentTurn?.tabId === tabId) void cancelPushToTalk("tab_closed");
+  if (activeContext?.tabId === tabId) activeContext = null;
+});
+
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  await loadState();
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    await setActiveTab(null);
+    return;
+  }
+  const [tab] = await chrome.tabs.query({ active: true, windowId });
+  await setActiveTab(tab?.id);
+});
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (typeof tab.id !== "number") return;
+  await loadState();
+  if (!state.enabled || !accessToken) {
+    await chrome.runtime.openOptionsPage();
+    return;
+  }
   if (currentTurn) await finishPushToTalk(tab.id);
   else await beginPushToTalk(tab.id, "toolbar");
 });

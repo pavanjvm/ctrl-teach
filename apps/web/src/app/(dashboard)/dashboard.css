@@ -199,6 +199,25 @@
   color: var(--text-main, #1a1a1a);
 }
 
+.topbar-tars-scope {
+  padding: 3px 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: .08em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.topbar-tars-scope.is-browser {
+  border-color: rgba(121, 169, 37, .4);
+  color: #557c18;
+  background: rgba(183, 236, 82, .14);
+}
+
 .topbar-tars-switch-track {
   position: relative;
   width: 34px;
@@ -1338,6 +1357,7 @@
   /* Between tablet and phone: drop the Tars label and the user name so the
      profile avatar + notification icons stay fully visible. */
   .topbar-tars-switch-label { display: none; }
+  .topbar-tars-scope { display: none; }
   .topbar-user-info { display: none; }
   .topbar-user-card { gap: 0; padding: 2px; }
   .topbar-controls { gap: 10px; }
