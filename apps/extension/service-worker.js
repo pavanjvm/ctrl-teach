@@ -2,10 +2,8 @@ importScripts("extension-assets.js");
 
 const LOCAL_STATE_KEY = "ctrlteach_tars_extension_state";
 const SESSION_TOKEN_KEY = "ctrlteach_tars_extension_token";
-const CTRLTEACH_ORIGINS = new Set([
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-]);
+const FRONTEND_URL_ENV_KEY = "CTRLTEACH_FRONTEND_URL";
+const { isCtrlTeachAppOrigin, normalizeAppOrigin, parseExtensionEnv } = TarsExtensionAssets;
 
 let state = {
   enabled: false,
@@ -22,14 +20,29 @@ let currentTurn = null;
 let activeContext = null;
 let activeBrowserLab = null;
 let micSetupOpened = false;
+let offscreenCreation = null;
+const suspendedTabIds = new Set();
+let configuredAppOrigin = "";
+
+async function loadExtensionEnvironment() {
+  try {
+    const response = await fetch(chrome.runtime.getURL(".env"), { cache: "no-store" });
+    if (!response.ok) return {};
+    return parseExtensionEnv(await response.text());
+  } catch {
+    return {};
+  }
+}
 
 async function loadState() {
   if (loaded) return;
-  const [local, session] = await Promise.all([
+  const [local, session, environment] = await Promise.all([
     chrome.storage.local.get(LOCAL_STATE_KEY),
     chrome.storage.session.get(SESSION_TOKEN_KEY),
+    loadExtensionEnvironment(),
   ]);
-  state = { ...state, ...(local[LOCAL_STATE_KEY] || {}) };
+  state = { ...state, ...(local[LOCAL_STATE_KEY] || {}), suspended: false };
+  configuredAppOrigin = normalizeAppOrigin(environment[FRONTEND_URL_ENV_KEY] || "");
   accessToken = session[SESSION_TOKEN_KEY] || "";
   loaded = true;
   const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -50,11 +63,11 @@ function isNormalPage(url = "") {
 }
 
 function isTrustedBridgeSender(sender) {
-  try {
-    return CTRLTEACH_ORIGINS.has(new URL(sender.tab?.url || sender.url || "").origin);
-  } catch {
-    return false;
-  }
+  return isCtrlTeachAppOrigin(sender.tab?.url || sender.url || "", configuredAppOrigin);
+}
+
+function isExtensionPageSender(sender) {
+  return String(sender.url || "").startsWith(chrome.runtime.getURL(""));
 }
 
 async function offscreenExists() {
@@ -68,11 +81,18 @@ async function offscreenExists() {
 
 async function ensureOffscreen() {
   if (await offscreenExists()) return;
-  await chrome.offscreen.createDocument({
-    url: "offscreen.html",
-    reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
-    justification: "Tars needs persistent microphone capture and response audio across tab changes.",
-  });
+  if (!offscreenCreation) {
+    offscreenCreation = chrome.offscreen.createDocument({
+      url: "offscreen.html",
+      reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
+      justification: "Tars needs persistent microphone capture and response audio across tab changes.",
+    });
+  }
+  try {
+    await offscreenCreation;
+  } finally {
+    offscreenCreation = null;
+  }
 }
 
 async function sendToOffscreen(message) {
@@ -120,7 +140,7 @@ async function ensureContentScript(tabId) {
 function publicState(tabId) {
   return {
     enabled: state.enabled && Boolean(accessToken),
-    suspended: state.suspended,
+    suspended: suspendedTabIds.has(tabId),
     active: tabId === activeTabId,
     labActive: Boolean(activeBrowserLab),
     activeLabId: activeBrowserLab?.attemptId || "",
@@ -259,16 +279,33 @@ async function publishState(tabId = activeTabId) {
   await sendToTab(tabId, { type: "TARS_STATE", state: publicState(tabId) });
 }
 
+async function setActiveTab(tabId) {
+  const previous = activeTabId;
+  activeTabId = typeof tabId === "number" ? tabId : null;
+  if (currentTurn && currentTurn.tabId !== activeTabId) await cancelPushToTalk("tab_changed");
+  if (typeof previous === "number" && previous !== activeTabId) await publishState(previous);
+  if (typeof activeTabId === "number") await publishState(activeTabId);
+}
+
 async function configureFromApp(config, sender) {
   if (!isTrustedBridgeSender(sender)) return { ok: false, error: "untrusted_origin" };
-  const shouldSuspend = !config.enabled || Boolean(config.suspended);
-  if (shouldSuspend) {
+  const appTabId = sender.tab?.id;
+  if (!config.enabled) {
+    suspendedTabIds.clear();
+  } else if (typeof appTabId === "number") {
+    if (config.suspended) suspendedTabIds.add(appTabId);
+    else suspendedTabIds.delete(appTabId);
+  }
+  const shouldCancelTurn = !config.enabled || (currentTurn && suspendedTabIds.has(currentTurn.tabId));
+  if (shouldCancelTurn) {
     await cancelPushToTalk("tars_suspended");
+  }
+  if (!config.enabled || (activeContext && suspendedTabIds.has(activeContext.tabId))) {
     activeContext = null;
   }
   state = {
     enabled: Boolean(config.enabled),
-    suspended: Boolean(config.suspended),
+    suspended: false,
     userId: String(config.userId || ""),
     apiUrl: String(config.apiUrl || state.apiUrl || ""),
     wsUrl: String(config.wsUrl || ""),
@@ -351,9 +388,12 @@ async function markBrowserLabCleanupReady(message, sender) {
 
 async function beginPushToTalk(tabId, trigger = "keyboard") {
   await loadState();
-  if (!state.enabled || state.suspended || !accessToken || tabId !== activeTabId || currentTurn) return;
+  if (!state.enabled || suspendedTabIds.has(tabId) || !accessToken) return;
   const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (!tab || !isNormalPage(tab.url || "")) return;
+  const tabWindow = tab ? await chrome.windows.get(tab.windowId).catch(() => null) : null;
+  if (!tab || !tab.active || !tabWindow?.focused || !isNormalPage(tab.url || "")) return;
+  if (tabId !== activeTabId) await setActiveTab(tabId);
+  if (currentTurn) return;
   const contextId = crypto.randomUUID();
   currentTurn = { contextId, tabId, windowId: tab.windowId };
   await sendToTab(tabId, { type: "TARS_PREPARE_PTT", contextId, trigger });
@@ -490,12 +530,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse(await markBrowserLabCleanupReady(message, sender));
         return;
       case "TARS_PAGE_READY":
-        if (sender.tab?.active) activeTabId = sender.tab.id;
         sendResponse({ ok: true, state: publicState(sender.tab?.id) });
         return;
       case "TARS_EXTENSION_PING":
         sendResponse({ ok: true });
         return;
+      case "TARS_TRUST_CHECK":
+        sendResponse({ ok: true, trusted: isTrustedBridgeSender(sender) });
+        return;
+      case "TARS_SETUP_STATUS": {
+        if (!isExtensionPageSender(sender)) {
+          sendResponse({ ok: false, error: "untrusted_sender" });
+          return;
+        }
+        sendResponse({
+          ok: true,
+          configuredFrontendOrigin: configuredAppOrigin,
+          enabled: state.enabled && Boolean(accessToken),
+        });
+        return;
+      }
       case "TARS_CURSOR_POSITION":
         if (sender.tab?.id === activeTabId) latestCursor = { x: Number(message.x) || 0, y: Number(message.y) || 0 };
         sendResponse({ ok: true });
@@ -528,23 +582,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       default:
         sendResponse({ ok: false });
     }
-  })();
+  })().catch((error) => {
+    console.error("[Tars] runtime message failed", message?.type || "unknown", error);
+    sendResponse({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error || "extension_error"),
+    });
+  });
   return true;
 });
 
-chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+chrome.tabs.onActivated.addListener(async ({ tabId, windowId }) => {
   await loadState();
-  const previous = activeTabId;
-  activeTabId = tabId;
-  if (currentTurn && currentTurn.tabId !== tabId) await cancelPushToTalk("tab_changed");
-  if (typeof previous === "number" && previous !== tabId) await publishState(previous);
-  await publishState(tabId);
+  const tabWindow = await chrome.windows.get(windowId).catch(() => null);
+  if (!tabWindow?.focused) {
+    await publishState(tabId);
+    return;
+  }
+  await setActiveTab(tabId);
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (tab.active && changeInfo.status === "complete") {
-    activeTabId = tabId;
-    await publishState(tabId);
+    const tabWindow = await chrome.windows.get(tab.windowId).catch(() => null);
+    if (tabWindow?.focused) await setActiveTab(tabId);
+    else await publishState(tabId);
   }
   if (changeInfo.status === "complete" && activeBrowserLab && tab.url) {
     await recordLabEvent("navigation", {
@@ -554,20 +616,45 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
+chrome.tabs.onRemoved.addListener((tabId) => {
+  suspendedTabIds.delete(tabId);
+  if (currentTurn?.tabId === tabId) void cancelPushToTalk("tab_closed");
+  if (activeContext?.tabId === tabId) activeContext = null;
+});
+
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  await loadState();
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    await setActiveTab(null);
+    return;
+  }
+  const [tab] = await chrome.tabs.query({ active: true, windowId });
+  await setActiveTab(tab?.id);
+});
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (typeof tab.id !== "number") return;
+  await loadState();
+  if (!state.enabled || !accessToken) {
+    await chrome.runtime.openOptionsPage();
+    return;
+  }
   if (currentTurn) await finishPushToTalk(tab.id);
   else await beginPushToTalk(tab.id, "toolbar");
 });
 
-void loadState().then(async () => {
-  if (state.enabled && accessToken) {
-    await sendToOffscreen({ type: "TARS_CONFIG", config: { ...state, accessToken } });
-  }
-  // Reloading an unpacked extension invalidates every existing content-script
-  // context. Refresh all normal tabs immediately—including background AWS
-  // tabs—so an in-console SPA transition cannot keep a stale top-only cursor.
-  const tabs = await chrome.tabs.query({}).catch(() => []);
-  const normalTabs = tabs.filter((tab) => isNormalPage(tab.url || ""));
-  await Promise.all(normalTabs.map((tab) => publishState(tab.id)));
-});
+void loadState()
+  .then(async () => {
+    if (state.enabled && accessToken) {
+      await sendToOffscreen({ type: "TARS_CONFIG", config: { ...state, accessToken } });
+    }
+    // Reloading an unpacked extension invalidates every existing content-script
+    // context. Refresh all normal tabs immediately—including background AWS
+    // tabs—so an in-console SPA transition cannot keep a stale top-only cursor.
+    const tabs = await chrome.tabs.query({}).catch(() => []);
+    const normalTabs = tabs.filter((tab) => isNormalPage(tab.url || ""));
+    await Promise.all(normalTabs.map((tab) => publishState(tab.id)));
+  })
+  .catch((error) => {
+    console.error("[Tars] startup failed", error);
+  });

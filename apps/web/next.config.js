@@ -1,12 +1,15 @@
 const isDevelopment = process.env.NODE_ENV !== "production";
-const cspOrigin = (value, fallback) => {
-  try {
-    return new URL(value || fallback).origin;
-  } catch {
-    return new URL(fallback).origin;
+const requiredOrigin = (name, protocols) => {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} must be configured`);
+  const url = new URL(value);
+  if (!protocols.includes(url.protocol)) {
+    throw new Error(`${name} must use ${protocols.join(" or ")}`);
   }
+  return url.origin;
 };
-const apiOrigin = cspOrigin(process.env.NEXT_PUBLIC_API_URL, "http://localhost:8000");
+const apiOrigin = requiredOrigin("NEXT_PUBLIC_API_URL", ["http:", "https:"]);
+const websocketOrigin = requiredOrigin("NEXT_PUBLIC_WS_URL", ["ws:", "wss:"]);
 const dailyCallMachineOrigin = "https://c.daily.co";
 // Daily WebRTC signaling/media endpoints used by call-object mode.
 const dailyConnectSource = "https://*.daily.co";
@@ -15,7 +18,7 @@ const tavusMediaOrigin = "https://cdn.replica.tavus.io";
 const connectSources = new Set([
   "'self'",
   apiOrigin,
-  cspOrigin(process.env.NEXT_PUBLIC_WS_URL, "ws://localhost:8000"),
+  websocketOrigin,
   "https://www.gstatic.com",
   dailyConnectSource,
   dailyWebsocketSource,

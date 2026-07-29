@@ -6,11 +6,30 @@ const path = require("node:path");
 const offscreenSource = fs.readFileSync(path.join(__dirname, "offscreen.js"), "utf8");
 const workerSource = fs.readFileSync(path.join(__dirname, "service-worker.js"), "utf8");
 
-test("suspension resets worker PTT and stale response context", () => {
-  assert.match(
-    workerSource,
-    /if \(shouldSuspend\) \{\s*await cancelPushToTalk\("tars_suspended"\);\s*activeContext = null;/,
-  );
+test("embedded Tars suspension is scoped to its Ctrl+Teach tab", () => {
+  assert.match(workerSource, /const suspendedTabIds = new Set\(\)/);
+  assert.match(workerSource, /suspended: suspendedTabIds\.has\(tabId\)/);
+  assert.match(workerSource, /suspendedTabIds\.has\(currentTurn\.tabId\)/);
+  assert.match(workerSource, /suspendedTabIds\.has\(activeContext\.tabId\)/);
+  assert.match(workerSource, /!state\.enabled \|\| suspendedTabIds\.has\(tabId\) \|\| !accessToken/);
+});
+
+test("browser-wide activation follows the focused Chrome window", () => {
+  assert.match(workerSource, /chrome\.windows\.onFocusChanged\.addListener/);
+  assert.match(workerSource, /if \(tabId !== activeTabId\) await setActiveTab\(tabId\)/);
+  assert.match(workerSource, /!tab\.active \|\| !tabWindow\?\.focused/);
+});
+
+test("offscreen document creation is serialized", () => {
+  assert.match(workerSource, /let offscreenCreation = null/);
+  assert.match(workerSource, /if \(!offscreenCreation\) \{\s*offscreenCreation = chrome\.offscreen\.createDocument/);
+  assert.match(workerSource, /await offscreenCreation;\s*\} finally \{\s*offscreenCreation = null/);
+});
+
+test("runtime message failures return a structured response", () => {
+  assert.match(workerSource, /\[Tars\] runtime message failed/);
+  assert.match(workerSource, /error instanceof Error \? error\.message/);
+  assert.match(workerSource, /\[Tars\] startup failed/);
 });
 
 test("suspension clears offscreen playback and microphone turn state", () => {

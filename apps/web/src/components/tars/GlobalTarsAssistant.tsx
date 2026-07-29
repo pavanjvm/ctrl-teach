@@ -887,25 +887,21 @@ export default function GlobalTarsAssistant() {
     wsHook.sendCompanionContext(currentPageContext());
   }, [currentPageContext, globalTarsActive, wsHook.realtimeReady, wsHook.sendCompanionContext]);
 
-  // ── Screen-share lifecycle: persisted across page navigations ────────────
-  // The getDisplayMedia capture lives until Tars is disabled or the user logs
-  // out — navigating between pages (including onto tutor pages where Tars
-  // voice is paused) MUST NOT tear it down. Only the WS connection toggles,
-  // so switching pages doesn't re-prompt for tab share.
+  // ── In-app fallback screen-share lifecycle ───────────────────────────────
   useEffect(() => {
-    if (!enabled || !user) {
-      if (screenStreamRef.current) {
-        screenStreamRef.current.getTracks().forEach((t) => t.stop());
-        screenStreamRef.current = null;
-      }
+    const stopFallbackCapture = () => {
+      const stream = screenStreamRef.current;
+      screenStreamRef.current = null;
+      stream?.getTracks().forEach((track) => track.stop());
       viewportCalibrationRef.current = null;
+    };
+    if (!enabled || !user || extensionAvailable !== false) {
+      stopFallbackCapture();
       return;
     }
-    // The board tutor owns the active session. Preserve an existing capture so
-    // leaving the board does not prompt again, but never start one on /board.
     if (isTarsSuppressed) return;
     let cancelled = false;
-    if (screenStreamRef.current) return; // already capturing — reuse across navigations
+    if (screenStreamRef.current) return;
     void (async () => {
       try {
         const displayStream = await navigator.mediaDevices.getDisplayMedia({
@@ -917,6 +913,8 @@ export default function GlobalTarsAssistant() {
           return;
         }
         displayStream.getVideoTracks()[0]?.addEventListener("ended", () => {
+          if (screenStreamRef.current !== displayStream) return;
+          screenStreamRef.current = null;
           setEnabled(false);
         });
         screenStreamRef.current = displayStream;
@@ -930,11 +928,9 @@ export default function GlobalTarsAssistant() {
     })();
     return () => {
       cancelled = true;
-      // Only stop the capture stream when Tars is fully disabled or user
-      // logged out — handled in the early-return branch above.
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, user, isTarsSuppressed]);
+  }, [enabled, user, extensionAvailable, isTarsSuppressed]);
 
   // ── Realtime WS connection ───────────────────────────────────────────────
   // The board owns a single tutor Realtime session. Global Tars disconnects

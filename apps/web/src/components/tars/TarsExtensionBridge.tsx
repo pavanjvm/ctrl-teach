@@ -9,6 +9,7 @@ import { TEACHING_PROFILE_CHANGED_EVENT } from "@/lib/tars/teachingProfiles";
 import { isEmbeddedTarsRoute } from "@/lib/tars/routes";
 
 const PROBE_TIMEOUT_MS = 900;
+const BRIDGE_RESPONSE_TIMEOUT_MS = 3_000;
 
 type ExtensionSession = {
   access_token: string;
@@ -17,15 +18,40 @@ type ExtensionSession = {
   expires_at: number;
 };
 
-function postBridgeMessage(type: string, payload: Record<string, unknown> = {}) {
-  window.postMessage(
-    {
-      type,
-      requestId: crypto.randomUUID(),
-      ...payload,
-    },
-    window.location.origin,
-  );
+type ExtensionConfigAck = {
+  ok?: boolean;
+  extensionActive?: boolean;
+  error?: string;
+};
+
+function postBridgeRequest<T>(
+  type: string,
+  responseType: string,
+  payload: Record<string, unknown> = {},
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const requestId = crypto.randomUUID();
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("message", onMessage);
+    };
+    const onMessage = (event: MessageEvent) => {
+      if (
+        event.source !== window
+        || event.origin !== window.location.origin
+        || event.data?.type !== responseType
+        || event.data?.requestId !== requestId
+      ) return;
+      cleanup();
+      resolve(event.data.response as T);
+    };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error(`${type} timed out`));
+    }, BRIDGE_RESPONSE_TIMEOUT_MS);
+    window.addEventListener("message", onMessage);
+    window.postMessage({ type, requestId, ...payload }, window.location.origin);
+  });
 }
 
 export default function TarsExtensionBridge() {
@@ -103,11 +129,25 @@ export default function TarsExtensionBridge() {
 
     const configure = async () => {
       const suspended = pathname.startsWith("/admin") || isEmbeddedTarsRoute(pathname);
+      const sendConfig = async (config: Record<string, unknown>) => {
+        const acknowledgement = await postBridgeRequest<ExtensionConfigAck>(
+          "CTRLTEACH_TARS_CONFIG",
+          "CTRLTEACH_TARS_CONFIG_ACK",
+          { config },
+        );
+        if (!acknowledgement?.ok) {
+          throw new Error(`extension rejected configuration (${acknowledgement?.error || "unknown error"})`);
+        }
+        return acknowledgement;
+      };
       if (!enabled || !user) {
         sessionRef.current = null;
-        postBridgeMessage("CTRLTEACH_TARS_CONFIG", {
-          config: { enabled: false, suspended, userId: "", apiUrl: API_URL, wsUrl: WS_URL },
-        });
+        try {
+          await sendConfig({ enabled: false, suspended, userId: "", apiUrl: API_URL, wsUrl: WS_URL });
+          if (!cancelled) setStatus(enabled ? "Sign in to use Tars" : "Tars asleep");
+        } catch (error) {
+          console.warn("[TarsExtension] Could not disable extension session", error);
+        }
         return;
       }
 
@@ -126,18 +166,18 @@ export default function TarsExtensionBridge() {
           sessionRef.current = session;
         }
         if (cancelled) return;
-        postBridgeMessage("CTRLTEACH_TARS_CONFIG", {
-          config: {
-            enabled: true,
-            suspended,
-            userId: session.user_id,
-            accessToken: session.access_token,
-            apiUrl: API_URL,
-            wsUrl: WS_URL,
-          },
+        const acknowledgement = await sendConfig({
+          enabled: true,
+          suspended,
+          userId: session.user_id,
+          accessToken: session.access_token,
+          apiUrl: API_URL,
+          wsUrl: WS_URL,
         });
+        if (!acknowledgement.extensionActive) throw new Error("extension did not activate");
+        if (cancelled) return;
         setStatus(suspended
-          ? "Tars is controlled by the whiteboard tutor"
+          ? "Tars paused in this tab — ready in other browser tabs"
           : "Tars ready across browser tabs");
         const refreshIn = Math.max(60_000, (session.expires_at * 1000) - Date.now() - 5 * 60_000);
         refreshTimer = window.setTimeout(() => {
@@ -147,9 +187,8 @@ export default function TarsExtensionBridge() {
       } catch (error) {
         console.warn("[TarsExtension] Falling back to in-app Tars", error);
         sessionRef.current = null;
-        postBridgeMessage("CTRLTEACH_TARS_CONFIG", {
-          config: { enabled: false, suspended: false, userId: "", apiUrl: API_URL, wsUrl: WS_URL },
-        });
+        void sendConfig({ enabled: false, suspended: false, userId: "", apiUrl: API_URL, wsUrl: WS_URL })
+          .catch(() => undefined);
         setExtensionAvailable(false);
         setStatus("Tars extension unavailable — using this tab only");
       }

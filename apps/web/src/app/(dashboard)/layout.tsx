@@ -22,7 +22,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const router = useRouter();
     const { user, loading, logout } = useAuth();
     const { isOnboarded, learnerReady } = useLearner();
-    const { enabled: tarsEnabled, setEnabled: setTarsEnabled } = useTars();
+    const {
+        enabled: tarsEnabled,
+        setEnabled: setTarsEnabled,
+        extensionAvailable: tarsExtensionAvailable,
+        status: tarsStatus,
+    } = useTars();
     const [showProfileDropdown, setShowProfileDropdown] = useState(false);
     const [showMobileNav, setShowMobileNav] = useState(false);
     const profileRef = useRef<HTMLDivElement>(null);
@@ -119,6 +124,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const lessonId = !isLiveClassroom ? pathname.split("/")[3] : null;
     const courseBackHref = courseId?.startsWith("platform-") ? "/courses" : "/library";
     const courseBackLabel = courseId?.startsWith("platform-") ? "Explore" : "Learning";
+    const tarsScopeLabel = !tarsEnabled
+        ? ""
+        : isBoard
+            ? "Other tabs"
+            : tarsExtensionAvailable === true
+                ? "Browser"
+                : tarsExtensionAvailable === false
+                    ? "This tab"
+                    : "Checking";
+    const tarsTitle = isBoard
+        ? "This page uses its embedded tutor. Browser-wide Tars remains available in other tabs."
+        : !tarsEnabled
+            ? "Tars is off — toggle on to enable"
+            : tarsExtensionAvailable === true
+                ? `${tarsStatus}. Hold Control in any regular browser tab to talk.`
+                : tarsExtensionAvailable === false
+                    ? `${tarsStatus}. Set CTRLTEACH_FRONTEND_URL in apps/extension/.env and reload the extension.`
+                    : "Checking for the Ctrl+Teach browser extension";
 
     return (
         <div className={`dash-app ${isBoard ? "board-shell" : ""}`}>
@@ -195,9 +218,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <div className="topbar-controls">
                         <label
                             className={`topbar-tars-switch ${tarsEnabled && !isBoard ? "is-on" : ""} ${isBoard ? "is-paused" : ""}`}
-                            title={isBoard ? "Tars is controlled by the whiteboard tutor" : tarsEnabled ? "Tars is on — toggle off to disable" : "Tars is off — toggle on to enable"}
+                            title={tarsTitle}
                         >
                             <span className="topbar-tars-switch-label">Tars</span>
+                            {tarsScopeLabel && (
+                                <span className={`topbar-tars-scope ${tarsExtensionAvailable === true ? "is-browser" : ""}`}>
+                                    {tarsScopeLabel}
+                                </span>
+                            )}
                             <span className="topbar-tars-switch-track">
                                 <span className="topbar-tars-switch-thumb" />
                             </span>
@@ -206,6 +234,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                 role="switch"
                                 aria-checked={tarsEnabled && !isBoard}
                                 aria-disabled={isBoard}
+                                aria-label={tarsTitle}
                                 checked={tarsEnabled && !isBoard}
                                 disabled={isBoard}
                                 onChange={(e) => setTarsEnabled(e.target.checked)}

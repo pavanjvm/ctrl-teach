@@ -150,7 +150,12 @@ function ProfileContent() {
     const [darkMode, setDarkMode] = useState(false);
     const [notifications, setNotifications] = useState(true);
     const [soundEffects, setSoundEffects] = useState(true);
-    const { enabled: tarsEnabled, setEnabled: setTarsEnabled, openTraining: openTarsTraining } = useTars();
+    const {
+        enabled: tarsEnabled,
+        setEnabled: setTarsEnabled,
+        extensionAvailable: tarsExtensionAvailable,
+        openTraining: openTarsTraining,
+    } = useTars();
 
     // Read ?tab= query param on mount
     useEffect(() => {
@@ -759,7 +764,15 @@ function ProfileContent() {
                                         <Mic size={18} />
                                         <div>
                                             <h4>Enable Tars</h4>
-                                            <p>Turn the voice + screen assistant on or off (toggle also in the top-left)</p>
+                                            <p>
+                                                {!tarsEnabled
+                                                    ? "Turn on the voice and visual assistant."
+                                                    : tarsExtensionAvailable === true
+                                                        ? "Browser extension connected. Hold Control in any regular web tab to talk."
+                                                        : tarsExtensionAvailable === false
+                                                            ? "This-tab fallback active. Configure CTRLTEACH_FRONTEND_URL in apps/extension/.env and reload the extension."
+                                                            : "Checking for the Ctrl+Teach browser extension…"}
+                                            </p>
                                         </div>
                                     </div>
                                     <ToggleSwitch
