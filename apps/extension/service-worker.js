@@ -20,6 +20,7 @@ let currentTurn = null;
 let activeContext = null;
 let activeBrowserLab = null;
 let micSetupOpened = false;
+let offscreenCreation = null;
 const suspendedTabIds = new Set();
 let configuredAppOrigin = "";
 
@@ -80,11 +81,18 @@ async function offscreenExists() {
 
 async function ensureOffscreen() {
   if (await offscreenExists()) return;
-  await chrome.offscreen.createDocument({
-    url: "offscreen.html",
-    reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
-    justification: "Tars needs persistent microphone capture and response audio across tab changes.",
-  });
+  if (!offscreenCreation) {
+    offscreenCreation = chrome.offscreen.createDocument({
+      url: "offscreen.html",
+      reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
+      justification: "Tars needs persistent microphone capture and response audio across tab changes.",
+    });
+  }
+  try {
+    await offscreenCreation;
+  } finally {
+    offscreenCreation = null;
+  }
 }
 
 async function sendToOffscreen(message) {
@@ -574,7 +582,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       default:
         sendResponse({ ok: false });
     }
-  })();
+  })().catch((error) => {
+    console.error("[Tars] runtime message failed", message?.type || "unknown", error);
+    sendResponse({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error || "extension_error"),
+    });
+  });
   return true;
 });
 
@@ -629,14 +643,18 @@ chrome.action.onClicked.addListener(async (tab) => {
   else await beginPushToTalk(tab.id, "toolbar");
 });
 
-void loadState().then(async () => {
-  if (state.enabled && accessToken) {
-    await sendToOffscreen({ type: "TARS_CONFIG", config: { ...state, accessToken } });
-  }
-  // Reloading an unpacked extension invalidates every existing content-script
-  // context. Refresh all normal tabs immediately—including background AWS
-  // tabs—so an in-console SPA transition cannot keep a stale top-only cursor.
-  const tabs = await chrome.tabs.query({}).catch(() => []);
-  const normalTabs = tabs.filter((tab) => isNormalPage(tab.url || ""));
-  await Promise.all(normalTabs.map((tab) => publishState(tab.id)));
-});
+void loadState()
+  .then(async () => {
+    if (state.enabled && accessToken) {
+      await sendToOffscreen({ type: "TARS_CONFIG", config: { ...state, accessToken } });
+    }
+    // Reloading an unpacked extension invalidates every existing content-script
+    // context. Refresh all normal tabs immediately—including background AWS
+    // tabs—so an in-console SPA transition cannot keep a stale top-only cursor.
+    const tabs = await chrome.tabs.query({}).catch(() => []);
+    const normalTabs = tabs.filter((tab) => isNormalPage(tab.url || ""));
+    await Promise.all(normalTabs.map((tab) => publishState(tab.id)));
+  })
+  .catch((error) => {
+    console.error("[Tars] startup failed", error);
+  });

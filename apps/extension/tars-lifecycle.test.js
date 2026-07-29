@@ -20,6 +20,18 @@ test("browser-wide activation follows the focused Chrome window", () => {
   assert.match(workerSource, /!tab\.active \|\| !tabWindow\?\.focused/);
 });
 
+test("offscreen document creation is serialized", () => {
+  assert.match(workerSource, /let offscreenCreation = null/);
+  assert.match(workerSource, /if \(!offscreenCreation\) \{\s*offscreenCreation = chrome\.offscreen\.createDocument/);
+  assert.match(workerSource, /await offscreenCreation;\s*\} finally \{\s*offscreenCreation = null/);
+});
+
+test("runtime message failures return a structured response", () => {
+  assert.match(workerSource, /\[Tars\] runtime message failed/);
+  assert.match(workerSource, /error instanceof Error \? error\.message/);
+  assert.match(workerSource, /\[Tars\] startup failed/);
+});
+
 test("suspension clears offscreen playback and microphone turn state", () => {
   assert.match(
     offscreenSource,
