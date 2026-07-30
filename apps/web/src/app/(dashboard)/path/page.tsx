@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Cloud,
   GitBranch,
+  Github,
   Loader2,
   Monitor,
   Search,
@@ -42,6 +43,7 @@ const ROADMAP_ICONS: Record<string, ComponentType<{ size?: number }>> = {
   "data-analyst": BarChart3,
   "business-analyst": GitBranch,
   "devops-cloud": Cloud,
+  "github-administrator": Github,
 };
 
 export default function RoadmapIndexPage() {

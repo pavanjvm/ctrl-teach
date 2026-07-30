@@ -642,6 +642,86 @@ export const LEARNING_ROADMAPS: LearningRoadmap[] = [
       },
     ],
   },
+  {
+    id: "github-administrator",
+    eyebrow: "Govern GitHub at enterprise scale",
+    title: "GitHub Administrator",
+    shortTitle: "GitHub Admin",
+    description: "Administer GitHub Enterprise through identity and access, organization governance, secure software development, Actions, auditing, support, and cost optimization.",
+    audience: "System administrators, DevOps engineers, platform engineers, application administrators",
+    duration: "10–12 weeks",
+    aliases: ["github admin", "github administration", "github enterprise admin", "github enterprise administrator", "enterprise github administrator", "gh-100"],
+    experienceLevels: ["Beginner", "Intermediate", "Advanced"],
+    accent: "#24292f",
+    softAccent: "#f6f8fa",
+    courseIds: ["sd-fundamentals"],
+    reference: {
+      label: "Aligned with the current GH-100 GitHub Administration skills outline",
+      url: "https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/gh-100",
+    },
+    stages: [
+      {
+        id: "git-github-basics",
+        label: "01 · Git & GitHub absolute basics",
+        description: "Start with version control, local Git, and the GitHub collaboration model.",
+        topics: [
+          topic("git-version-control-basics", "Version control & Git basics", "Understand repositories, working trees, commits, history, and why Git records snapshots before using collaboration features.", ["version control", "git", "repository", "commits"], ["platform-git-and-github-basics-for-absolute-beginners-a48cf2"], []),
+          topic("git-local-workflow-basics", "Your first local Git workflow", "Install and configure Git, initialize or clone a repository, inspect changes, stage files, commit safely, and read history.", ["git config", "git init", "git clone", "staging"], ["platform-git-and-github-basics-for-absolute-beginners-a48cf2"], []),
+          topic("github-collaboration-basics", "GitHub fundamentals", "Connect local Git to GitHub, understand remotes, create repositories, push and pull changes, and learn the purpose of issues and pull requests.", ["github", "remotes", "push and pull", "pull requests"], ["platform-git-and-github-basics-for-absolute-beginners-a48cf2"], []),
+        ],
+      },
+      {
+        id: "github-identity-access",
+        label: "02 · Identity & access",
+        description: "Create a secure identity and permissions foundation.",
+        topics: [
+          topic("github-authentication", "Authentication strategy", "Compare personal accounts and Enterprise Managed Users, configure SAML SSO, provision with SCIM, and require strong authentication.", ["saml sso", "scim", "enterprise managed users", "two-factor authentication"], ["sd-fundamentals"], ["cybersecurity-developers"]),
+          topic("github-membership", "Membership & permissions", "Structure enterprises, organizations, teams, repositories, roles, and outside-collaborator access around least privilege.", ["organizations", "teams", "repository roles", "least privilege"], ["sd-fundamentals"], ["cybersecurity-developers"]),
+          topic("github-access-lifecycle", "Access lifecycle", "Automate onboarding and offboarding, review access, govern service accounts, and recover from identity incidents.", ["access reviews", "offboarding", "service accounts", "identity governance"], ["sd-fundamentals"], ["cybersecurity-developers"]),
+        ],
+      },
+      {
+        id: "github-enterprise-governance",
+        label: "03 · Enterprise governance",
+        description: "Operate a consistent GitHub Enterprise environment.",
+        topics: [
+          topic("github-deployment", "Deployment & licensing", "Compare GitHub Enterprise Cloud and Server deployment models, licensing, billing, data residency, and operational tradeoffs.", ["github enterprise cloud", "github enterprise server", "licensing", "data residency"], ["sd-fundamentals"], ["cloud-strategy"]),
+          topic("github-policy", "Policies & repository governance", "Define enterprise and organization policies for repository creation, visibility, forking, collaborators, and lifecycle management.", ["enterprise policies", "repository governance", "forking", "repository lifecycle"], ["sd-fundamentals"], ["devops-implementation"]),
+          topic("github-rulesets", "Rulesets & collaboration standards", "Standardize branches, commits, pull requests, reviews, tags, and releases with layered rulesets and documented exceptions.", ["rulesets", "branch protection", "pull requests", "release governance"], ["sd-fundamentals"], ["devops-implementation"]),
+        ],
+      },
+      {
+        id: "github-security-compliance",
+        label: "04 · Security & compliance",
+        description: "Build guardrails for secure software delivery.",
+        topics: [
+          topic("github-security-posture", "Security posture & policy", "Set security policies, protect enterprise data, enforce governance controls, and map evidence to compliance requirements.", ["security policies", "compliance", "data protection", "governance"], ["sd-fundamentals"], ["secure-application-development", "cybersecurity-developers"]),
+          topic("github-advanced-security", "GitHub Advanced Security", "Configure code scanning with CodeQL, secret scanning, push protection, Dependabot, and repository security advisories.", ["github advanced security", "codeql", "secret scanning", "dependabot"], ["sd-fundamentals"], ["secure-application-development", "cybersecurity-developers"]),
+          topic("github-security-response", "Security response", "Triage alerts, delegate remediation, manage dismissals, report risk, and run a repeatable security response process.", ["security alerts", "vulnerability management", "remediation", "security advisories"], ["sd-fundamentals"], ["cybersecurity-developers"]),
+        ],
+      },
+      {
+        id: "github-actions",
+        label: "05 · GitHub Actions",
+        description: "Administer automation without losing control of risk or spend.",
+        topics: [
+          topic("github-actions-policy", "Workflow & Actions policy", "Control which actions and reusable workflows teams can use, pin dependencies, and govern permissions and approvals.", ["github actions", "reusable workflows", "workflow permissions", "actions policy"], ["sd-fundamentals"], ["devops-implementation"]),
+          topic("github-runners", "Runner administration", "Choose GitHub-hosted or self-hosted runners, organize runner groups, secure networking, and monitor capacity and health.", ["self-hosted runners", "runner groups", "private networking", "runner security"], ["sd-fundamentals"], ["devops-implementation", "cloud-strategy"]),
+          topic("github-actions-secrets", "Secrets & environments", "Scope secrets and variables, protect deployment environments, use OIDC, and reduce long-lived cloud credentials.", ["actions secrets", "environments", "oidc", "deployment protection"], ["sd-fundamentals"], ["devops-implementation", "cybersecurity-developers"]),
+        ],
+      },
+      {
+        id: "github-operations",
+        label: "06 · Operations & optimization",
+        description: "Keep the platform observable, supportable, and cost-aware.",
+        topics: [
+          topic("github-audit-monitoring", "Audit logs & monitoring", "Stream and analyze audit events, inspect API usage, detect risky activity, and preserve evidence for investigations.", ["audit log", "log streaming", "api usage", "monitoring"], ["sd-fundamentals"], ["cybersecurity-developers"]),
+          topic("github-support", "Support & diagnostics", "Separate administrator issues from GitHub Support cases, troubleshoot systematically, and prepare diagnostics or support bundles.", ["github support", "diagnostics", "support bundles", "troubleshooting"], ["sd-fundamentals"], ["devops-implementation"]),
+          topic("github-usage-cost", "Usage, adoption & cost", "Measure adoption, licenses, Actions and package consumption, then optimize entitlements, resources, and platform value.", ["usage reports", "license optimization", "actions minutes", "cost management"], ["sd-fundamentals"], ["devops-implementation"]),
+        ],
+      },
+    ],
+  },
 ];
 
 export const ROADMAP_TOPIC_COUNT = LEARNING_ROADMAPS.reduce(

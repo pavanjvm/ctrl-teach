@@ -23,6 +23,7 @@ import {
 
 import { useTars } from "@/lib/tars/provider";
 import { API_URL } from "@/lib/constants";
+import { getBrowserLabReviewOverride } from "@/lib/learning/browserLabReview";
 import type {
   BrowserLabAttempt,
   BrowserLabBlueprint,
@@ -305,6 +306,7 @@ export default function BrowserLabPanel({
   const lastPractice = recovery?.practiceAttempts?.[recovery.practiceAttempts.length - 1];
   const postLabRemarks = useMemo(() => {
     if (!verified || !attempt) return null;
+    const reviewOverride = getBrowserLabReviewOverride(activePlan.workflow);
     const history = attempt.recoveryHistory ?? [];
     const recovered = history.filter((item) => item.status === "resolved" || item.finalOutcome === "resolved");
     const completedSteps = activePlan.steps.filter((step) => assertionsComplete(
@@ -312,11 +314,13 @@ export default function BrowserLabPanel({
       attempt.verification?.taskAssertions,
       taskComplete,
     )).length;
-    const issues = history.length
-      ? history.slice(-3).map((item) => `${item.misconception.title}: ${item.misconception.evidenceSummary}`)
-      : ["No major task gaps were detected by backend verification."];
+    const issues = reviewOverride?.issues
+      ?? (history.length
+        ? history.slice(-3).map((item) => `${item.misconception.title}: ${item.misconception.evidenceSummary}`)
+        : ["No major task gaps were detected by backend verification."]);
     const latestRecovery = history[history.length - 1];
-    const improvement = latestRecovery?.microLesson?.objective
+    const improvement = reviewOverride?.improvement
+      || latestRecovery?.microLesson?.objective
       || activePlan.successCriteria[activePlan.successCriteria.length - 1]
       || "Repeat the workflow once without prompts and explain why each step satisfies the evidence requirement.";
     return {
@@ -324,7 +328,7 @@ export default function BrowserLabPanel({
       issues,
       improvement,
     };
-  }, [activePlan.cleanupAssertions.length, activePlan.steps, activePlan.successCriteria, attempt, evidenceCount, taskComplete, verified]);
+  }, [activePlan.cleanupAssertions.length, activePlan.steps, activePlan.successCriteria, activePlan.workflow, attempt, evidenceCount, taskComplete, verified]);
 
   const launchPlan = useCallback(async (next: BrowserLabAttempt, plan: BrowserLabBlueprint) => {
     let response: { ok?: boolean; error?: string } = { ok: false, error: "extension_unavailable" };

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     # ── OpenAI ─────────────────────────────────────────────────────────────
     openai_api_key: str = ""
     realtime_model: str = "gpt-realtime-2.1"
+    realtime_reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh"] = "high"
     realtime_voice: str = "ash"
     transcription_model: str = "gpt-4o-mini-transcribe"
     course_generation_model: str = "gpt-5.4-mini"

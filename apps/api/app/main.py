@@ -365,6 +365,7 @@ def _build_runner(
     turn_detection = _turn_detection_for_mode(push_to_talk=push_to_talk)
     model_settings = {
         "model_name": settings.realtime_model,
+        "reasoning": {"effort": settings.realtime_reasoning_effort},
         "audio": {
             "input": {
                 "format": "pcm16",

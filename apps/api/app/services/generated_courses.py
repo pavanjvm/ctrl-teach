@@ -26,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 
 from app.config import settings
-from app.db import GeneratedCourse, SessionLocal
+from app.db import GeneratedCourse, PlatformCourse, SessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -2391,8 +2391,17 @@ def rich_lesson_context(
             )
         )
         if row is None:
-            return None
-        payload = row.payload or {}
+            platform = db.scalar(
+                select(PlatformCourse).where(
+                    PlatformCourse.id == course_id,
+                    PlatformCourse.status == 'published',
+                )
+            )
+            if platform is None:
+                return None
+            payload = {'course': platform.course or {}}
+        else:
+            payload = row.payload or {}
         course = payload.get("course") or {}
         recovery_context = (
             adaptive_recovery_prompt(payload.get("adaptiveRecovery"))
@@ -2499,8 +2508,17 @@ def rich_lesson_quiz_questions(
             )
         )
         if row is None:
-            return []
-        course = (row.payload or {}).get("course") or {}
+            platform = db.scalar(
+                select(PlatformCourse).where(
+                    PlatformCourse.id == course_id,
+                    PlatformCourse.status == 'published',
+                )
+            )
+            if platform is None:
+                return []
+            course = platform.course or {}
+        else:
+            course = (row.payload or {}).get('course') or {}
 
     for module in course.get("modules") or []:
         for lesson in module.get("lessons") or []:

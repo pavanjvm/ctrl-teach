@@ -16,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.auth.dependencies import get_current_user
 from app.config import settings
-from app.db import Base, GeneratedCourse
+from app.db import Base, GeneratedCourse, PlatformCourse
 from app.routers import generated_courses as generated_router
 from app.services import generated_courses as generated_service
 from app.services.generated_courses import CourseOutline, LessonContent
@@ -941,6 +941,76 @@ class GeneratedCourseServiceTests(unittest.TestCase):
         self.assertNotIn("Distinguishing repository tabs", context_without_recovery or "")
         self.assertNotIn("<div>", context or "")
         self.assertIsNone(denied)
+
+    def test_realtime_context_accepts_only_published_platform_lessons(self) -> None:
+        engine = create_engine(
+            'sqlite://',
+            connect_args={'check_same_thread': False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+        now = datetime.now(timezone.utc)
+        course = {
+            'title': 'Shared Systems Course',
+            'modules': [{
+                'title': 'Platform foundations',
+                'lessons': [{
+                    'id': 'lesson-1',
+                    'title': 'Shared lesson',
+                    'summary': 'Learn from a published platform lesson.',
+                    'contentBlocks': [{
+                        'type': 'content',
+                        'heading': 'Shared truth',
+                        'paragraphs': ['Published course content grounds the classroom.'],
+                    }, {
+                        'type': 'quiz',
+                        'heading': 'Check',
+                        'questions': [{
+                            'id': 'platform-quiz-1',
+                            'question': 'What grounds the classroom?',
+                            'choices': ['Published content', 'Hidden drafts'],
+                            'answerIndex': 0,
+                            'explanation': 'Only published content is learner-visible.',
+                        }],
+                    }],
+                }],
+            }],
+        }
+        with sessions() as db:
+            db.add_all([
+                PlatformCourse(
+                    id='platform-shared',
+                    status='published',
+                    course=course,
+                    created_at=now,
+                    updated_at=now,
+                    published_at=now,
+                ),
+                PlatformCourse(
+                    id='platform-draft',
+                    status='draft',
+                    course=course,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ])
+            db.commit()
+
+        with patch.object(generated_service, 'SessionLocal', sessions):
+            context = generated_service.rich_lesson_context(
+                'platform-shared', 'lesson-1', 7
+            )
+            quiz_ids = generated_service.rich_lesson_quiz_ids(
+                'platform-shared', 'lesson-1', 7
+            )
+            draft_context = generated_service.rich_lesson_context(
+                'platform-draft', 'lesson-1', 7
+            )
+
+        self.assertIn('Published course content grounds the classroom', context or '')
+        self.assertEqual(quiz_ids, ['platform-quiz-1'])
+        self.assertIsNone(draft_context)
 
 
 if __name__ == "__main__":
