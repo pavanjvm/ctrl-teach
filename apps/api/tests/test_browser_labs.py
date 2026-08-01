@@ -58,7 +58,7 @@ class BrowserLabRouterTests(unittest.TestCase):
                             {"id": "issues-click", "kind": "click_text", "value": "Issues", "description": "Clicked Issues."},
                         ],
                         "cleanupAssertions": [
-                            {"id": "cleanup", "kind": "interaction_observed", "value": "", "description": "Cleanup observed."},
+                            {"id": "cleanup", "kind": "interaction_observed", "value": "Repository home", "description": "Cleanup observed."},
                         ],
                         "estimatedDuration": "15m",
                     },
@@ -86,6 +86,43 @@ class BrowserLabRouterTests(unittest.TestCase):
         response = self.client.post("/api/browser-labs/course-1/lesson-1-lab/attempts")
         self.assertEqual(response.status_code, 200)
         return response.json()["attempt"]
+
+    def test_refresh_starts_a_new_uncompleted_attempt(self) -> None:
+        first = self._create_attempt()
+        self._evidence(
+            first["id"],
+            "navigation",
+            {"url": "https://github.com/openai/openai", "title": "GitHub"},
+        )
+
+        refreshed = self._create_attempt()
+
+        self.assertEqual(refreshed["id"], first["id"])
+        self.assertEqual(refreshed["status"], "running")
+        self.assertEqual(refreshed["evidenceCount"], 0)
+
+    def test_empty_interaction_assertion_never_completes_from_an_arbitrary_click(self) -> None:
+        result = browser_labs_service.verify_evidence(
+            {
+                "allowedHosts": ["github.com"],
+                "taskAssertions": [{
+                    "id": "anything",
+                    "kind": "interaction_observed",
+                    "value": "",
+                }],
+                "cleanupAssertions": [],
+            },
+            [{
+                "kind": "click",
+                "phase": "task",
+                "host": "github.com",
+                "url": "https://github.com/",
+                "text": "Profile",
+            }],
+        )
+
+        self.assertFalse(result["taskComplete"])
+        self.assertEqual(result["status"], "running")
 
     def _evidence(
         self,
@@ -349,7 +386,7 @@ class BrowserLabRouterTests(unittest.TestCase):
         ).json()["attempt"]
         self.assertEqual(completed_retry["status"], "needs_cleanup")
 
-    def test_plan_snapshot_is_frozen_and_verified_attempt_is_terminal(self) -> None:
+    def test_refresh_replaces_the_plan_snapshot_with_current_course_data(self) -> None:
         attempt = self._create_attempt()
         original_plan = attempt["plan"]
         with self.session_factory() as db:
@@ -373,7 +410,13 @@ class BrowserLabRouterTests(unittest.TestCase):
 
         reopened = self._create_attempt()
         self.assertEqual(reopened["id"], attempt["id"])
-        self.assertEqual(reopened["plan"], original_plan)
+        self.assertNotEqual(reopened["plan"], original_plan)
+        current = self.client.get(f"/api/browser-labs/attempts/{attempt['id']}").json()["attempt"]
+        self.assertEqual(current["plan"], reopened["plan"])
+        self.assertEqual(current["evidenceCount"], 0)
+
+    def test_verified_attempt_is_terminal_until_the_page_reloads(self) -> None:
+        attempt = self._create_attempt()
 
         self._evidence(attempt["id"], "navigation", {"url": "https://github.com/openai/openai"})
         self._evidence(attempt["id"], "click", {"url": "https://github.com/openai/openai", "text": "Issues"})

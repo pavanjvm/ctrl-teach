@@ -15,7 +15,7 @@ import type { DailyAudioHandle } from "@daily-co/daily-react/dist/components/Dai
 import {
   ArrowLeft, ArrowRight, AudioLines, BriefcaseBusiness, Check, CircleStop, Headphones,
   LoaderCircle, MessageSquareText, Mic, MicOff, PanelRightClose, PanelRightOpen, Play,
-  RotateCcw, ShieldCheck, Sparkles, Square, UserRound, UsersRound, Video, Volume2,
+  RotateCcw, ShieldCheck, Sparkles, Square, UserRound, UsersRound, Video, VideoOff, Volume2,
 } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useAudio } from "@/hooks/useAudio";
@@ -100,6 +100,14 @@ function faceErrorMessage(error: unknown): string {
     return error.response.data.detail;
   }
   return "The available Tavus faces could not be loaded.";
+}
+function cameraErrorMessage(error: unknown): string {
+  if (error instanceof DOMException) {
+    if (error.name === "NotAllowedError") return "Camera permission was denied. Allow access in your browser and try again.";
+    if (error.name === "NotFoundError") return "No camera was found on this device.";
+    if (error.name === "NotReadableError") return "Your camera is already in use by another app.";
+  }
+  return "The camera could not be started. Check your browser permissions and try again.";
 }
 function formatElapsed(seconds: number): string {
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
@@ -484,12 +492,18 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
   const [remoteVideoType, setRemoteVideoType] = useState<"video" | "rmpVideo">("video");
   const [soundBlocked, setSoundBlocked] = useState(false);
   const [micOn, setMicOn] = useState(false);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraStarting, setCameraStarting] = useState(false);
+  const [cameraError, setCameraError] = useState("");
   const [transcriptVisible, setTranscriptVisible] = useState(true);
   const [elapsed, setElapsed] = useState(0);
   const [ending, setEnding] = useState(false);
   const [sessionError, setSessionError] = useState("");
   const callRef = useRef<DailyCall | null>(null);
   const dailyAudioRef = useRef<DailyAudioHandle | null>(null);
+  const localCameraVideoRef = useRef<HTMLVideoElement>(null);
+  const localCameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraRequestRef = useRef(0);
   const authTokenRef = useRef(authToken);
   const faceReadyRef = useRef(false);
   const dailyJoinedRef = useRef(false);
@@ -509,6 +523,62 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
     sendAudio, sendRoleplayStart,
   } = useWebSocket();
   const { startRecording, stopRecording, cleanup: cleanupAudio } = useAudio();
+
+  const stopLocalCamera = useCallback(() => {
+    cameraRequestRef.current += 1;
+    const stream = localCameraStreamRef.current;
+    localCameraStreamRef.current = null;
+    stream?.getTracks().forEach((track) => {
+      track.onended = null;
+      track.stop();
+    });
+    setCameraOn(false);
+    setCameraStarting(false);
+  }, []);
+
+  const startLocalCamera = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Camera preview is not supported in this browser.");
+      return;
+    }
+
+    const requestId = cameraRequestRef.current + 1;
+    cameraRequestRef.current = requestId;
+    setCameraStarting(true);
+    setCameraError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: "user",
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      });
+      if (closedRef.current || cameraRequestRef.current !== requestId) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      localCameraStreamRef.current = stream;
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.onended = () => {
+          if (localCameraStreamRef.current !== stream) return;
+          localCameraStreamRef.current = null;
+          setCameraOn(false);
+          setCameraStarting(false);
+        };
+      }
+      setCameraOn(true);
+    } catch (error) {
+      if (cameraRequestRef.current === requestId && !closedRef.current) {
+        setCameraError(cameraErrorMessage(error));
+      }
+    } finally {
+      if (cameraRequestRef.current === requestId) setCameraStarting(false);
+    }
+  }, []);
 
   const reportClientEvent = useCallback((stage: string, detail = "", participantCount = 0) => {
     console.info("[Roleplay]", stage, { conversationId: session.conversation_id, detail, participantCount });
@@ -699,6 +769,15 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, transcriptVisible]);
+  useEffect(() => {
+    const video = localCameraVideoRef.current;
+    const stream = localCameraStreamRef.current;
+    if (!cameraOn || !video || !stream) return;
+    video.srcObject = stream;
+    return () => {
+      if (video.srcObject === stream) video.srcObject = null;
+    };
+  }, [cameraOn]);
 
   const handleDailyLoading = useCallback(() => {
     reportClientEvent("daily_call_object_loading");
@@ -891,6 +970,7 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
     }
     stopRecording();
     setMicOn(false);
+    stopLocalCamera();
     interruptFace();
     disconnect();
     cleanupAudio();
@@ -906,7 +986,7 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
       await call.destroy().catch(() => undefined);
     }
     await endRequest;
-  }, [cleanupAudio, disconnect, getToken, interruptFace, requestConversationEnd, stopRecording]);
+  }, [cleanupAudio, disconnect, getToken, interruptFace, requestConversationEnd, stopLocalCamera, stopRecording]);
 
   const emergencyShutdown = useCallback((reason: "beforeunload" | "pagehide") => {
     if (closedRef.current) return;
@@ -916,6 +996,7 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
       joinTimeoutRef.current = null;
     }
     stopRecording();
+    stopLocalCamera();
     disconnect();
     cleanupAudio();
 
@@ -933,7 +1014,7 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
       conversationId: session.conversation_id,
       reason,
     });
-  }, [cleanupAudio, disconnect, queueEmergencyConversationEnd, session.conversation_id, stopRecording]);
+  }, [cleanupAudio, disconnect, queueEmergencyConversationEnd, session.conversation_id, stopLocalCamera, stopRecording]);
 
   useEffect(() => {
     const handleBeforeUnload = () => emergencyShutdown("beforeunload");
@@ -976,6 +1057,13 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
       setSessionError("Microphone access is required for a live roleplay.");
     }
   };
+  const toggleCamera = async () => {
+    if (cameraOn) {
+      stopLocalCamera();
+      return;
+    }
+    await startLocalCamera();
+  };
   const enableSound = async () => {
     const audioElements = dailyAudioRef.current?.getAllAudio() ?? [];
     try {
@@ -1009,6 +1097,14 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
         </div>
         <div className="rp-live-status"><span>{statusLabel}</span><time>{formatElapsed(elapsed)}</time></div>
         <div className="rp-live-actions">
+          <button type="button" className={`rp-camera-toggle${cameraOn ? " active" : ""}`}
+            onClick={() => void toggleCamera()}
+            disabled={cameraStarting || ending}
+            aria-label={cameraStarting ? "Starting camera" : cameraOn ? "Turn off local camera preview" : "Turn on local camera preview"}
+            aria-pressed={cameraOn}
+            title={cameraOn ? "Turn off camera" : "Turn on camera (shown only on this device)"}>
+            {cameraStarting ? <LoaderCircle className="rp-spin" size={17} /> : cameraOn ? <Video size={17} /> : <VideoOff size={17} />}
+          </button>
           <button type="button" className="rp-transcript-toggle"
             onClick={() => setTranscriptVisible((visible) => !visible)}
             aria-label={transcriptVisible ? "Hide transcript panel" : "Show transcript panel"}
@@ -1063,6 +1159,13 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
               <Volume2 size={14} /> Enable sound
             </button>
           )}
+          {cameraOn && (
+            <div className="rp-local-camera">
+              <video ref={localCameraVideoRef} autoPlay playsInline muted />
+              <span><Video size={12} /> You · only on this device</span>
+            </div>
+          )}
+          {cameraError && <div className="rp-camera-error" role="status"><VideoOff size={13} /><span>{cameraError}</span></div>}
           <div className="rp-video-caption"><span><Volume2 size={14} /> Live AI actor</span></div>
         </div>
 

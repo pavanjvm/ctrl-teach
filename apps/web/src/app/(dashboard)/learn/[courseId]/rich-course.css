@@ -141,6 +141,7 @@
 .rich-browser-lab-list ul,
 .rich-browser-lab-list ol { display: grid; gap: 11px; margin-top: 13px; padding: 0; list-style: none; }
 .rich-browser-lab-list li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: start; color: var(--fg); }
+.rich-browser-lab-list.prerequisites li { display: block; max-width: 680px; font-size: 14px; line-height: 1.6; }
 .rich-browser-lab-list li > svg { margin-top: 3px; color: var(--muted); }
 .rich-browser-lab-list li > svg.done { color: #6b8e5a; }
 .rich-browser-lab-list li.needs-recovery > svg { color: #a24d3f; }

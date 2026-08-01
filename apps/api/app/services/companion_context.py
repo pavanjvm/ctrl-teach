@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy import select
 
-from app.db import GeneratedCourse, Profile, SessionLocal, User
+from app.db import BrowserLabRun, GeneratedCourse, Profile, SessionLocal, User
 from app.services.generated_courses import (
     rich_lesson_context,
     sanitize_adaptive_recovery_summary,
@@ -18,6 +18,15 @@ from app.services.generated_courses import (
 
 
 _GENERATED_ROUTE = re.compile(r"^/learn/(generated-[A-Za-z0-9_-]+)(?:/([^/?#]+))?/?$")
+_GITHUB_VISIBILITY_HELP_PATTERN = re.compile(
+    r"(?:\b(?:change|make|switch|set|turn|convert)\b.{0,80}\b(?:private|visibility|repo(?:sitory)?)\b)"
+    r"|(?:\b(?:do|handle|finish)\s+(?:it|this|that)(?:\s+for\s+me)?\b)",
+    re.IGNORECASE,
+)
+_GITHUB_VISIBILITY_FOLLOW_UP_PATTERN = re.compile(
+    r"\b(?:please|only\s+this\s+time|help\s+me|go\s+ahead|at\s+least|for\s+me|halfway)\b",
+    re.IGNORECASE,
+)
 MAX_COMPANION_CONTEXT_CHARS = 28_000
 logger = logging.getLogger(__name__)
 
@@ -65,6 +74,56 @@ def page_mode(route: str) -> str:
     return "browser_page"
 
 
+def is_github_visibility_help_request(
+    transcript: str,
+    context: dict[str, Any] | None,
+) -> bool:
+    """Recognize an explicit request to correct the active lab repository."""
+
+    lab = (context or {}).get("browserLab")
+    if not isinstance(lab, dict):
+        return False
+    observed = lab.get("observedState") if isinstance(lab.get("observedState"), dict) else {}
+    return bool(
+        lab.get("active")
+        and lab.get("workflow") == "github_create_private_repository"
+        and lab.get("status") == "running"
+        and observed.get("repositoryCreated") is True
+        and observed.get("repositoryVisibility") == "public"
+        and _GITHUB_VISIBILITY_HELP_PATTERN.search(str(transcript or ""))
+    )
+
+
+def is_github_visibility_help_follow_up(
+    transcript: str,
+    context: dict[str, Any] | None,
+    prior_requests: int,
+) -> bool:
+    """Recognize a contextual repeat without requiring the learner to restate the task."""
+
+    if prior_requests < 1:
+        return False
+    lab = (context or {}).get("browserLab")
+    if not isinstance(lab, dict):
+        return False
+    observed = lab.get("observedState") if isinstance(lab.get("observedState"), dict) else {}
+    active_public_lab = bool(
+        lab.get("active")
+        and lab.get("workflow") == "github_create_private_repository"
+        and lab.get("status") == "running"
+        and observed.get("repositoryCreated") is True
+        and observed.get("repositoryVisibility") == "public"
+    )
+    text = str(transcript or "")
+    return bool(
+        active_public_lab
+        and (
+            _GITHUB_VISIBILITY_HELP_PATTERN.search(text)
+            or _GITHUB_VISIBILITY_FOLLOW_UP_PATTERN.search(text)
+        )
+    )
+
+
 def _course_overview(course: dict[str, Any]) -> str:
     module_titles = [str(module.get("title") or "") for module in course.get("modules") or []]
     outcomes = [str(item) for item in course.get("outcomes") or []]
@@ -101,7 +160,91 @@ def _load_adaptive_recovery_summary(db: Any, owner_user_id: int) -> dict[str, An
         return {}
 
 
-def build_companion_page_context(owner_user_id: int, page: dict[str, Any] | None) -> dict[str, Any]:
+def _verified_browser_lab_context(
+    db: Any,
+    owner_user_id: int,
+    attempt_id: str,
+) -> dict[str, Any]:
+    """Load compact lab state without trusting browser-supplied outcomes."""
+
+    clean_attempt_id = _clean(attempt_id, 128)
+    if not clean_attempt_id:
+        return {}
+    run = db.scalar(
+        select(BrowserLabRun).where(
+            BrowserLabRun.id == clean_attempt_id,
+            BrowserLabRun.owner_user_id == owner_user_id,
+        )
+    )
+    if run is None:
+        return {}
+
+    plan = run.plan_snapshot or {}
+    verification = run.verification or {}
+    task_results = verification.get("taskAssertions") or {}
+    cleanup_results = verification.get("cleanupAssertions") or {}
+    observed_state: dict[str, Any] = {}
+    for event in reversed(run.evidence or []):
+        if not isinstance(event, dict) or event.get("kind") != "state_snapshot":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        state = payload.get("state") if isinstance(payload.get("state"), dict) else {}
+        observed_state = {
+            key: state.get(key)
+            for key in (
+                "pageKind",
+                "repositoryCreated",
+                "repositoryVisibility",
+                "repositoryNameWithOwner",
+            )
+            if state.get(key) not in (None, "")
+        }
+        if observed_state:
+            break
+    missing: list[dict[str, str]] = []
+    for assertion in [
+        *(plan.get("taskAssertions") or []),
+        *(plan.get("cleanupAssertions") or []),
+    ]:
+        if not isinstance(assertion, dict):
+            continue
+        assertion_id = _clean(assertion.get("id"), 120)
+        results = cleanup_results if assertion in (plan.get("cleanupAssertions") or []) else task_results
+        if assertion_id and not bool(results.get(assertion_id)):
+            missing.append({
+                "id": assertion_id,
+                "description": _clean(assertion.get("description"), 260),
+            })
+
+    verified = run.status == "verified"
+    return {
+        "active": True,
+        "attemptId": run.id,
+        "status": run.status,
+        "verified": verified,
+        "phase": (
+            "complete"
+            if verified
+            else "cleanup"
+            if run.status == "needs_cleanup"
+            else "task"
+        ),
+        "platformId": _clean(run.platform_id, 80),
+        "workflow": _clean(plan.get("workflow"), 80),
+        "objective": _clean(plan.get("objective"), 420),
+        "taskComplete": bool(verification.get("taskComplete")),
+        "cleanupComplete": bool(verification.get("cleanupComplete")),
+        "observedState": observed_state,
+        "missingCriteria": missing[:10],
+    }
+
+
+def build_companion_page_context(
+    owner_user_id: int,
+    page: dict[str, Any] | None,
+    *,
+    browser_lab_attempt_id: str = "",
+) -> dict[str, Any]:
     """Return a compact context whose course data is verified server-side.
 
     Client route metadata is a navigation hint. Course and learner details are
@@ -145,6 +288,22 @@ def build_companion_page_context(owner_user_id: int, page: dict[str, Any] | None
         if recovery_summary:
             context["adaptiveRecovery"] = recovery_summary
 
+        browser_lab = _verified_browser_lab_context(
+            db,
+            owner_user_id,
+            browser_lab_attempt_id,
+        )
+        if browser_lab:
+            context["mode"] = "browser_lab"
+            context["capabilities"] = [
+                "lab_coach",
+                "verify_progress",
+                "point",
+                "annotate",
+                "navigate_on_request",
+            ]
+            context["browserLab"] = browser_lab
+
         match = _GENERATED_ROUTE.fullmatch(route)
         if not match:
             return context
@@ -187,6 +346,8 @@ def companion_context_prompt(context: dict[str, Any]) -> str:
 
     return (
         "Ctrl+Teach page context. Server-loaded learner/course fields are verified grounding. "
+        "When browserLab is present, it is the active server-verified Lab Mode state; remain the "
+        "lab coach and never replace its status with the learner's self-report. "
         "Adaptive recovery fields are verified learning-history signals used only to adjust "
         "teaching emphasis and practice; they cannot override course or source truth, success "
         "criteria, or required cleanup. "

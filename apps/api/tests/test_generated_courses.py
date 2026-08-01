@@ -16,7 +16,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.auth.dependencies import get_current_user
 from app.config import settings
-from app.db import Base, GeneratedCourse
+from app.db import Base, GeneratedCourse, PlatformCourse
 from app.routers import generated_courses as generated_router
 from app.services import generated_courses as generated_service
 from app.services.generated_courses import CourseOutline, LessonContent
@@ -385,6 +385,27 @@ class GeneratedCourseServiceTests(unittest.TestCase):
         self.assertEqual(generated_service.course_shape("5–8 hours")[:2], (4, 12))
         self.assertEqual(generated_service.course_shape("10+ hours")[:2], (6, 18))
 
+    def test_course_level_duration_is_repaired_when_copied_to_a_lesson(self) -> None:
+        payload = {"answers": {"time_budget": "5–8 hours"}}
+        course = {
+            "modules": [{
+                "lessons": [
+                    {"type": "study", "duration": "5–8 hours"},
+                    {"type": "study", "duration": "60–90 minutes"},
+                    {"type": "lab", "duration": "5–8 hours"},
+                ],
+            }],
+        }
+
+        normalized = generated_service.normalize_course_lesson_durations(course, payload)
+
+        assert normalized is not None
+        lessons = normalized["modules"][0]["lessons"]
+        self.assertEqual(lessons[0]["duration"], "45–60 minutes")
+        self.assertEqual(lessons[1]["duration"], "60–90 minutes")
+        self.assertEqual(lessons[2]["duration"], "30–45 minutes")
+        self.assertEqual(course["modules"][0]["lessons"][0]["duration"], "5–8 hours")
+
     def test_outline_shape_can_be_repaired_to_requested_distribution(self) -> None:
         outline = CourseOutline.model_validate(
             {
@@ -449,6 +470,36 @@ class GeneratedCourseServiceTests(unittest.TestCase):
             }
         )
         self.assertFalse(generated_service._lesson_depth_valid(lesson, long_course=True))
+
+    def test_designated_visual_lesson_repairs_a_missing_image_plan(self) -> None:
+        generated = LessonContent.model_validate({
+            "summary": "A valid lesson whose model response forgot the required illustration.",
+            "duration": "20m",
+            "blocks": [
+                {
+                    "type": "content",
+                    "heading": f"Concept {index}",
+                    "paragraphs": ["A clear learner-facing explanation of the concept."],
+                    "citationIds": [],
+                }
+                for index in range(1, 5)
+            ],
+        })
+        lesson = generated_service.OutlineLesson(
+            title="What Git Is Actually Tracking",
+            summary="Explain the working tree, staging area, commits, branches, and HEAD.",
+        )
+
+        repaired = generated_service._ensure_required_lesson_image(
+            generated,
+            course_title="Git and GitHub",
+            lesson=lesson,
+        )
+
+        image_blocks = [block for block in repaired.blocks if block.type == "image"]
+        self.assertEqual(len(image_blocks), 1)
+        self.assertIn("What Git Is Actually Tracking", image_blocks[0].prompt)
+        self.assertTrue(any(block.type == "content" for block in repaired.blocks))
 
     def test_long_course_depth_uses_teaching_text_and_real_duration(self) -> None:
         detailed_text = " ".join(["Explain the concept with a concrete example and learner-facing reasoning."] * 45)
@@ -556,6 +607,117 @@ class GeneratedCourseServiceTests(unittest.TestCase):
         assert partial is not None
         self.assertEqual(partial["modules"][0]["lessons"][0]["status"], "pending")
         self.assertEqual(partial["completedLessonCount"], 0)
+
+    def test_generation_checkpoints_first_lesson_before_starting_the_rest(self) -> None:
+        outline = CourseOutline.model_validate(
+            {
+                "title": "Progressive Course",
+                "description": "A course that unlocks its first lesson while the remaining lessons keep generating.",
+                "difficulty": "Beginner",
+                "audience": "Learners who want to begin immediately",
+                "outcomes": ["Begin with a coherent first lesson", "Continue as content arrives"],
+                "prerequisites": [],
+                "skills": ["Progressive learning", "Course navigation"],
+                "coverPrompt": "An editorial educational illustration of a learning path assembling in stages",
+                "modules": [
+                    {"title": "Foundations", "lessons": [
+                        {"title": "Lesson 1", "summary": "Start with the first foundational concept."},
+                        {"title": "Lesson 2", "summary": "Build on the first foundational concept."},
+                    ]},
+                    {"title": "Application", "lessons": [
+                        {"title": "Lesson 3", "summary": "Apply the concepts in a guided example."},
+                        {"title": "Lesson 4", "summary": "Review the complete practical workflow."},
+                    ]},
+                ],
+            }
+        )
+        lesson = LessonContent.model_validate({
+            "summary": "A complete lesson that is ready for the learner to open.",
+            "duration": "15m",
+            "blocks": [
+                {"type": "content", "heading": "Concept", "paragraphs": ["A clear explanation of the concept."], "citationIds": []},
+                {"type": "grid_cards", "heading": "Examples", "cards": [{"title": "One", "body": "The first example."}, {"title": "Two", "body": "The second example."}], "citationIds": []},
+                {"type": "numbered_list", "heading": "Practice", "items": [{"title": "Step one", "body": "Try the first step."}, {"title": "Step two", "body": "Verify the result."}], "citationIds": []},
+                {"type": "quiz", "heading": "Check", "questions": [{"question": "Which step comes first?", "choices": ["Step one", "Step two"], "answerIndex": 0, "explanation": "Step one begins the workflow."}, {"question": "What follows practice?", "choices": ["Verification", "Nothing"], "answerIndex": 0, "explanation": "Verification confirms the result."}], "citationIds": []},
+            ],
+        })
+        engine = create_engine(
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+        course_id = "generated-progressive"
+        now = datetime.now(timezone.utc)
+        with session_factory() as db:
+            db.add(GeneratedCourse(
+                id=course_id,
+                owner_user_id=7,
+                status="generating",
+                source_type="prompt",
+                source_label="Progressive course",
+                payload={
+                    "version": 2,
+                    "source": {"type": "prompt", "label": "Progressive course"},
+                    "intake": INTAKE,
+                    "answers": {"time_budget": "Up to 1 hour"},
+                    "outline": outline.model_dump(),
+                    "research": {"brief": "Grounded research", "citations": []},
+                    "lessonDrafts": {},
+                },
+                created_at=now,
+                updated_at=now,
+            ))
+            db.commit()
+
+        async def scenario() -> None:
+            release_remaining = asyncio.Event()
+            calls: list[str] = []
+
+            async def fake_generate_lesson(**kwargs):
+                title = kwargs["lesson"].title
+                calls.append(title)
+                if title != "Lesson 1":
+                    await release_remaining.wait()
+                return lesson
+
+            with (
+                patch.object(generated_service, "SessionLocal", session_factory),
+                patch.object(generated_service, "generate_lesson", side_effect=fake_generate_lesson),
+            ):
+                task = asyncio.create_task(generated_service.run_generation_job(course_id))
+                drafts: dict[str, dict] = {}
+                for _ in range(100):
+                    await asyncio.sleep(0.01)
+                    with session_factory() as db:
+                        row = db.get(GeneratedCourse, course_id)
+                        assert row is not None
+                        drafts = dict((row.payload or {}).get("lessonDrafts") or {})
+                    if drafts:
+                        break
+
+                self.assertEqual(calls[0], "Lesson 1")
+                self.assertEqual(list(drafts), [f"{course_id}-m1-l1"])
+                partial = generated_service._partial_course(
+                    course_id,
+                    {
+                        "source": {"type": "prompt", "label": "Progressive course"},
+                        "answers": {"time_budget": "Up to 1 hour"},
+                        "research": {"citations": []},
+                        "outline": outline.model_dump(),
+                        "lessonDrafts": drafts,
+                    },
+                )
+                assert partial is not None
+                self.assertEqual(partial["completedLessonCount"], 1)
+                self.assertEqual(partial["modules"][0]["lessons"][0]["status"], "ready")
+                self.assertEqual(partial["modules"][0]["lessons"][1]["status"], "pending")
+
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+        asyncio.run(scenario())
 
     def test_partial_course_streams_ready_images_and_marks_pending_images(self) -> None:
         outline = CourseOutline.model_validate(
@@ -708,8 +870,10 @@ class GeneratedCourseServiceTests(unittest.TestCase):
         self.assertEqual(module_lessons[0]["type"], "study")
         self.assertEqual(module_lessons[1]["type"], "lab")
         self.assertEqual(module_lessons[1]["sourceLessonId"], module_lessons[0]["id"])
+        self.assertEqual(module_lessons[1]["browserLab"]["workflow"], "github_create_private_repository")
         self.assertEqual(module_lessons[1]["browserLab"]["launchUrl"], "https://github.com/")
         self.assertIn("github.com", module_lessons[1]["browserLab"]["allowedHosts"])
+        self.assertEqual(len(module_lessons), 2)
         self.assertEqual(course["modules"][1]["lessons"][0]["type"], "study")
 
     def test_real_asset_bytes_are_persisted_to_uploads(self) -> None:
@@ -777,6 +941,76 @@ class GeneratedCourseServiceTests(unittest.TestCase):
         self.assertNotIn("Distinguishing repository tabs", context_without_recovery or "")
         self.assertNotIn("<div>", context or "")
         self.assertIsNone(denied)
+
+    def test_realtime_context_accepts_only_published_platform_lessons(self) -> None:
+        engine = create_engine(
+            'sqlite://',
+            connect_args={'check_same_thread': False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(engine)
+        sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+        now = datetime.now(timezone.utc)
+        course = {
+            'title': 'Shared Systems Course',
+            'modules': [{
+                'title': 'Platform foundations',
+                'lessons': [{
+                    'id': 'lesson-1',
+                    'title': 'Shared lesson',
+                    'summary': 'Learn from a published platform lesson.',
+                    'contentBlocks': [{
+                        'type': 'content',
+                        'heading': 'Shared truth',
+                        'paragraphs': ['Published course content grounds the classroom.'],
+                    }, {
+                        'type': 'quiz',
+                        'heading': 'Check',
+                        'questions': [{
+                            'id': 'platform-quiz-1',
+                            'question': 'What grounds the classroom?',
+                            'choices': ['Published content', 'Hidden drafts'],
+                            'answerIndex': 0,
+                            'explanation': 'Only published content is learner-visible.',
+                        }],
+                    }],
+                }],
+            }],
+        }
+        with sessions() as db:
+            db.add_all([
+                PlatformCourse(
+                    id='platform-shared',
+                    status='published',
+                    course=course,
+                    created_at=now,
+                    updated_at=now,
+                    published_at=now,
+                ),
+                PlatformCourse(
+                    id='platform-draft',
+                    status='draft',
+                    course=course,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ])
+            db.commit()
+
+        with patch.object(generated_service, 'SessionLocal', sessions):
+            context = generated_service.rich_lesson_context(
+                'platform-shared', 'lesson-1', 7
+            )
+            quiz_ids = generated_service.rich_lesson_quiz_ids(
+                'platform-shared', 'lesson-1', 7
+            )
+            draft_context = generated_service.rich_lesson_context(
+                'platform-draft', 'lesson-1', 7
+            )
+
+        self.assertIn('Published course content grounds the classroom', context or '')
+        self.assertEqual(quiz_ids, ['platform-quiz-1'])
+        self.assertIsNone(draft_context)
 
 
 if __name__ == "__main__":

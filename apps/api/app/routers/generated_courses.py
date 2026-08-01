@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 import shutil
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,8 +27,10 @@ from app.services.generated_courses import (
     generate_intake,
     generate_next_intake_question,
     _partial_course,
+    normalize_course_for_delivery,
     run_generation_job,
     sanitize_adaptive_recovery_summary,
+    shutdown_course_generation_client,
 )
 
 router = APIRouter(prefix="/api/generated-courses", tags=["generated-courses"])
@@ -76,7 +79,8 @@ def _public_response(row: GeneratedCourse) -> Dict[str, Any]:
             "updatedAt": row.updated_at.isoformat() if row.updated_at else None,
         }
     intake = payload.get("intake") or {}
-    partial_course = payload.get("course")
+    ready_course = normalize_course_for_delivery(payload.get("course"), payload)
+    partial_course = ready_course
     if not partial_course and row.status in {"researching", "generating", "generating_images"}:
         partial_course = _partial_course(row.id, payload)
     return {
@@ -88,7 +92,7 @@ def _public_response(row: GeneratedCourse) -> Dict[str, Any]:
         "answers": payload.get("answers") or {},
         "interviewComplete": bool(intake.get("complete", False)),
         "progress": payload.get("progress") or {},
-        "course": payload.get("course"),
+        "course": ready_course,
         "partialCourse": partial_course,
         "error": payload.get("error"),
         "archivedAt": payload.get("archivedAt"),
@@ -135,6 +139,7 @@ async def shutdown_generation_jobs() -> None:
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     _tasks.clear()
+    await shutdown_course_generation_client()
 
 
 async def _cancel_generation_job(course_id: str) -> None:
@@ -186,6 +191,8 @@ async def create_intake(
     curriculum_file: Optional[UploadFile] = File(default=None),
     user: dict = Depends(get_current_user),
 ):
+    trace_id = uuid.uuid4().hex[:10]
+    request_started = time.monotonic()
     prompt = prompt.strip()
     curriculum_text = curriculum_text.strip()
     provided = int(bool(prompt)) + int(bool(curriculum_text)) + int(curriculum_file is not None)
@@ -242,9 +249,29 @@ async def create_intake(
             "mode": extracted["mode"],
         }
 
+    logger.info(
+        "Course intake request received trace=%s user=%s source_type=%s "
+        "source_chars=%d model=%s",
+        trace_id,
+        user.get("uid"),
+        source["type"],
+        len(source["text"]),
+        settings.course_generation_model,
+    )
     try:
-        intake = await generate_intake(source["text"], source["title"])
+        intake = await generate_intake(
+            source["text"],
+            source["title"],
+            trace_id=trace_id,
+        )
     except CourseGenerationError as exc:
+        logger.error(
+            "Course intake request failed trace=%s user=%s elapsed=%.2fs error=%s",
+            trace_id,
+            user.get("uid"),
+            time.monotonic() - request_started,
+            str(exc)[:500],
+        )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     intake = dict(intake)
     intake["complete"] = bool(intake.get("complete", False))
@@ -279,6 +306,15 @@ async def create_intake(
         db.add(row)
         db.commit()
         db.refresh(row)
+        logger.info(
+            "Course intake job created trace=%s user=%s course_id=%s "
+            "elapsed=%.2fs questions=%d",
+            trace_id,
+            user.get("uid"),
+            course_id,
+            time.monotonic() - request_started,
+            len(intake.get("questions") or []),
+        )
         return _public_response(row)
 
 

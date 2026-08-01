@@ -7,7 +7,7 @@ No Firebase / Google Cloud / OAuth dependencies remain.
 from __future__ import annotations
 
 import json
-from typing import List
+from typing import List, Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,10 +26,15 @@ class Settings(BaseSettings):
     # ── OpenAI ─────────────────────────────────────────────────────────────
     openai_api_key: str = ""
     realtime_model: str = "gpt-realtime-2.1"
+    realtime_reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh"] = "high"
     realtime_voice: str = "ash"
     transcription_model: str = "gpt-4o-mini-transcribe"
     course_generation_model: str = "gpt-5.4-mini"
     image_model: str = "gpt-image-2"
+    # Keep the learner-facing interview responsive and bound longer background
+    # writing/image requests so a broken connection cannot stall a job forever.
+    course_intake_timeout_seconds: float = 30.0
+    course_generation_request_timeout_seconds: float = 180.0
 
     # Tavus is used only as the realtime face renderer for Role Playing.
     # The API key stays on the backend; the browser receives a short-lived
@@ -49,7 +54,9 @@ class Settings(BaseSettings):
     tars_visual_locator_enabled: bool = True
     tars_visual_locator_model: str = "gpt-5.6-sol"
     tars_visual_locator_trial_models: str = "gpt-5.6-sol"
+    tars_visual_locator_service_tier: Literal["auto", "default", "flex", "priority"] = "priority"
     tars_visual_locator_reasoning_effort: str = "medium"
+    tars_visual_locator_batch_reasoning_effort: str = "low"
     tars_visual_locator_timeout_seconds: float = 20.0
 
     # ── Firecrawl (discovery + course-page/document extraction) ───────────

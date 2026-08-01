@@ -160,7 +160,11 @@ export default function RichLessonPage() {
             <ChevronLeft size={15} /> Previous
           </button>
           <div>
-            {!quizzesDone && <small>{isBrowserLab ? "Complete the lab and cleanup after backend verification." : "Answer every quiz question to complete this lesson."}</small>}
+            {!quizzesDone && <small>{isBrowserLab
+              ? lesson.browserLab?.cleanupAssertions.length
+                ? "Complete the lab and cleanup after backend verification."
+                : "Complete the real-tool lab and wait for backend verification."
+              : "Answer every quiz question to complete this lesson."}</small>}
             <button type="button" className="rich-primary" disabled={!quizzesDone} onClick={finishLesson}>
               {next ? "Complete & continue" : course.partial ? "Complete lesson" : "Complete course"} <ChevronRight size={15} />
             </button>

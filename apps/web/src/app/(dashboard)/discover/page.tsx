@@ -11,6 +11,7 @@ import {
   Check,
   CircleAlert,
   FileText,
+  FlaskConical,
   Loader2,
   Sparkles,
   Upload,
@@ -68,6 +69,9 @@ export default function CourseBuilder() {
   const questions = job?.questions ?? [];
   const question = questions[questionIndex] ?? null;
   const adminContext = pathname.startsWith("/admin");
+  const githubCourseIntent = /(^|\W)github(\W|$)/i.test(
+    sourceMode === "prompt" ? prompt : `${curriculum} ${file?.name || ""}`,
+  );
 
   const rememberJob = useCallback((id: string | null) => {
     const url = new URL(window.location.href);
@@ -354,6 +358,15 @@ export default function CourseBuilder() {
                   autoFocus
                 />
                 <small>Be specific about the outcome; the interview will resolve everything else.</small>
+                {githubCourseIntent && (
+                  <div className="gen-capability-note">
+                    <FlaskConical size={16} />
+                    <div>
+                      <strong>Real-tool GitHub Lab included</strong>
+                      <span>The finished course will include Tars-guided private repository creation in GitHub.</span>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="gen-source-body gen-curriculum-grid">
@@ -395,6 +408,15 @@ export default function CourseBuilder() {
                   >
                     Use pasted text instead
                   </button>
+                )}
+                {githubCourseIntent && (
+                  <div className="gen-capability-note">
+                    <FlaskConical size={16} />
+                    <div>
+                      <strong>Real-tool GitHub Lab included</strong>
+                      <span>The finished course will include Tars-guided private repository creation in GitHub.</span>
+                    </div>
+                  </div>
                 )}
               </div>
             )}

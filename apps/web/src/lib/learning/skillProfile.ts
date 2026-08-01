@@ -107,16 +107,20 @@ export function resolveLearningContext(
 }
 
 export function createInterestMemory(prefs: OnboardingPrefs): LearningMemory | null {
-  if (!prefs.interests.length) return null;
+  const goal = prefs.careerGoal.trim() || prefs.preparingFor.trim();
+  if (!prefs.interests.length && !goal) return null;
+  const evidence = prefs.interests.length ? prefs.interests : [goal];
   return {
     id: "interest:learner-profile",
     kind: "interest",
     signal: "interest",
-    title: "Shared learning interests",
-    summary: `Interested in ${prefs.interests.slice(0, 4).join(", ")}.`,
+    title: goal ? "Shared career goal" : "Shared learning interests",
+    summary: goal
+      ? `Learning toward ${goal.replace(/[.?!]+$/, "")}.`
+      : `Interested in ${prefs.interests.slice(0, 4).join(", ")}.`,
     createdAt: Date.now(),
     skills: [],
-    evidence: prefs.interests.slice(0, 6),
+    evidence: evidence.slice(0, 6),
   };
 }
 

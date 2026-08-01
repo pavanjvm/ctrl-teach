@@ -17,11 +17,13 @@ import {
   ThumbsUp,
   TrendingUp,
   TriangleAlert,
+  X,
   XCircle,
 } from "lucide-react";
 
 import { useTars } from "@/lib/tars/provider";
 import { API_URL } from "@/lib/constants";
+import { getBrowserLabReviewOverride } from "@/lib/learning/browserLabReview";
 import type {
   BrowserLabAttempt,
   BrowserLabBlueprint,
@@ -50,6 +52,33 @@ function extractAttempt(data: unknown): BrowserLabAttempt | null {
 
 function postLabMessage(type: string, payload: Record<string, unknown>) {
   window.postMessage({ type, requestId: crypto.randomUUID(), ...payload }, window.location.origin);
+}
+
+function requestLabMessage(type: string, payload: Record<string, unknown>) {
+  return new Promise<{ ok?: boolean; error?: string }>((resolve) => {
+    const requestId = crypto.randomUUID();
+    const timeout = window.setTimeout(() => {
+      window.removeEventListener("message", onMessage);
+      resolve({ ok: false, error: "extension_timeout" });
+    }, 1_800);
+    const onMessage = (event: MessageEvent) => {
+      if (
+        event.source !== window
+        || event.origin !== window.location.origin
+        || event.data?.type !== "CTRLTEACH_BROWSER_LAB_ACK"
+        || event.data?.requestId !== requestId
+      ) return;
+      window.clearTimeout(timeout);
+      window.removeEventListener("message", onMessage);
+      resolve(event.data?.response ?? { ok: false, error: "extension_unavailable" });
+    };
+    window.addEventListener("message", onMessage);
+    window.postMessage({ type, requestId, ...payload }, window.location.origin);
+  });
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function requestError(error: unknown, fallback: string): string {
@@ -137,12 +166,15 @@ export default function BrowserLabPanel({
   getToken,
   onVerified,
 }: Props) {
-  const { extensionAvailable } = useTars();
+  const { enabled, extensionAvailable, setEnabled } = useTars();
   const [attempt, setAttempt] = useState<BrowserLabAttempt | null>(null);
   const [busy, setBusy] = useState<BusyAction>("hydrate");
   const [error, setError] = useState<string | null>(null);
+  const [labEnded, setLabEnded] = useState(false);
+  const [labOpened, setLabOpened] = useState(false);
   const attemptIdRef = useRef("");
   const verifiedNotificationRef = useRef("");
+  const stoppedVerifiedRef = useRef("");
   const stoppedRecoveryRef = useRef("");
   const cleanupReadyRef = useRef("");
   const refreshInFlightRef = useRef(false);
@@ -151,6 +183,10 @@ export default function BrowserLabPanel({
   useEffect(() => {
     onVerifiedRef.current = onVerified;
   }, [onVerified]);
+
+  useEffect(() => {
+    if (extensionAvailable === true && !enabled) setEnabled(true);
+  }, [enabled, extensionAvailable, setEnabled]);
 
   const acceptAttempt = useCallback((next: BrowserLabAttempt) => {
     attemptIdRef.current = next.id;
@@ -192,6 +228,7 @@ export default function BrowserLabPanel({
     setAttempt(null);
     attemptIdRef.current = "";
     verifiedNotificationRef.current = "";
+    stoppedVerifiedRef.current = "";
     stoppedRecoveryRef.current = "";
     cleanupReadyRef.current = "";
     void hydrate(() => cancelled);
@@ -238,6 +275,18 @@ export default function BrowserLabPanel({
     postLabMessage("CTRLTEACH_BROWSER_LAB_CLEANUP_READY", { attemptId: attempt.id });
   }, [attempt?.id, attempt?.status]);
 
+  useEffect(() => {
+    if (!attempt?.id || attempt.status !== "verified") return;
+    if (stoppedVerifiedRef.current === attempt.id) return;
+    stoppedVerifiedRef.current = attempt.id;
+    void requestLabMessage("CTRLTEACH_BROWSER_LAB_STOP", { attemptId: attempt.id }).then((response) => {
+      if (response.ok) {
+        setLabEnded(true);
+        setLabOpened(false);
+      }
+    });
+  }, [attempt?.id, attempt?.status]);
+
   useEffect(() => () => {
     if (attemptIdRef.current) {
       postLabMessage("CTRLTEACH_BROWSER_LAB_STOP", { attemptId: attemptIdRef.current });
@@ -257,6 +306,7 @@ export default function BrowserLabPanel({
   const lastPractice = recovery?.practiceAttempts?.[recovery.practiceAttempts.length - 1];
   const postLabRemarks = useMemo(() => {
     if (!verified || !attempt) return null;
+    const reviewOverride = getBrowserLabReviewOverride(activePlan.workflow);
     const history = attempt.recoveryHistory ?? [];
     const recovered = history.filter((item) => item.status === "resolved" || item.finalOutcome === "resolved");
     const completedSteps = activePlan.steps.filter((step) => assertionsComplete(
@@ -264,26 +314,38 @@ export default function BrowserLabPanel({
       attempt.verification?.taskAssertions,
       taskComplete,
     )).length;
-    const issues = history.length
-      ? history.slice(-3).map((item) => `${item.misconception.title}: ${item.misconception.evidenceSummary}`)
-      : ["No major task gaps were detected by backend verification."];
+    const issues = reviewOverride?.issues
+      ?? (history.length
+        ? history.slice(-3).map((item) => `${item.misconception.title}: ${item.misconception.evidenceSummary}`)
+        : ["No major task gaps were detected by backend verification."]);
     const latestRecovery = history[history.length - 1];
-    const improvement = latestRecovery?.microLesson?.objective
+    const improvement = reviewOverride?.improvement
+      || latestRecovery?.microLesson?.objective
       || activePlan.successCriteria[activePlan.successCriteria.length - 1]
       || "Repeat the workflow once without prompts and explain why each step satisfies the evidence requirement.";
     return {
-      good: `${completedSteps} of ${activePlan.steps.length} task steps and cleanup were verified from ${evidenceCount} evidence events.${recovered.length ? ` ${recovered.length} detected gap${recovered.length === 1 ? " was" : "s were"} successfully recovered.` : ""}`,
+      good: `${completedSteps} of ${activePlan.steps.length} task steps${activePlan.cleanupAssertions.length ? " and cleanup" : ""} were verified from ${evidenceCount} evidence events.${recovered.length ? ` ${recovered.length} detected gap${recovered.length === 1 ? " was" : "s were"} successfully recovered.` : ""}`,
       issues,
       improvement,
     };
-  }, [activePlan.steps, activePlan.successCriteria, attempt, evidenceCount, taskComplete, verified]);
+  }, [activePlan.cleanupAssertions.length, activePlan.steps, activePlan.successCriteria, activePlan.workflow, attempt, evidenceCount, taskComplete, verified]);
 
-  const launchPlan = useCallback((next: BrowserLabAttempt, plan: BrowserLabBlueprint) => {
-    postLabMessage("CTRLTEACH_BROWSER_LAB_START", {
-      attemptId: next.id,
-      launchUrl: next.launchUrl,
-      lab: plan,
-    });
+  const launchPlan = useCallback(async (next: BrowserLabAttempt, plan: BrowserLabBlueprint) => {
+    let response: { ok?: boolean; error?: string } = { ok: false, error: "extension_unavailable" };
+    for (let retry = 0; retry < 4; retry += 1) {
+      response = await requestLabMessage("CTRLTEACH_BROWSER_LAB_START", {
+        attemptId: next.id,
+        launchUrl: next.launchUrl,
+        lab: plan,
+      });
+      if (response.ok || response.error !== "tars_disabled") break;
+      await wait(450);
+    }
+    if (!response.ok) {
+      throw new Error(response.error === "tars_disabled"
+        ? "Tars is still connecting. Try opening the lab again."
+        : "The Tars extension could not start this lab.");
+    }
     if (next.status === "needs_cleanup") {
       window.setTimeout(() => {
         postLabMessage("CTRLTEACH_BROWSER_LAB_CLEANUP_READY", { attemptId: next.id });
@@ -295,13 +357,40 @@ export default function BrowserLabPanel({
     setBusy("launch");
     setError(null);
     try {
+      if (extensionAvailable !== true) {
+        throw new Error("Install or reconnect the Tars extension before starting this real-tool lab.");
+      }
+      if (!enabled) {
+        setEnabled(true);
+        await wait(250);
+      }
       const next = attempt ?? await hydrate();
       if (!next || next.status === "verified") return;
-      launchPlan(next, next.plan);
+      await launchPlan(next, next.plan);
+      setLabEnded(false);
+      setLabOpened(true);
+    } catch (launchError) {
+      setError(launchError instanceof Error ? launchError.message : "Could not start the browser lab.");
     } finally {
       setBusy(null);
     }
-  }, [attempt, hydrate, launchPlan]);
+  }, [attempt, enabled, extensionAvailable, hydrate, launchPlan, setEnabled]);
+
+  const endLab = useCallback(async () => {
+    if (!attempt?.id) return;
+    setBusy("launch");
+    setError(null);
+    try {
+      const response = await requestLabMessage("CTRLTEACH_BROWSER_LAB_STOP", { attemptId: attempt.id });
+      if (!response.ok) throw new Error("Tars could not confirm that Lab monitoring ended.");
+      setLabEnded(true);
+      setLabOpened(false);
+    } catch (stopError) {
+      setError(stopError instanceof Error ? stopError.message : "Could not end the browser lab.");
+    } finally {
+      setBusy(null);
+    }
+  }, [attempt?.id]);
 
   const checkAttempt = useCallback(async () => {
     if (!attempt || attempt.status === "verified" || recovery) return;
@@ -373,10 +462,11 @@ export default function BrowserLabPanel({
     if (recovery?.status === "retry_ready") return "Ready to retry the original step";
     if (recovery?.status === "retrying") return "Original step retry in progress";
     if (attempt?.status === "recovering") return "Recovery is being prepared";
+    if (attempt && labEnded) return "Lab ended — ready to reopen";
     if (attempt && evidenceCount === 0) return "Ready to start";
     if (attempt) return "Tars is collecting evidence";
     return "Unable to prepare attempt";
-  }, [attempt, busy, evidenceCount, recovery?.status, verified]);
+  }, [attempt, busy, evidenceCount, labEnded, recovery?.status, verified]);
 
   const canCheck = Boolean(
     attempt
@@ -405,7 +495,7 @@ export default function BrowserLabPanel({
       </div>
 
       {!!activePlan.prerequisites?.length && (
-        <div className="rich-browser-lab-list">
+        <div className="rich-browser-lab-list prerequisites">
           <span>Before you start</span>
           <ul>{activePlan.prerequisites.map((item) => <li key={item}>{item}</li>)}</ul>
         </div>
@@ -487,24 +577,26 @@ export default function BrowserLabPanel({
         </section>
       )}
 
-      <div className="rich-browser-lab-list cleanup">
-        <span>Cleanup</span>
-        <ol>
-          {activePlan.cleanupSteps.map((step) => {
-            const done = assertionsComplete(
-              step,
-              attempt?.verification?.cleanupAssertions,
-              cleanupComplete,
-            );
-            return (
-              <li key={step.id}>
-                <ShieldCheck size={13} className={done ? "done" : ""} />
-                <div><strong>{step.instruction}</strong><small>{step.expectedEvidence}</small></div>
-              </li>
-            );
-          })}
-        </ol>
-      </div>
+      {!!activePlan.cleanupSteps.length && (
+        <div className="rich-browser-lab-list cleanup">
+          <span>Cleanup</span>
+          <ol>
+            {activePlan.cleanupSteps.map((step) => {
+              const done = assertionsComplete(
+                step,
+                attempt?.verification?.cleanupAssertions,
+                cleanupComplete,
+              );
+              return (
+                <li key={step.id}>
+                  <ShieldCheck size={13} className={done ? "done" : ""} />
+                  <div><strong>{step.instruction}</strong><small>{step.expectedEvidence}</small></div>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      )}
 
       {postLabRemarks && (
         <section className="rich-browser-lab-review" aria-labelledby={`lab-review-${attempt?.id}`}>
@@ -544,7 +636,12 @@ export default function BrowserLabPanel({
               onClick={() => { void openLab(); }}
             >
               {busy === "hydrate" || busy === "launch" ? <Loader2 size={14} className="rich-spin" /> : <MonitorCheck size={14} />}
-              {verified ? "Verified" : attempt?.status === "needs_cleanup" ? "Reopen cleanup" : "Open with Tars"}
+              {verified ? "Verified" : attempt?.status === "needs_cleanup" ? "Reopen cleanup" : `Open ${activePlan.platform || "browser"} lab`}
+            </button>
+          )}
+          {attempt && !verified && !labEnded && labOpened && !recovery && (
+            <button type="button" className="rich-secondary" disabled={busy !== null} onClick={() => { void endLab(); }}>
+              <X size={14} /> End lab
             </button>
           )}
           {canCheck && (
@@ -559,7 +656,9 @@ export default function BrowserLabPanel({
             ? "Tars extension not detected in this tab."
             : recovery?.status === "practicing"
               ? "Browser evidence is paused during targeted practice."
-              : "Completion waits for backend verification."}
+              : activePlan.cleanupAssertions.length
+                ? "Completion waits for task and cleanup verification."
+                : "Completion happens after GitHub's final state is verified."}
         </small>
       </div>
     </section>
