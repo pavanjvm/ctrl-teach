@@ -1,4 +1,4 @@
-"""Generate temporary reference narration for the combined Ctrl+Teach pitch."""
+"""Generate narration for the generic Ctrl+Teach pitch."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.config import settings
 
 
-OUTPUT_DIR = (
+DEFAULT_OUTPUT_DIR = (
     Path(__file__).resolve().parents[3]
     / "apps"
     / "video"
@@ -41,11 +41,10 @@ SCENES = {
     ),
     "act-3-breakthrough.mp3": "So we removed the calendar.",
     "act-3-ctrlteach-intro.mp3": (
-        "Introducing Ctrl+Teach, Cprime's AI-powered platform for personalized learning "
-        "on demand."
+        "Introducing Ctrl+Teach, an AI-powered platform for personalized learning on demand."
     ),
     "act-3-admin-intro.mp3": (
-        "In the admin portal, Cprime teams can create a course from a learning "
+        "In the admin portal, learning teams can create a course from a learning "
         "objective or import an existing curriculum."
     ),
     "act-3-admin-create.mp3": (
@@ -76,11 +75,11 @@ SCENES = {
         "and security into a clear learning sequence."
     ),
     "act-3-roadmap-learn.mp3": (
-        "Selecting Cloud Foundations brings together the published Cprime course, the "
-        "relevant bootcamp, and a personalized generation option."
+        "Selecting Cloud Foundations brings together the published course, relevant "
+        "instructor-led learning, and a personalized generation option."
     ),
     "act-3-roadmap-options.mp3": (
-        "The learner can choose an admin-curated course, a Cprime Learning bootcamp, "
+        "The learner can choose an admin-curated course, an instructor-led programme, "
         "or generate a personalized course tailored to their level, goal, and time."
     ),
     "act-3-live-intro.mp3": (
@@ -88,19 +87,19 @@ SCENES = {
         "Live Classroom."
     ),
     "act-3-live-auto.mp3": (
-        "Once the lesson starts, the classroom begins teaching automatically. It already "
-        "knows the course, the current lesson, and the learner’s context."
+        "Live Classroom does more than read the course aloud. It actively teaches, already "
+        "knowing the course, the current lesson, and the learner’s context."
     ),
     "act-3-tars-classroom.mp3": (
         "Welcome to class. Let’s turn a vague application request into a measurable "
         "architecture problem."
     ),
     "act-3-live-explain.mp3": (
-        "It explains by voice, builds the visual on the whiteboard, and keeps follow-up "
-        "questions inside the lesson—without copying context into another chat."
+        "Using Made to Stick principles, it makes ideas memorable through voice, whiteboard "
+        "visuals, and follow-up questions inside the lesson."
     ),
     "act-3-lab-intro.mp3": (
-        "Where hands-on practice is possible, every course includes a lab built directly "
+        "Where hands-on practice is possible, a course can include a lab built directly "
         "into the lesson."
     ),
     "act-3-meet-tars.mp3": (
@@ -143,7 +142,8 @@ SCENES = {
         "Amazon DocumentDB is AWS's fully managed MongoDB-compatible database service."
     ),
     "act-3-circle-intro.mp3": (
-        "Tars also includes Circle to Ask for questions about a specific location on screen."
+        "When a screen has similar elements, Circle to Ask lets learners mark the exact "
+        "component they mean."
     ),
     "act-3-circle-question.mp3": "Why did this signal split into four?",
     "act-3-circle-answer.mp3": (
@@ -153,8 +153,8 @@ SCENES = {
         "protons nudging the signal into four."
     ),
     "act-3-anatomy-labeling.mp3": (
-        "Tars can also draw and point to specific areas of the screen with pixel-level "
-        "precision. In this example, it labels the key parts of a human anatomy image."
+        "Tars can also draw directly on the screen with pixel-level precision. In this "
+        "example, it labels the key parts of a human anatomy image."
     ),
     "act-3-roleplay.mp3": (
         "Some skills require more than reading or labs—they require practice in conversation. "
@@ -172,14 +172,14 @@ SCENES = {
         "and how do you keep it secure under heavy load?"
     ),
     "act-3-memory.mp3": (
-        "Tars is the intelligence behind this experience. Using Dreaming v3 as its memory "
-        "layer, Tars remembers the learner’s goals, completed courses, strengths, knowledge "
+        "Tars is the intelligence behind this experience. Following the Dreaming V3 memory "
+        "approach, Tars remembers the learner’s goals, completed courses, strengths, knowledge "
         "gaps, and previous interactions. That memory determines which scenarios to create, "
         "how difficult they should be, how Tars responds, and what feedback the learner "
         "receives. The same context also improves Tars throughout the platform and guides "
-        "future course generation. Instead of starting from zero every time, Ctrl+Teach "
-        "becomes more personalized with every interaction. The roleplay, Tars’s behaviour, "
-        "and each newly generated course feel increasingly designed for that learner."
+        "future course generation. Instead of starting from zero every time, the learning "
+        "experience becomes more personalized with every interaction. The roleplay, Tars’s "
+        "behaviour, and each newly generated course feel increasingly designed for that learner."
     ),
     "act-3-conclusion.mp3": (
         "We started with one simple problem: the learner needs the skill now, but the next "
@@ -251,12 +251,19 @@ INSTRUCTIONS = (
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scene", choices=SCENES)
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help="Directory in which to write generated MP3 files.",
+    )
     args = parser.parse_args()
 
     if not settings.openai_api_key.strip():
         raise SystemExit("OPENAI_API_KEY is not configured")
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_dir = args.output_dir.expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
     client = OpenAI(api_key=settings.openai_api_key)
 
     scenes = (
@@ -265,7 +272,7 @@ def main() -> None:
         else SCENES
     )
     for filename, text in scenes.items():
-        output_path = OUTPUT_DIR / filename
+        output_path = output_dir / filename
         print(f"generate {filename}")
         with client.audio.speech.with_streaming_response.create(
             model="gpt-4o-mini-tts",

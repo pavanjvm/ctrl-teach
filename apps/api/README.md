@@ -72,6 +72,11 @@ Tars's production visual locator defaults to `gpt-5.6-sol` with the
 and `TARS_VISUAL_LOCATOR_REASONING_EFFORT`; candidate trial models are listed
 in `TARS_VISUAL_LOCATOR_TRIAL_MODELS`.
 
+Realtime voice sessions use `gpt-realtime-2.1` with `high` reasoning effort by
+default. Override this with `REALTIME_REASONING_EFFORT` (`minimal`, `low`,
+`medium`, `high`, or `xhigh`) when latency or task complexity calls for a
+different tradeoff.
+
 To compare models on the same labeled screenshots, create a JSON manifest using
 the format documented in `scripts/tars_locator_trial.py`, then run:
 
