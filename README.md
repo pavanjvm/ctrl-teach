@@ -1,8 +1,6 @@
 # Ctrl+Teach
 
-<p align="center">
-  <img src="apps/web/public/Logo.png" alt="Ctrl+Teach logo" width="112" />
-</p>
+
 
 Ctrl+Teach is an AI-led learning workspace that turns a learning objective into
 an interactive course. Learners can study with a realtime voice tutor, work
