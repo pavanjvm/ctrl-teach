@@ -20,6 +20,8 @@ import {
 } from "@/lib/tars/wakeTemplate";
 import { TEACHING_PROFILE_CHANGED_EVENT } from "@/lib/tars/teachingProfiles";
 import { isEmbeddedTarsRoute } from "@/lib/tars/routes";
+import TarsPet from "@/components/tars/TarsPet";
+import { useRocketPet } from "@/components/tars/useRocketPet";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,7 +68,6 @@ type ScreenAnnotation = {
 const TARS_LOG = "[GlobalTars]";
 const TARS_SESSION_ID_KEY = "ctrlteach_tars_session_id";
 const WAKE_TRAINING_PHRASES = ["chat", "hey chat"];
-const SHOW_TARS_BUBBLE = false;
 const TARS_SPEECH_TAIL_MS = 700;
 const MAX_DOM_TARGETS = 220;
 const ANNOTATION_COLORS: Record<ScreenAnnotation["color"], string> = {
@@ -588,7 +589,6 @@ export default function GlobalTarsAssistant() {
   const showCursor = globalTarsActive;
 
   const [mounted, setMounted] = useState(false);
-  const [bubble, setBubble] = useState("");
   const [mode, setMode] = useState<"idle" | "listening" | "thinking" | "speaking">("idle");
   const [wakeTemplate, setWakeTemplate] = useState<WakeTemplate | null>(null);
   const [trainingStatus, setTrainingStatus] = useState("Train Tars with your pronunciation.");
@@ -598,15 +598,14 @@ export default function GlobalTarsAssistant() {
   const [boardDrawCommands, setBoardDrawCommands] = useState<TarsDrawCommand[]>([]);
   const [teachingProfileRevision, setTeachingProfileRevision] = useState(0);
 
-  // Cursor RAF refs
-  const cursorRef = useRef<HTMLDivElement>(null);
-  const waveformRef = useRef<HTMLDivElement>(null);
-  const bubbleAnchorRef = useRef<HTMLDivElement>(null);
-  const cursorRotationRef = useRef(-35);
+  const pet = useRocketPet({
+    initialPerch: { x: 90, y: 90 },
+    mode,
+    roaming: showCursor,
+  });
+
+  // The pet's perch remains the origin for Tars-authored arrows and lines.
   const posRef = useRef({ x: 90, y: 90 });
-  const mouseRef = useRef({ x: 90, y: 90 });
-  const activePointRef = useRef(false);
-  const rafIdRef = useRef<number | null>(null);
 
   // Realtime refs
   const audioHook = useAudio();
@@ -674,70 +673,35 @@ export default function GlobalTarsAssistant() {
   const trainingRecordingRef = useRef(false);
   const trainingOpenRef = useRef(false);
 
-  // ── Cursor positioning & flight ────────────────────────────────────────
-  // Matches the real Tars macOS overlay (OverlayWindow.swift). The buddy:
-  //   - sits +35px right / +25px below the real pointer (a "helper" buddy)
-  //   - defaults to a -35° tilt (cursor-like arrow)
-  //   - springs toward the mouse with a deliberately visible follow-through
-  //   - flies to targets along a quadratic bezier, smoothstep easeInOut,
-  //     duration = clamp(dist/800, 0.6s, 1.4s), arc height = min(dist*0.2, 80)
-  const BUDDY_OFFSET_X = 35;
-  const BUDDY_OFFSET_Y = 25;
-  const BUDDY_DEFAULT_ROT = -35;
-  // A slower response with stronger damping keeps a smooth visible trail while
-  // avoiding excessive bounce around the real cursor.
-  const SPRING_RESPONSE = 0.38;
-  const SPRING_DAMPING = 0.68;
-  // ω = 2π/response; k = ω²; c = 2·dampingFraction·√k (mass=1).
-  const SPRING_K = (2 * Math.PI / SPRING_RESPONSE) ** 2;
-  const SPRING_C = 2 * SPRING_DAMPING * Math.sqrt(SPRING_K);
-  // Velocity carried across frames for the idle spring follower.
-  const velRef = useRef({ x: 0, y: 0 });
-  // Last timestamp for the spring RAF loop (dt in seconds).
-  const lastSpringTsRef = useRef<number | null>(null);
+  // ── Pet perch & detachable rocket-hand pointing ────────────────────────
+  useEffect(() => {
+    posRef.current = pet.perch;
+  }, [pet.perch]);
 
-  const setCursor = useCallback((x: number, y: number, rot: number, scale: number, opacity: number) => {
-    const el = cursorRef.current;
-    if (el) el.style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${rot}deg) scale(${scale})`;
-    el?.style.setProperty("opacity", String(opacity));
-    cursorRotationRef.current = rot;
-    if (waveformRef.current) waveformRef.current.style.transform = `rotate(${-rot}deg)`;
-    if (bubbleAnchorRef.current) bubbleAnchorRef.current.style.transform = `rotate(${-rot}deg)`;
-    posRef.current = { x, y };
-  }, []);
+  useEffect(() => {
+    if (!showCursor) return;
+    pet.setPerch({
+      x: Math.max(62, window.innerWidth - 78),
+      y: Math.max(64, window.innerHeight - 104),
+    });
+  // The stable setter is intentional; reposition only when Tars becomes visible.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCursor]);
 
-  const flyTo = useCallback((point: Point) => {
-    activePointRef.current = true;
-    const from = posRef.current;
-    const to = { x: point.x, y: point.y };
-    const dist = Math.hypot(to.x - from.x, to.y - from.y);
-    // Match real Tars: duration = clamp(dist/800, 0.6s, 1.4s)
-    const duration = Math.min(Math.max(dist / 800, 0.6), 1.4) * 1000;
-    const arc = Math.min(dist * 0.2, 80);
-    const c = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - arc };
-    const start = performance.now();
-    const step = (now: number) => {
-      const raw = Math.min((now - start) / duration, 1);
-      // Smoothstep easeInOut: 3t² - 2t³ (Hermite) — matches real Tars
-      const t = raw * raw * (3 - 2 * raw);
-      const m = 1 - t;
-      const x = m * m * from.x + 2 * m * t * c.x + t * t * to.x;
-      const y = m * m * from.y + 2 * m * t * c.y + t * t * to.y;
-      const tx = 2 * m * (c.x - from.x) + 2 * t * (to.x - c.x);
-      const ty = 2 * m * (c.y - from.y) + 2 * t * (to.y - c.y);
-      // sin pulse peaks at midpoint, +0.3 → 1.3x scale (matches real Tars)
-      setCursor(x, y, (Math.atan2(ty, tx) * 180) / Math.PI + 90, 1 + Math.sin(raw * Math.PI) * 0.3, 1);
-      if (raw < 1) requestAnimationFrame(step);
-      else {
-        setBubble(point.label || "right here");
-        window.setTimeout(() => {
-          activePointRef.current = false;
-          setBubble("");
-        }, 2600);
-      }
-    };
-    requestAnimationFrame(step);
-  }, [setCursor]);
+  const flyTo = useCallback((
+    point: Point,
+    element?: HTMLElement | null,
+    onLand?: () => void,
+  ) => {
+    pet.launch({
+      point: { x: point.x, y: point.y },
+      label: point.label,
+      resolve: element
+        ? () => element.isConnected ? pointForElement(element, point.label) : null
+        : undefined,
+      rawCoordinate: !element,
+    }, { onLand });
+  }, [pet.launch]);
 
   const clearScreenAnnotations = useCallback(() => {
     setScreenAnnotations([]);
@@ -780,45 +744,6 @@ export default function GlobalTarsAssistant() {
       clearScreenAnnotations();
     };
   }, [isWhiteboardSession, clearScreenAnnotations]);
-
-  // ── Idle spring-follow loop ──────────────────────────────────────────────
-  // Integrates a spring toward the last mouse position + offset at 60fps.
-  useEffect(() => {
-    if (!showCursor) return;
-    const onMove = (e: MouseEvent) => {
-      mouseRef.current = { x: e.clientX, y: e.clientY };
-    };
-    window.addEventListener("mousemove", onMove);
-    const raf = (ts: number) => {
-      if (lastSpringTsRef.current == null) lastSpringTsRef.current = ts;
-      const dtMs = Math.min(ts - lastSpringTsRef.current, 32);
-      lastSpringTsRef.current = ts;
-      const dt = dtMs / 1000;
-      if (!activePointRef.current) {
-        const target = {
-          x: mouseRef.current.x + BUDDY_OFFSET_X,
-          y: mouseRef.current.y + BUDDY_OFFSET_Y,
-        };
-        // Semi-implicit Euler spring (stable for the chosen k/c).
-        const dx = posRef.current.x - target.x;
-        const dy = posRef.current.y - target.y;
-        velRef.current.x += (-SPRING_K * dx - SPRING_C * velRef.current.x) * dt;
-        velRef.current.y += (-SPRING_K * dy - SPRING_C * velRef.current.y) * dt;
-        posRef.current.x += velRef.current.x * dt;
-        posRef.current.y += velRef.current.y * dt;
-        setCursor(posRef.current.x, posRef.current.y, BUDDY_DEFAULT_ROT, 1, 1);
-      }
-      rafIdRef.current = requestAnimationFrame(raf);
-    };
-    rafIdRef.current = requestAnimationFrame(raf);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = null;
-      lastSpringTsRef.current = null;
-      velRef.current = { x: 0, y: 0 };
-    };
-  }, [showCursor, setCursor]);
 
   // ── Capture a screenshot + DOM inventory and push to Realtime turn ────────
   const pushScreenContext = useCallback(
@@ -966,9 +891,6 @@ export default function GlobalTarsAssistant() {
       wsHook.connect(url, {
         authToken: token ?? undefined,
         onAudio: (pcm) => {
-          // The first response audio chunk is the authoritative transition out
-          // of the thinking spinner and back to the normal Tars pointer.
-          setMode("speaking");
           audioHook.playAudioChunk(pcm);
           replyAudioStatsRef.current.chunks += 1;
           replyAudioStatsRef.current.bytes += pcm.byteLength;
@@ -976,7 +898,10 @@ export default function GlobalTarsAssistant() {
             `reply audio chunks=${replyAudioStatsRef.current.chunks} bytes=${replyAudioStatsRef.current.bytes} player=${audioHook.getPlaybackState()}`,
           );
         },
-        onInterrupt: () => audioHook.clearPlayback(),
+        onInterrupt: () => {
+          audioHook.clearPlayback();
+          if (!ctrlHeldRef.current) setMode("idle");
+        },
         onError: (message) => setStatus(`Tars unavailable — ${message}`),
       });
     })();
@@ -1173,15 +1098,15 @@ export default function GlobalTarsAssistant() {
       const el = domIdToElementRef.current.get(pt.targetId);
       if (el?.isConnected) {
         const point = pointForElement(el, pt.label);
-        flyTo({
-          ...point,
-          label: pt.label,
-        });
-        if (pt.action === "click") {
-          window.setTimeout(() => {
-            if (clickDomElement(el)) console.info(TARS_LOG, "clicked", pt.targetId);
-          }, 750);
-        }
+        flyTo(
+          { ...point, label: pt.label },
+          el,
+          pt.action === "click"
+            ? () => {
+                if (clickDomElement(el)) console.info(TARS_LOG, "clicked", pt.targetId);
+              }
+            : undefined,
+        );
         return;
       }
       // Element no longer in DOM — fall through to vision if possible.
@@ -1192,10 +1117,11 @@ export default function GlobalTarsAssistant() {
     // Recover by matching the model's short label against the current targets.
     const labelMatchedElement = findDomTargetByLabel(pt.label, domIdToElementRef.current);
     if (labelMatchedElement) {
-      flyTo({ ...pointForElement(labelMatchedElement, pt.label), label: pt.label });
-      if (pt.action === "click") {
-        window.setTimeout(() => clickDomElement(labelMatchedElement), 750);
-      }
+      flyTo(
+        { ...pointForElement(labelMatchedElement, pt.label), label: pt.label },
+        labelMatchedElement,
+        pt.action === "click" ? () => clickDomElement(labelMatchedElement) : undefined,
+      );
       return;
     }
 
@@ -1209,10 +1135,11 @@ export default function GlobalTarsAssistant() {
       const y = (pt.y / imgH) * window.innerHeight;
       const snappedElement = findClosestDomTarget(x, y, domIdToElementRef.current);
       if (snappedElement) {
-        flyTo({ ...pointForElement(snappedElement, pt.label), label: pt.label });
-        if (pt.action === "click") {
-          window.setTimeout(() => clickDomElement(snappedElement), 750);
-        }
+        flyTo(
+          { ...pointForElement(snappedElement, pt.label), label: pt.label },
+          snappedElement,
+          pt.action === "click" ? () => clickDomElement(snappedElement) : undefined,
+        );
       } else {
         flyTo({ x, y, label: pt.label });
       }
@@ -1347,20 +1274,21 @@ export default function GlobalTarsAssistant() {
     }
   }, [wsHook.tarsAgentDraws, boardDrawCommands, addScreenAnnotation, clearScreenAnnotations]);
 
-  // ── Mode transitions from WS events ───────────────────────────────────────
+  // ── Mode transitions from WS events and physical playback ─────────────────
   useEffect(() => {
     if (!globalTarsActive || !user) return;
-    // When the assistant starts streaming audio response, set mode to speaking.
     if (wsHook.messages.length > 0) {
       const last = wsHook.messages[wsHook.messages.length - 1];
       if (last.role === "user") {
         setDebugLine(`heard: ${last.text || "..."}${last.partial ? "" : " ✓"}`);
       }
-      if (last.role === "agent" && last.partial) {
-        setMode("speaking");
-      }
     }
   }, [wsHook.messages, globalTarsActive, user]);
+
+  useEffect(() => {
+    if (!globalTarsActive || !user || ctrlHeldRef.current) return;
+    setMode(audioHook.isPlaying ? "speaking" : "idle");
+  }, [audioHook.isPlaying, globalTarsActive, user]);
 
   useEffect(() => {
     if (!globalTarsActive || !user) return;
@@ -1449,8 +1377,6 @@ export default function GlobalTarsAssistant() {
   if (!mounted) return null;
 
   if (!user || isLanding || isAdmin) return null;
-
-  const renderCursor = showCursor;
 
   return (
     <div data-global-tars="true" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 2147483000 }}>
@@ -1578,31 +1504,22 @@ export default function GlobalTarsAssistant() {
           })}
         </svg>
       )}
-      {renderCursor && (
-        <div
-          ref={cursorRef}
-          style={{ position: "fixed", left: 0, top: 0, width: 0, height: 0, opacity: 0, willChange: "transform, opacity" }}
-        >
-          <div style={{ position: "absolute", left: 0, top: 0, opacity: mode === "idle" || mode === "speaking" ? 1 : 0, transition: "opacity 0.13s ease" }}>
-            <div style={{ position: "absolute", left: -8, top: 0, width: 16, height: 13.856, background: "#79a925", clipPath: "polygon(50% 0, 100% 100%, 0 100%)", filter: "drop-shadow(0 0 7px rgba(121,169,37,0.42))" }} />
-          </div>
-          <div ref={waveformRef} style={{ position: "absolute", left: -7, top: -6, height: 18, display: "flex", alignItems: "center", gap: 1, opacity: mode === "listening" ? 1 : 0, transformOrigin: "7px 6px", transition: "opacity 0.16s ease", filter: "drop-shadow(0 0 5px rgba(20,184,166,0.6))" }}>
-            {[0.25, 0.55, 1, 0.55, 0.25].map((profile, i) => (
-              <span key={i} style={{ width: 2, height: 4 + profile * 9, borderRadius: 2, background: "#14b8a6", animation: `tars-wave 0.78s ease-in-out ${i * 0.09}s infinite alternate` }} />
-            ))}
-          </div>
-          <div style={{ position: "absolute", left: -8, top: -8, width: 12, height: 12, borderRadius: 999, border: "2px solid rgba(121,169,37,0.14)", borderTopColor: "#79a925", borderRightColor: "rgba(121,169,37,0.72)", opacity: mode === "thinking" ? 1 : 0, transition: "opacity 0.16s ease", animation: "tars-spin 0.9s linear infinite", filter: "drop-shadow(0 0 5px rgba(121,169,37,0.42))" }} />
-          {SHOW_TARS_BUBBLE && !!bubble && (
-            <div
-              ref={bubbleAnchorRef}
-              style={{ position: "absolute", left: 18, top: -8, transform: `rotate(${-cursorRotationRef.current}deg)`, transformOrigin: "0 0" }}
-            >
-              <div style={{ maxWidth: 280, padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.96)", border: "1px solid rgba(0,0,0,0.12)", color: "#1f2937", fontSize: 13, fontStyle: "normal", letterSpacing: 0, lineHeight: 1.35, textAlign: "left", pointerEvents: "none" }}>
-                {bubble}
-              </div>
-            </div>
-          )}
-        </div>
+      {showCursor && (
+        <TarsPet
+          perch={pet.perch}
+          gazeTarget={pet.gazeTarget}
+          mode={mode}
+          gesture={pet.gesture}
+          rocket={pet.rocket}
+          launchSide={pet.launchSide}
+          label={pet.label}
+          hopping={pet.hopping}
+          reducedMotion={pet.reducedMotion}
+          onDragStart={pet.beginDrag}
+          onDrag={pet.dragTo}
+          onDragEnd={pet.endDrag}
+          zIndex={2147483001}
+        />
       )}
       {!isLanding && !isWhiteboardSession && user && trainingOpen && (
         <div style={{ pointerEvents: "auto", position: "fixed", right: 18, bottom: 108, width: 286, border: "1px solid rgba(0,0,0,0.12)", background: "rgba(255,255,255,0.98)", borderRadius: 14, padding: 14, color: "#1f2937", fontSize: 13, lineHeight: 1.35 }}>
@@ -1633,8 +1550,6 @@ export default function GlobalTarsAssistant() {
         </div>
       )}
       <style jsx global>{`
-        @keyframes tars-wave { from { transform: scaleY(0.65); opacity: 0.7; } to { transform: scaleY(1.22); opacity: 1; } }
-        @keyframes tars-spin { to { transform: rotate(360deg); } }
         @keyframes tars-draw-stroke { from { stroke-dashoffset: 1; opacity: 0.35; } to { stroke-dashoffset: 0; opacity: 1; } }
         @keyframes tars-draw-highlight { from { opacity: 0; } to { opacity: 0.2; } }
         @keyframes tars-draw-label { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }

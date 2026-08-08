@@ -3,15 +3,14 @@
 /**
  * LabCoach — Ctrl+Teach's pixel-precise visual coaching overlay.
  *
- * This is the hero feature, inspired by Tars's "[POINT:x,y:label]" + bezier-arc
- * flight, reimagined for the browser:
+ * This is the hero feature, inspired by Tars's "[POINT:x,y:label]" interaction,
+ * reimagined as a browser-native rocket-hand pet:
  *
  *  - Targets are CSS selectors, resolved to live element rects on every animation
  *    frame (so annotations stay pixel-accurate through scroll / reflow — the
  *    equivalent of Tars's coordinate→monitor mapping, but DOM-relative).
- *  - A glowing "coach cursor" flies between targets along a quadratic-bezier arc
- *    (ported from Tars's `animateBezierFlightArc` — smoothstep easing, tangent
- *    rotation, midpoint scale pulse).
+ *  - Tars remains perched while its target-facing hand detaches, follows a
+ *    quadratic-bezier arc, points precisely, and returns to dock.
  *  - Annotations: arrow, circle, pulsing hotspot, label, hint card, focus/dim
  *    scrim with a target cutout, and a success celebration.
  *
@@ -19,12 +18,14 @@
  * surface beneath it. It plays a `LabScene` step-by-step.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LabScene, LabStep, Annotation } from "@/lib/types";
+import TarsPet from "@/components/tars/TarsPet";
+import { useRocketPet } from "@/components/tars/useRocketPet";
+import type { PetMode } from "@/lib/tars/petMotion";
 
 const COACH_COLOR = "#79a925";
-const COACH_GLOW = "rgba(121,169,37,0.42)";
 
 interface Rect { x: number; y: number; w: number; h: number; }
 
@@ -40,89 +41,6 @@ function rectOf(selector: string): Rect | null {
 function centerOf(r: Rect) {
   return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
 }
-
-// ── Bezier flight (ported from Tars's animateBezierFlightArc) ──────────────
-
-function bezierPoint(t: number, p0: number, p1: number, p2: number) {
-  const m = 1 - t;
-  return m * m * p0 + 2 * m * t * p1 + t * t * p2;
-}
-
-/**
- * Animate a value along a quadratic-bezier arc over `dur` ms, calling `onFrame`
- * with {x,y,rot,scale} each frame. Returns a cancel function.
- *
- *   - smoothstep easing (3t²-2t³)
- *   - tangent rotation so the cursor "faces" travel
- *   - sin-pulse scale peaking at the arc midpoint (swooping feel)
- */
-function flight(
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-  dur: number | undefined,
-  onFrame: (p: { x: number; y: number; rot: number; scale: number }) => void,
-  onDone: () => void
-) {
-  const dist = Math.hypot(to.x - from.x, to.y - from.y);
-  const D = Math.min(Math.max(dist / 800, 0.5), 1.1) * 1000; // ms
-  const total = dur ?? D;
-  const arc = Math.min(dist * 0.18, 70);
-  const control = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - arc };
-  const start = performance.now();
-  let raf = 0;
-  const step = (now: number) => {
-    const tRaw = Math.min((now - start) / total, 1);
-    const t = tRaw * tRaw * (3 - 2 * tRaw); // smoothstep
-    const x = bezierPoint(t, from.x, control.x, to.x);
-    const y = bezierPoint(t, from.y, control.y, to.y);
-    const tx = 2 * (1 - t) * (control.x - from.x) + 2 * t * (to.x - control.x);
-    const ty = 2 * (1 - t) * (control.y - from.y) + 2 * t * (to.y - control.y);
-    const rot = (Math.atan2(ty, tx) * 180) / Math.PI + 90;
-    const scale = 1 + Math.sin(tRaw * Math.PI) * 0.3;
-    onFrame({ x, y, rot, scale });
-    if (tRaw < 1) {
-      raf = requestAnimationFrame(step);
-    } else {
-      onDone();
-    }
-  };
-  raf = requestAnimationFrame(step);
-  return () => cancelAnimationFrame(raf);
-}
-
-// ── Coach cursor (glowing triangle that flies between targets) ───────────────
-
-const CoachCursor: React.FC<{ pos: { x: number; y: number }; rot: number; scale: number; visible: boolean }> = ({
-  pos, rot, scale, visible,
-}) => (
-  <motion.div
-    style={{
-      position: "fixed",
-      left: pos.x,
-      top: pos.y,
-      width: 0,
-      height: 0,
-      zIndex: 10001,
-      pointerEvents: "none",
-      transform: `translate(-50%,-50%) rotate(${rot}deg) scale(${scale})`,
-      opacity: visible ? 1 : 0,
-    }}
-    transition={{ duration: 0.05 }}
-  >
-    <div
-      style={{
-        position: "absolute",
-        left: -8,
-        top: 0,
-        width: 16,
-        height: 13.856,
-        background: COACH_COLOR,
-        clipPath: "polygon(50% 0, 100% 100%, 0 100%)",
-        filter: `drop-shadow(0 0 8px ${COACH_GLOW})`,
-      }}
-    />
-  </motion.div>
-);
 
 // ── A resolved annotation renderer ───────────────────────────────────────────
 
@@ -413,14 +331,20 @@ interface LabCoachProps {
 
 export default function LabCoach({ scene, onComplete }: LabCoachProps) {
   const [stepIndex, setStepIndex] = useState(0);
-  const [coachPos, setCoachPos] = useState({ x: window.innerWidth / 2, y: 120 });
-  const [coachRot, setCoachRot] = useState(-35);
-  const [coachScale, setCoachScale] = useState(1);
-  const [cursorVisible, setCursorVisible] = useState(true);
-  const cancelRef = useRef<(() => void) | null>(null);
+  const [petMode, setPetMode] = useState<PetMode>("idle");
+  const pet = useRocketPet({
+    initialPerch: { x: 90, y: 90 },
+    mode: petMode,
+    roaming: true,
+  });
+  const coachPos = pet.perch;
   const [rects, setRects] = useState<Record<string, Rect | null>>({});
   const total = scene.steps.length;
   const done = stepIndex >= total;
+
+  useEffect(() => {
+    setPetMode(pet.gesture === "perched" ? "idle" : "speaking");
+  }, [pet.gesture]);
 
   // First annotation target of the current step — where the cursor flies to.
   const step: LabStep | null = scene.steps[stepIndex] ?? null;
@@ -452,24 +376,28 @@ export default function LabCoach({ scene, onComplete }: LabCoachProps) {
     return () => cancelAnimationFrame(raf);
   }, [scene, stepIndex, total]);
 
-  // Coach cursor bezier flight — fires once per STEP (not per rect update), so
-  // the arc flight is stable even if the practice surface scrolls. The target
-  // rect is read directly from the DOM at trigger time (the element is mounted),
-  // decoupled from the reactive rect-tracking loop used by the annotations.
   useEffect(() => {
-    cancelRef.current?.();
+    pet.setPerch({
+      x: Math.max(64, window.innerWidth - 82),
+      y: Math.min(112, Math.max(70, window.innerHeight / 4)),
+    });
+  // Set the initial lab perch once; subsequent movement belongs to the pet controller.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Each step launches the target-facing hand while the pet remains perched.
+  // The resolver keeps the fingertip grounded through lab reflow and scrolling.
+  useEffect(() => {
     if (!flyTarget) return;
     const target = rectOf(flyTarget);
     if (!target) return;
-    const to = centerOf(target);
-    const offset = { x: to.x + 14, y: to.y + 14 };
-    cancelRef.current = flight(coachPos, offset, undefined, (p) => {
-      setCoachPos({ x: p.x, y: p.y });
-      setCoachRot(p.rot);
-      setCoachScale(p.scale);
-    }, () => {
-      setCoachRot(-35);
-      setCoachScale(1);
+    pet.launch({
+      point: centerOf(target),
+      label: step?.coachLine,
+      resolve: () => {
+        const liveTarget = rectOf(flyTarget);
+        return liveTarget ? centerOf(liveTarget) : null;
+      },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flyTarget, stepIndex]);
@@ -483,19 +411,31 @@ export default function LabCoach({ scene, onComplete }: LabCoachProps) {
     return () => clearTimeout(id);
   }, [step, stepIndex, total]);
 
-  const bubbleAnchor = (() => {
-    if (!flyTarget) return coachPos;
-    const r = rects[flyTarget];
-    return r ? { x: r.x, y: r.y } : coachPos;
-  })();
+  const bubbleAnchor = coachPos;
 
   return (
     <>
       {/* keyframes for caret blink */}
       <style>{`@keyframes blink { 0%,50% {opacity:1} 51%,100% {opacity:0} }`}</style>
 
-      {/* Cursor + bubble */}
-      <CoachCursor pos={coachPos} rot={coachRot} scale={coachScale} visible={cursorVisible && !done} />
+      {/* Rocket-hand pet + bubble */}
+      <TarsPet
+        perch={pet.perch}
+        gazeTarget={pet.gazeTarget}
+        mode={petMode}
+        gesture={pet.gesture}
+        rocket={pet.rocket}
+        launchSide={pet.launchSide}
+        label={pet.label}
+        hopping={pet.hopping}
+        reducedMotion={pet.reducedMotion}
+        onDragStart={pet.beginDrag}
+        onDrag={pet.dragTo}
+        onDragEnd={pet.endDrag}
+        showLabel={false}
+        visible={!done}
+        zIndex={10001}
+      />
       {step && !done && <CoachBubble text={step.coachLine} at={bubbleAnchor} />}
 
       {/* All annotations for every step up to the current one accumulate,

@@ -17,6 +17,7 @@ const playbackCompletion = TarsPlaybackGate.createPlaybackCompletionGate(() => {
   void emit({
     type: "TARS_STATUS",
     mode: "idle",
+    playbackActive: false,
     text: "Tars ready — hold Ctrl to talk",
     delayed: true,
   });
@@ -164,12 +165,15 @@ async function playPcm(base64) {
       playerSources.delete(source);
       source.disconnect();
       playbackCompletion.sourceEnded();
+      if (playerSources.size === 0) {
+        void emit({ type: "TARS_STATUS", mode: "idle", playbackActive: false });
+      }
     };
     const startAt = Math.max(playerNextStart, playerContext.currentTime + 0.025);
     source.start(startAt);
     playerNextStart = startAt + buffer.duration;
     playbackCompletion.sourceScheduled();
-    void emit({ type: "TARS_STATUS", mode: "speaking" });
+    void emit({ type: "TARS_STATUS", mode: "speaking", playbackActive: true });
   } catch (error) {
     if (source) {
       playerSources.delete(source);
@@ -323,6 +327,7 @@ function handleServerEvent(event) {
       text: event.outputTranscription.text,
       append: !event.outputTranscription.finished,
       finished: Boolean(event.outputTranscription.finished),
+      transcriptOnly: true,
     });
   }
   for (const part of event.content?.parts || []) {

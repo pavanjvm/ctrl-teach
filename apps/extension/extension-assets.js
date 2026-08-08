@@ -9,6 +9,7 @@
     "grounding-geometry.js",
     "drawing-lifetime.js",
     "github-lab.js",
+    "rocket-pet.js",
     "content.js",
   ]);
 

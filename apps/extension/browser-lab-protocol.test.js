@@ -79,6 +79,7 @@ test("spoken lab guidance has one transcript source", () => {
     "utf8",
   );
   assert.match(offscreenSource, /append: !event\.outputTranscription\.finished/);
+  assert.match(offscreenSource, /transcriptOnly: true/);
   assert.match(offscreenSource, /resetTranscript: true/);
   const contentSource = fs.readFileSync(
     path.join(__dirname, "content.js"),

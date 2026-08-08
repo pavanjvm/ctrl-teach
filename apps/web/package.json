@@ -11,7 +11,8 @@
     "test:classroom-text": "node --experimental-strip-types --test src/lib/realtime/classroomTextLayout.test.mjs",
     "test:course-editor": "node --experimental-strip-types --test src/lib/courses/editor.test.mjs",
     "test:roadmap-matching": "node --experimental-strip-types --test src/lib/learning/roadmapMatching.test.mjs",
-    "test:tars-routes": "node --experimental-strip-types --test src/lib/tars/routes.test.mjs"
+    "test:tars-routes": "node --experimental-strip-types --test src/lib/tars/routes.test.mjs",
+    "test:tars-pet": "node --experimental-strip-types --test src/lib/tars/petMotion.test.mjs src/lib/tars/tarsLipSync.test.mjs"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",

@@ -161,16 +161,7 @@
   ]);
   const CONTENT_INSTANCE_ID = crypto.randomUUID();
   const MAX_TARGETS = 240;
-  const BUDDY_OFFSET_X = 35;
-  const BUDDY_OFFSET_Y = 25;
-  const DEFAULT_ROTATION = -35;
-  // A slower, more-damped spring keeps a smooth trailing motion without the
-  // cursor bouncing around its target.
-  const SPRING_RESPONSE = 0.38;
-  const SPRING_DAMPING = 0.68;
-  const SPRING_OMEGA = (2 * Math.PI) / SPRING_RESPONSE;
-  const SPRING_K = SPRING_OMEGA ** 2;
-  const SPRING_C = 2 * SPRING_DAMPING * SPRING_OMEGA;
+  const rocketPet = globalThis.CtrlTeachRocketPet;
   const SENSITIVE_TEXT = /\b(buy|purchase|pay|checkout|place order|delete|remove|erase|send|submit|publish|post|sign out|log out|change password|reset password|upload|download|allow|grant|confirm booking|book now)\b/i;
 
   const githubLabRules = globalThis.CtrlTeachGitHubLab;
@@ -189,12 +180,24 @@
   let currentTargets = new Map();
   let lastCollectedElements = [];
   let mouse = { x: 45, y: 95 };
-  let position = { x: 80, y: 120 };
-  let velocity = { x: 0, y: 0 };
+  let position = { x: 80, y: 120 }; // independent pet perch
+  let perchInitialized = false;
   let activePoint = false;
   // Monotonic token that cancels any in-progress pointing/navigation when a
   // new point arrives, so a stale return-flight never clobbers a fresh target.
   let navToken = 0;
+  let rocketPose = null;
+  let rocketSide = null;
+  let rocketFrame = 0;
+  let rocketTimer = 0;
+  let perchFrame = 0;
+  let roamTimer = 0;
+  let petDragging = false;
+  let petDragPointerId = null;
+  let petDragOffset = { x: 0, y: 0 };
+  let activeRawCoordinate = false;
+  let rocketHoldOpen = false;
+  const reducedMotionQuery = matchMedia("(prefers-reduced-motion: reduce)");
   const DRAWINGS_AUTO_CLEAR_MS = 6000;
   let drawingLifetime = null;
   let ctrlTrailPoints = [];
@@ -208,7 +211,6 @@
   let lastGitHubPolicySignal = "";
   let githubPrivateAutomationRunning = false;
   let githubPrivateHandoffActive = false;
-  let lastFrame = 0;
   let cursorReportAt = 0;
   let statusText = "";
   let transcriptText = "";
@@ -216,6 +218,7 @@
   let transcriptReplayCandidate = "";
   let transcriptReplaySuppressed = false;
   let bubbleClearTimer = 0;
+  let bubbleStreamToken = 0;
 
   const host = document.createElement("div");
   host.id = "ctrlteach-tars-extension";
@@ -232,18 +235,49 @@
       :host { all: initial; }
       #layer { position: fixed; inset: 0; pointer-events: none; overflow: hidden; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
       #drawings { position: fixed; inset: 0; width: 100vw; height: 100vh; overflow: visible; pointer-events: none; }
-      #cursor { position: fixed; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
-      #triangle { position: absolute; left: -8px; top: 0; width: 16px; height: 13.856px; background: #79a925; clip-path: polygon(50% 0, 100% 100%, 0 100%); opacity: 1; transition: opacity .13s ease, background-color .13s ease; filter: drop-shadow(0 0 7px rgba(121,169,37,.45)); }
-      #waveform { position: absolute; left: -7px; top: -6px; height: 18px; display: flex; align-items: center; gap: 1px; opacity: 0; transform-origin: 7px 6px; transition: opacity .16s ease; filter: drop-shadow(0 0 5px rgba(20,184,166,.6)); }
-      #waveform span { width: 2px; border-radius: 999px; background: #14b8a6; transform-origin: center; animation: wave .78s ease-in-out infinite alternate; }
-      #waveform span:nth-child(1), #waveform span:nth-child(5) { height: 5px; }
-      #waveform span:nth-child(2), #waveform span:nth-child(4) { height: 9px; animation-delay: .09s; }
-      #waveform span:nth-child(3) { height: 13px; animation-delay: .18s; }
-      #ring { position: absolute; left: -8px; top: -8px; width: 12px; height: 12px; border: 2px solid rgba(121,169,37,.2); border-top-color: #79a925; border-right-color: rgba(121,169,37,.72); border-radius: 999px; opacity: 0; transition: opacity .16s ease; filter: drop-shadow(0 0 5px rgba(121,169,37,.4)); }
-      #cursor[data-mode="listening"] #triangle, #cursor[data-mode="thinking"] #triangle { opacity: 0; }
-      #cursor[data-mode="listening"] #waveform { opacity: 1; }
-      #cursor[data-mode="thinking"] #ring { opacity: 1; animation: spin .9s linear infinite; }
-      #bubble-anchor { position: absolute; left: 20px; top: 24px; transform-origin: 0 0; will-change: transform; }
+      #cursor { position: fixed; left: 0; top: 0; width: 48px; height: 44px; transform-origin: 50% 68%; will-change: transform; filter: drop-shadow(0 5px 9px rgba(16,18,15,.22)) drop-shadow(0 0 2px rgba(255,255,255,.9)); pointer-events: auto; cursor: grab; touch-action: none; user-select: none; }
+      #cursor[data-dragging="true"] { cursor: grabbing; }
+      #pet-svg { width: 48px; height: 44px; overflow: visible; animation: petBreathe 2.8s ease-in-out infinite; }
+      #pet-eyes { transform-origin: 22px 19px; animation: petBlink 6.2s ease-in-out infinite; }
+      #hand-left, #hand-right { transition: opacity .1s ease; }
+      #socket-left, #socket-right { opacity: 0; animation: socketGlow .55s ease-in-out infinite; }
+      #cursor[data-launch-side="left"]:not([data-gesture="perched"]):not([data-gesture="dock"]) #hand-left { opacity: 0; }
+      #cursor[data-launch-side="right"]:not([data-gesture="perched"]):not([data-gesture="dock"]) #hand-right { opacity: 0; }
+      #cursor[data-launch-side="left"]:not([data-gesture="perched"]) #socket-left,
+      #cursor[data-launch-side="right"]:not([data-gesture="perched"]) #socket-right { opacity: .9; }
+      #cursor[data-mode="speaking"] #pet-svg { animation: petSpeak .78s ease-in-out infinite; }
+      #pet-ear { opacity: 0; transform-origin: 34px 18px; transform: scale(.55); transition: opacity .18s ease, transform .18s ease; filter: drop-shadow(1px 2px 2px rgba(16,18,15,.2)); }
+      #cursor[data-mode="listening"] #pet-ear { opacity: 1; animation: listen .62s ease-in-out infinite alternate; }
+      #pet-speaking-mouth { opacity: 0; transform-origin: 22px 29px; }
+      #cursor[data-mode="speaking"] #pet-smile { opacity: 0; }
+      #cursor[data-mode="speaking"] #pet-speaking-mouth { opacity: 1; animation: talk .34s ease-in-out infinite; }
+      #thinking-face, #thinking-hand { opacity: 0; transition: opacity .15s ease; }
+      #cursor[data-mode="thinking"] #pet-smile { opacity: 0; }
+      #cursor[data-mode="thinking"] #thinking-face { opacity: 1; }
+      #cursor[data-mode="thinking"][data-gesture="perched"] #hand-right,
+      #cursor[data-mode="thinking"][data-gesture="dock"] #hand-right { opacity: 0; }
+      #cursor[data-mode="thinking"][data-gesture="perched"] #thinking-hand,
+      #cursor[data-mode="thinking"][data-gesture="dock"] #thinking-hand { opacity: 1; animation: ponder .72s ease-in-out infinite alternate; transform-origin: 31px 30px; }
+      #thought { position: absolute; right: -11px; top: -11px; display: flex; align-items: flex-end; gap: 2px; opacity: 0; transition: opacity .16s ease; }
+      #thought span { width: 5px; height: 5px; border-radius: 50%; background: #79a925; box-shadow: 0 1px 3px rgba(16,18,15,.24); animation: thinkDot .72s ease-in-out infinite; }
+      #thought span:nth-child(2) { width: 7px; height: 7px; animation-delay: .12s; }
+      #thought span:nth-child(3) { width: 9px; height: 9px; animation-delay: .24s; }
+      #cursor[data-mode="thinking"] #thought { opacity: 1; }
+      #rocket-hand { position: fixed; left: 0; top: 0; width: 36px; height: 22px; display: none; transform-origin: 97% 50%; will-change: transform; filter: drop-shadow(0 3px 6px rgba(16,18,15,.2)); }
+      #rocket-hand.visible { display: block; }
+      #rocket-thrust { position: absolute; left: -18px; top: 50%; width: 22px; height: 16px; transform: translateY(-50%); opacity: 0; }
+      #rocket-hand.thrusting #rocket-thrust { opacity: 1; }
+      #rocket-thrust .flame { position: absolute; right: 0; top: 50%; height: 8px; clip-path: polygon(100% 0,0 50%,100% 100%); transform-origin: right center; animation: flame .09s ease-in-out infinite alternate; }
+      #rocket-thrust .outer { width: 20px; margin-top: -4px; background: #f59e0b; }
+      #rocket-thrust .inner { width: 13px; height: 4px; margin-top: -2px; background: #d9ff83; }
+      #rocket-thrust .spark { position: absolute; right: 5px; width: 3px; height: 3px; border-radius: 50%; background: #f59e0b; animation: spark .36s linear infinite; }
+      #rocket-thrust .spark.one { top: 1px; } #rocket-thrust .spark.two { bottom: 1px; animation-delay: .17s; }
+      #rocket-thrust .smoke { position: absolute; right: 11px; top: 6px; width: 5px; height: 5px; border-radius: 50%; background: #d8dbd1; animation: smoke .55s ease-out infinite; }
+      #rocket-thrust .smoke.two { animation-delay: .25s; }
+      #target-pulse { position: fixed; left: 0; top: 0; width: 20px; height: 20px; display: none; border: 2px solid rgba(121,169,37,.8); border-radius: 50%; transform: translate(-50%,-50%); animation: targetPulse 1s ease-out infinite; }
+      #target-pulse.visible { display: block; }
+      #bubble-anchor { position: absolute; left: 50px; top: -9px; transform-origin: 0 0; }
+      #cursor[data-bubble-side="left"] #bubble-anchor { left: auto; right: 50px; }
       #bubble { width: max-content; max-width: 320px; padding: 8px 11px; border-radius: 10px; background: #111827; color: white; font: 600 12px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; font-style: normal; letter-spacing: 0; text-align: left; box-shadow: 0 12px 34px rgba(0,0,0,.22); opacity: 0; transform: translateY(3px) scale(.96); transform-origin: 0 0; transition: opacity .2s ease, transform .2s ease; }
       #bubble.visible { opacity: 1; transform: translateY(0) scale(1); }
       #bubble.pop { animation: bubblePop .26s cubic-bezier(.2,1.5,.35,1); }
@@ -264,18 +298,68 @@
       .stroke.dotted { stroke-dasharray: 2 5; stroke-dashoffset: 0; stroke-linecap: round; animation: none; }
       .ctrl-trail-segment { stroke: #14b8a6; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 6px rgba(20,184,166,.5)); }
       .draw-text { font: 600 13px/1.3 Inter, ui-sans-serif, system-ui, sans-serif; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 4px; stroke-linejoin: round; animation: draw .35s ease forwards; }
-      @keyframes spin { to { transform: rotate(360deg); } }
-      @keyframes wave { from { transform: scaleY(.58); opacity: .72; } to { transform: scaleY(1.18); opacity: 1; } }
+      @keyframes petBreathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.035); } }
+      @keyframes petBlink { 0%,44%,48%,100% { transform: scaleY(1); } 46% { transform: scaleY(.08); } }
+      @keyframes petSpeak { 0%,100% { transform: scale(1); } 50% { transform: scale(1.045) translateY(-1px); } }
+      @keyframes socketGlow { 0%,100% { filter: drop-shadow(0 0 2px #f59e0b); } 50% { filter: drop-shadow(0 0 7px #f59e0b); } }
+      @keyframes listen { from { transform: scale(.96) rotate(-1deg); } to { transform: scale(1.035) rotate(1deg); } }
+      @keyframes talk { 0%,100% { transform: scaleY(.55); } 50% { transform: scaleY(1.2); } }
+      @keyframes thinkDot { 0%,100% { transform: translateY(0); opacity: .35; } 50% { transform: translateY(-3px); opacity: 1; } }
+      @keyframes ponder { from { transform: translateY(0) rotate(-1deg); } to { transform: translateY(-1px) rotate(1deg); } }
+      @keyframes flame { from { transform: scaleX(.7); opacity: .72; } to { transform: scaleX(1.12); opacity: 1; } }
+      @keyframes spark { from { transform: translateX(0) scale(1); opacity: 1; } to { transform: translateX(-15px) scale(0); opacity: 0; } }
+      @keyframes smoke { from { transform: translateX(0) scale(.6); opacity: .36; } to { transform: translateX(-22px) scale(1.3); opacity: 0; } }
+      @keyframes targetPulse { from { transform: translate(-50%,-50%) scale(.45); opacity: .62; } to { transform: translate(-50%,-50%) scale(1.5); opacity: 0; } }
       @keyframes draw { to { stroke-dashoffset: 0; } }
+      @media (prefers-reduced-motion: reduce) { #pet-svg,#pet-eyes,#pet-ear,#pet-speaking-mouth,#thinking-hand,#thought span,#socket-left,#socket-right,#target-pulse { animation: none !important; } #target-pulse { opacity: .45; transform: translate(-50%,-50%); } }
     </style>
     <div id="layer">
       <svg id="drawings" aria-hidden="true"></svg>
-      <div id="cursor" data-mode="idle">
-        <div id="triangle"></div>
-        <div id="waveform" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
-        <div id="ring"></div>
+      <div id="cursor" data-mode="idle" data-gesture="perched">
+        <svg id="pet-svg" viewBox="0 0 44 40" aria-hidden="true">
+          <ellipse cx="22" cy="37" rx="14" ry="2.5" fill="rgba(16,18,15,.16)"></ellipse>
+          <circle id="socket-left" cx="5.5" cy="25" r="3.2" fill="#26320f"></circle>
+          <circle id="socket-right" cx="38.5" cy="25" r="3.2" fill="#26320f"></circle>
+          <path id="pet-body-shape" d="M8.3 9.8C11.8 4.4 17.1 2 22 2s10.2 2.4 13.7 7.8c3.2 4.8 4.2 13.2 1.2 19.1C34.2 34.2 28.5 37 22 37S9.8 34.2 7.1 28.9c-3-5.9-2-14.3 1.2-19.1Z" fill="#b7ec52" stroke="#10120f" stroke-width="2"></path>
+          <path d="M11.3 11.5c3-4 6.6-5.6 10.7-5.6s7.7 1.6 10.7 5.6" fill="none" stroke="rgba(255,255,255,.64)" stroke-width="2.2" stroke-linecap="round"></path>
+          <g id="pet-ear">
+            <path d="M34.2 11.5c1.5-4.8 8.9-6.1 12.3-1.7 3.7 4.9 1.3 14-5.2 16.6-4.7 1.8-9.2-1-8.9-5.1.2-2.5 2-4.3 4.8-5 3-.7 4.3-2.9 3.1-4.8-1.2-1.9-3.9-1.7-6.1 0Z" fill="#e7ffb1" stroke="#10120f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path d="M38.3 11.5c2.7-.8 4.9 1.1 4.3 3.5-.5 1.9-2.2 2.8-4.1 2.8-1.5 0-2.4 1-2.3 2.2.1 1.1 1 1.8 2.1 2" fill="none" stroke="#527f19" stroke-width="1.6" stroke-linecap="round"></path>
+          </g>
+          <g id="pet-eyes">
+            <ellipse cx="16.3" cy="19" rx="5.2" ry="5.5" fill="#fff" stroke="#10120f" stroke-width="1.5"></ellipse>
+            <ellipse cx="27.7" cy="19" rx="5.2" ry="5.5" fill="#fff" stroke="#10120f" stroke-width="1.5"></ellipse>
+            <g id="pupils">
+              <circle cx="16.3" cy="19" r="2.1" fill="#10120f"></circle>
+              <circle cx="27.7" cy="19" r="2.1" fill="#10120f"></circle>
+              <circle cx="15.6" cy="18.2" r=".65" fill="#fff"></circle>
+              <circle cx="27" cy="18.2" r=".65" fill="#fff"></circle>
+            </g>
+          </g>
+          <path id="pet-smile" d="M18.8 28.2c2 1.4 4.4 1.4 6.4 0" fill="none" stroke="#10120f" stroke-width="1.7" stroke-linecap="round"></path>
+          <ellipse id="pet-speaking-mouth" cx="22" cy="29" rx="3.4" ry="2.5" fill="#10120f"></ellipse>
+          <g id="thinking-face">
+            <path d="M11.6 13.8c2-1.8 4.5-2.2 6.8-1.1M25.7 12.4c2.3-.5 4.5.2 6.2 2" fill="none" stroke="#10120f" stroke-width="1.5" stroke-linecap="round"></path>
+            <path d="M19.2 29.6c1.9-1.5 4.4-1.3 6.1.3" fill="none" stroke="#10120f" stroke-width="1.6" stroke-linecap="round"></path>
+          </g>
+          <g id="hand-left" transform="scale(-1 1) translate(-44 0)"><path d="M37 22c3-1 5 .8 4 3.2-.7 1.8-2.1 3.7-4.4 4.8-2.4 1.2-4.5-.4-4.1-2.8.4-2.1 1.8-4.2 4.5-5.2Z" fill="#b7ec52" stroke="#10120f" stroke-width="1.7"></path></g>
+          <g id="hand-right"><path d="M37 22c3-1 5 .8 4 3.2-.7 1.8-2.1 3.7-4.4 4.8-2.4 1.2-4.5-.4-4.1-2.8.4-2.1 1.8-4.2 4.5-5.2Z" fill="#b7ec52" stroke="#10120f" stroke-width="1.7"></path></g>
+          <g id="thinking-hand">
+            <path d="M40.2 35.2c-2.2 2.3-6.1 2.7-8.5.8-1.5-1.2-1.8-3.3-.5-4.7 1.2-1.3 3.1-1.6 4.6-.7l1.5.8-4.8-2.4c-1.3-.7-.8-2.8.7-2.7 1.2.1 3.1.9 5.6 2.5 2.6 1.6 3.2 4.4 1.4 6.4Z" fill="#b7ec52" stroke="#10120f" stroke-width="1.7" stroke-linejoin="round"></path>
+            <path d="M34.2 30.1 27.8 27" fill="none" stroke="#10120f" stroke-width="1.7" stroke-linecap="round"></path>
+          </g>
+        </svg>
+        <div id="thought" aria-hidden="true"><span></span><span></span><span></span></div>
         <div id="bubble-anchor"><div id="bubble"></div></div>
       </div>
+      <div id="rocket-hand" aria-hidden="true">
+        <div id="rocket-thrust"><span class="flame outer"></span><span class="flame inner"></span><i class="spark one"></i><i class="spark two"></i><i class="smoke one"></i><i class="smoke two"></i></div>
+        <svg width="36" height="22" viewBox="0 0 36 22">
+          <path d="M8 6.2h13.5V4.5c0-2 1.4-3.5 3.2-3.5 1.7 0 2.8 1.3 2.8 3v2.2h4.8c1.7 0 2.7 1.1 2.7 2.6 0 1.6-1.1 2.7-2.7 2.7h-5.1c-.8 5.2-4.3 8.5-9.7 8.5H13c-5.2 0-8.5-3.2-8.5-7.8 0-3.3 1.2-6 3.5-6Z" fill="#b7ec52" stroke="#10120f" stroke-width="1.8" stroke-linejoin="round"></path>
+          <path d="M11 8.4c2.3-1 4.9-.8 7 .5" fill="none" stroke="rgba(255,255,255,.72)" stroke-width="1.7" stroke-linecap="round"></path>
+        </svg>
+      </div>
+      <div id="target-pulse" aria-hidden="true"></div>
       <div id="status"></div>
       <div id="confirm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
         <div id="confirm-card">
@@ -290,9 +374,11 @@
     </div>`;
 
   const cursor = shadow.getElementById("cursor");
-  const waveform = shadow.getElementById("waveform");
   const bubble = shadow.getElementById("bubble");
   const bubbleAnchor = shadow.getElementById("bubble-anchor");
+  const pupils = shadow.getElementById("pupils");
+  const rocketHand = shadow.getElementById("rocket-hand");
+  const targetPulse = shadow.getElementById("target-pulse");
   const status = shadow.getElementById("status");
   const drawings = shadow.getElementById("drawings");
   const confirmLayer = shadow.getElementById("confirm");
@@ -342,10 +428,24 @@
     mount();
     host.style.display = visible() ? "block" : "none";
     if (!visible()) {
+      navToken += 1;
+      clearRocketMotion();
       pttHeld = false;
       activePoint = false;
+      rocketPose = null;
+      rocketSide = null;
+      petDragging = false;
+      petDragPointerId = null;
+      delete cursor.dataset.dragging;
+      rocketHand.classList.remove("visible", "thrusting");
+      targetPulse.classList.remove("visible");
+      setRocketGesture("perched", null);
       setBubble("");
       setMode("idle");
+    } else {
+      transformCursor(position.x, position.y);
+      updatePetGaze(mouse);
+      scheduleRoam();
     }
   }
 
@@ -362,9 +462,11 @@
       setBubble("");
     }
     cursor.dataset.mode = mode;
+    updatePetGaze(rocketPose || mouse);
     // Thinking and speaking are part of the same visual turn. The drawing's
     // lifetime begins only after the playback gate reports idle.
     drawingLifetime?.setActive(mode !== "idle");
+    scheduleRoam();
   }
 
   function resetTranscriptMergeState() {
@@ -418,6 +520,7 @@
   }
 
   function setBubble(text) {
+    bubbleStreamToken += 1;
     const clean = String(text || "").replace(/\s+/g, " ").trim().slice(0, 260);
     if (clean && bubbleClearTimer) {
       clearTimeout(bubbleClearTimer);
@@ -443,117 +546,326 @@
     }
   }
 
-  function transformCursor(x, y, rotation = DEFAULT_ROTATION, scale = 1) {
+  function transformCursor(x, y, _rotation = 0, scale = 1, recoil = 0) {
     position = { x, y };
-    cursor.style.transform = `translate3d(${x}px,${y}px,0) rotate(${rotation}deg) scale(${scale})`;
-    // The cursor tilts toward its movement, but a listening waveform should
-    // remain level with upright bars instead of inheriting that rotation.
-    waveform.style.transform = `rotate(${-rotation}deg)`;
-    // The pointer rotates to face its movement. Counter-rotate the bubble so
-    // Tars's response text always remains level and readable.
-    bubbleAnchor.style.transform = `rotate(${-rotation}deg)`;
+    cursor.style.transform = `translate3d(${x - 24}px,${y - 22}px,0) translateX(${recoil}px) scale(${scale})`;
   }
 
-  function animateFrame(timestamp) {
-    if (!lastFrame) lastFrame = timestamp;
-    const dt = Math.min(32, timestamp - lastFrame) / 1000;
-    lastFrame = timestamp;
-    if (visible() && !activePoint) {
-      const target = { x: mouse.x + BUDDY_OFFSET_X, y: mouse.y + BUDDY_OFFSET_Y };
-      velocity.x += (-SPRING_K * (position.x - target.x) - SPRING_C * velocity.x) * dt;
-      velocity.y += (-SPRING_K * (position.y - target.y) - SPRING_C * velocity.y) * dt;
-      position.x += velocity.x * dt;
-      position.y += velocity.y * dt;
-      transformCursor(position.x, position.y);
+  function beginPetDrag(event) {
+    if (event.button !== 0 || !visible()) return;
+    petDragging = true;
+    petDragPointerId = event.pointerId;
+    petDragOffset = { x: event.clientX - position.x, y: event.clientY - position.y };
+    if (perchFrame) cancelAnimationFrame(perchFrame);
+    perchFrame = 0;
+    if (roamTimer) clearTimeout(roamTimer);
+    roamTimer = 0;
+    cursor.dataset.dragging = "true";
+    cursor.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function movePetDrag(event) {
+    if (!petDragging || event.pointerId !== petDragPointerId) return;
+    const next = rocketPet.clampPerch(
+      { x: event.clientX - petDragOffset.x, y: event.clientY - petDragOffset.y },
+      { width: innerWidth, height: innerHeight },
+    );
+    transformCursor(next.x, next.y);
+    updatePetGaze(rocketPose || mouse);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function endPetDrag(event, releaseCapture = true) {
+    if (!petDragging || event.pointerId !== petDragPointerId) return;
+    petDragging = false;
+    petDragPointerId = null;
+    delete cursor.dataset.dragging;
+    if (releaseCapture && cursor.hasPointerCapture(event.pointerId)) {
+      cursor.releasePointerCapture(event.pointerId);
     }
-    requestAnimationFrame(animateFrame);
+    scheduleRoam();
+    event.preventDefault();
+    event.stopPropagation();
   }
 
-  // Quadratic-bezier arc flight — the same curve production Tars uses:
-  // smoothstep ease (3t²-2t³), control point lifted by min(distance*0.2, 80),
-  // triangle rotated to the curve tangent, and a sin-pulse scale (1 → 1.3 → 1)
-  // that peaks at the arc apex. Resolves when the cursor has landed.
-  function bezierFlight(from, to) {
-    const distance = Math.hypot(to.x - from.x, to.y - from.y);
-    const duration = Math.min(Math.max(distance / 800, 0.6), 1.4) * 1000;
-    const arc = Math.min(distance * 0.2, 80);
-    const control = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 - arc };
+  cursor.addEventListener("pointerdown", beginPetDrag);
+  cursor.addEventListener("pointermove", movePetDrag);
+  cursor.addEventListener("pointerup", endPetDrag);
+  cursor.addEventListener("pointercancel", endPetDrag);
+  cursor.addEventListener("lostpointercapture", (event) => endPetDrag(event, false));
+
+  function updatePetGaze(point) {
+    if (mode === "thinking" && !rocketPose) {
+      pupils.setAttribute("transform", "translate(1.2 -2)");
+      return;
+    }
+    const dx = point.x - position.x;
+    const dy = point.y - position.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    pupils.setAttribute("transform", `translate(${dx / distance * 2.2} ${dy / distance * 1.8})`);
+  }
+
+  function setRocketGesture(gesture, side = rocketSide) {
+    cursor.dataset.gesture = gesture;
+    cursor.dataset.bubbleSide = position.x > innerWidth - 350 ? "left" : "right";
+    if (side) cursor.dataset.launchSide = side;
+    else delete cursor.dataset.launchSide;
+  }
+
+  function setRocketPose(pose, thrust = true) {
+    rocketPose = { ...pose, thrust };
+    rocketHand.classList.add("visible");
+    rocketHand.classList.toggle("thrusting", thrust && !reducedMotionQuery.matches);
+    rocketHand.style.transform = `translate3d(${pose.x}px,${pose.y}px,0) translate(-97%,-50%) rotate(${pose.rotation}deg)`;
+    updatePetGaze(pose);
+  }
+
+  function clearRocketMotion(resolvePending = true) {
+    if (rocketFrame) cancelAnimationFrame(rocketFrame);
+    if (rocketTimer) clearTimeout(rocketTimer);
+    rocketFrame = 0;
+    rocketTimer = 0;
+    if (resolvePending && pendingLandingResolve) {
+      pendingLandingResolve(false);
+      pendingLandingResolve = null;
+    }
+  }
+
+  function animateRocketSegment(from, to, token, { returning = false, resolveTarget } = {}) {
+    if (rocketFrame) cancelAnimationFrame(rocketFrame);
+    rocketFrame = 0;
+    const duration = rocketPet.flightDuration(from, to, returning);
+    if (reducedMotionQuery.matches) {
+      const resolved = resolveTarget ? resolveTarget() : to;
+      if (!resolved) return Promise.resolve(null);
+      const rotation = Math.atan2(resolved.y - from.y, resolved.x - from.x) * 180 / Math.PI;
+      setRocketPose({ ...resolved, rotation }, false);
+      return new Promise((resolve) => {
+        rocketTimer = setTimeout(() => resolve(resolved), 120);
+      });
+    }
     const started = performance.now();
     return new Promise((resolve) => {
       const step = (now) => {
+        if (token !== navToken) return;
         const raw = Math.min((now - started) / duration, 1);
-        const t = raw * raw * (3 - 2 * raw);
-        const m = 1 - t;
-        const x = m * m * from.x + 2 * m * t * control.x + t * t * to.x;
-        const y = m * m * from.y + 2 * m * t * control.y + t * t * to.y;
-        const tx = 2 * m * (control.x - from.x) + 2 * t * (to.x - control.x);
-        const ty = 2 * m * (control.y - from.y) + 2 * t * (to.y - control.y);
-        transformCursor(x, y, (Math.atan2(ty, tx) * 180) / Math.PI + 90, 1 + Math.sin(raw * Math.PI) * 0.3);
-        if (raw < 1) requestAnimationFrame(step);
-        else { transformCursor(to.x, to.y, DEFAULT_ROTATION, 1); resolve(); }
+        const resolvedTarget = raw >= .65 && resolveTarget ? resolveTarget() : to;
+        if (!resolvedTarget) {
+          rocketFrame = 0;
+          resolve(null);
+          return;
+        }
+        const trackedTarget = resolvedTarget;
+        const frame = rocketPet.bezierFrame(from, trackedTarget, raw, returning ? .08 : .12);
+        setRocketPose(frame, raw < .96);
+        if (raw < 1) rocketFrame = requestAnimationFrame(step);
+        else {
+          rocketFrame = 0;
+          resolve(trackedTarget);
+        }
       };
-      requestAnimationFrame(step);
+      rocketFrame = requestAnimationFrame(step);
     });
   }
 
-  // Types the pointing label one character at a time (30–60ms per char) with a
-  // scale-bounce entrance, exactly like Tars's navigation bubble.
-  function streamBubbleText(text, onDone) {
+  // Types the point label while the launched hand is in flight.
+  function streamBubbleText(text, token) {
     const clean = String(text || "").replace(/\s+/g, " ").trim().slice(0, 260);
+    const streamToken = ++bubbleStreamToken;
     bubble.textContent = "";
     bubble.classList.add("visible", "pop");
-    if (!clean.length) { onDone(); return; }
+    if (!clean.length) return;
     let i = 0;
     const tick = () => {
-      if (i >= clean.length) { onDone(); return; }
+      if (token !== navToken || streamToken !== bubbleStreamToken || i >= clean.length) return;
       bubble.textContent += clean[i++];
-      setTimeout(tick, 30 + Math.random() * 30);
+      setTimeout(tick, 22 + Math.random() * 8);
     };
     setTimeout(tick, 30);
   }
 
-  // Second bezier flight back to the live cursor, then resume spring-following.
-  function flyBackToCursor(token) {
-    const from = { ...position };
-    const to = { x: mouse.x + BUDDY_OFFSET_X, y: mouse.y + BUDDY_OFFSET_Y };
-    bezierFlight(from, to).then(() => {
+  function dockRocket(token) {
+    if (token !== navToken) return;
+    setRocketGesture("dock", rocketSide);
+    rocketTimer = setTimeout(() => {
       if (token !== navToken) return;
+      rocketPose = null;
+      rocketSide = null;
+      rocketHoldOpen = false;
+      activeRawCoordinate = false;
       activePoint = false;
-      // Hand the bubble back to a still-speaking transcript, or clear it.
+      rocketHand.classList.remove("visible", "thrusting");
+      targetPulse.classList.remove("visible");
+      setRocketGesture("perched", null);
+      transformCursor(position.x, position.y);
       if (mode === "speaking" && transcriptText) setBubble(transcriptText);
       else if (mode !== "speaking") setBubble("");
+      scheduleRoam();
+    }, reducedMotionQuery.matches ? 30 : 180);
+  }
+
+  function returnRocket(token = navToken) {
+    if (!rocketPose || !rocketSide || token !== navToken) return;
+    rocketHoldOpen = false;
+    targetPulse.classList.remove("visible");
+    setRocketGesture("return", rocketSide);
+    const from = { x: rocketPose.x, y: rocketPose.y };
+    const to = rocketPet.shoulderPoint(position, rocketSide);
+    animateRocketSegment(from, to, token, {
+      returning: true,
+      resolveTarget: () => rocketPet.shoulderPoint(position, rocketSide),
+    }).then(() => dockRocket(token));
+  }
+
+  function recallRocket() {
+    navToken += 1;
+    const token = navToken;
+    clearRocketMotion();
+    activeRawCoordinate = false;
+    setBubble("");
+    if (!rocketPose || !rocketSide) {
+      rocketPose = null;
+      rocketSide = null;
+      rocketHoldOpen = false;
+      activePoint = false;
+      rocketHand.classList.remove("visible", "thrusting");
+      targetPulse.classList.remove("visible");
+      setRocketGesture("perched", null);
+      scheduleRoam();
+      return;
+    }
+    returnRocket(token);
+  }
+
+  let pendingLandingResolve = null;
+
+  function flyTo(point, options = {}) {
+    navToken += 1;
+    const token = navToken;
+    clearRocketMotion();
+    activePoint = true;
+    if (perchFrame) cancelAnimationFrame(perchFrame);
+    perchFrame = 0;
+    const to = options.resolveTarget?.() || { x: point.x, y: point.y };
+    const alreadyDetached = Boolean(rocketPose && rocketSide);
+    rocketSide = rocketSide || rocketPet.chooseLaunchSide(position, to);
+    const from = rocketPose
+      ? { x: rocketPose.x, y: rocketPose.y }
+      : rocketPet.shoulderPoint(position, rocketSide);
+    const label = point.label || "right here";
+    activeRawCoordinate = Boolean(options.rawCoordinate);
+    rocketHoldOpen = Boolean(options.holdOpen);
+    setRocketGesture(alreadyDetached ? "flight" : "ignition", rocketSide);
+    streamBubbleText(label, token);
+    scheduleRoam();
+
+    return new Promise((resolve) => {
+      pendingLandingResolve = resolve;
+      const begin = () => {
+        if (token !== navToken) return;
+        setRocketGesture("flight", rocketSide);
+        animateRocketSegment(from, to, token, { resolveTarget: options.resolveTarget }).then((landed) => {
+          if (token !== navToken) return;
+          if (!landed) {
+            pendingLandingResolve = null;
+            resolve(false);
+            recallRocket();
+            return;
+          }
+          const rotation = Math.atan2(landed.y - position.y, landed.x - position.x) * 180 / Math.PI;
+          setRocketPose({ ...landed, rotation }, false);
+          setRocketGesture("point", rocketSide);
+          targetPulse.style.left = `${landed.x}px`;
+          targetPulse.style.top = `${landed.y}px`;
+          targetPulse.classList.add("visible");
+          options.onLand?.();
+          if (options.resolveTarget && !reducedMotionQuery.matches) {
+            const trackTarget = () => {
+              if (token !== navToken) return;
+              const tracked = options.resolveTarget();
+              if (tracked) {
+                const trackedRotation = Math.atan2(tracked.y - position.y, tracked.x - position.x) * 180 / Math.PI;
+                setRocketPose({ ...tracked, rotation: trackedRotation }, false);
+                targetPulse.style.left = `${tracked.x}px`;
+                targetPulse.style.top = `${tracked.y}px`;
+              }
+              rocketFrame = requestAnimationFrame(trackTarget);
+            };
+            rocketFrame = requestAnimationFrame(trackTarget);
+          }
+          pendingLandingResolve = null;
+          resolve(true);
+          if (rocketHoldOpen) return;
+          const hold = Math.min(Math.max(label.length * 30 + 800, 1200), 8600);
+          rocketTimer = setTimeout(() => returnRocket(token), hold);
+        });
+      };
+      if (alreadyDetached || reducedMotionQuery.matches) begin();
+      else {
+        const recoil = rocketSide === "left" ? 3 : -3;
+        transformCursor(position.x, position.y, 0, 1, recoil);
+        rocketTimer = setTimeout(() => {
+          transformCursor(position.x, position.y);
+          begin();
+        }, 180);
+      }
     });
   }
 
-  function flyTo(point) {
-    // Cancel any navigation already in flight so the new target wins cleanly.
-    navToken++;
-    const token = navToken;
-    activePoint = true;
-    const from = { ...position };
-    const to = { x: point.x, y: point.y };
-    const label = point.label || "right here";
+  function isSafePerch(point) {
+    const element = document.elementFromPoint(point.x, point.y);
+    if (!element || element === host || host.contains(element)) return false;
+    if (element.closest?.("button,a[href],input,textarea,select,[role='button'],[role='link'],[role='tab'],[role='menuitem']")) return false;
+    const rect = element.getBoundingClientRect();
+    const text = String(element.innerText || element.textContent || "").replace(/\s+/g, " ").trim();
+    return text.length < 48 || rect.width * rect.height > 180000;
+  }
 
-    bezierFlight(from, to).then(() => {
-      if (token !== navToken) return;
-      // Arrived at the element — point at it: stream the label, hold, fade,
-      // then fly back to the live cursor (the full Tars pointing lifecycle).
-      streamBubbleText(label, () => {
-        if (token !== navToken) return;
-        setTimeout(() => {
-          if (token !== navToken) return;
-          // Fade the bubble out over ~0.5s before the return flight.
-          bubble.classList.remove("pop");
-          bubble.style.transition = "opacity .5s ease";
-          bubble.classList.remove("visible");
-          setTimeout(() => {
-            bubble.style.transition = "";
-            if (token !== navToken) return;
-            flyBackToCursor(token);
-          }, 500);
-        }, 2600);
-      });
-    });
+  function animatePerchHop(to) {
+    if (activePoint || petDragging || reducedMotionQuery.matches) return;
+    if (perchFrame) cancelAnimationFrame(perchFrame);
+    const from = { ...position };
+    const started = performance.now();
+    const step = (now) => {
+      if (activePoint || petDragging || !visible()) return;
+      const raw = Math.min((now - started) / 460, 1);
+      const t = rocketPet.smoothstep(raw);
+      transformCursor(
+        from.x + (to.x - from.x) * t,
+        from.y + (to.y - from.y) * t - Math.sin(raw * Math.PI) * 18,
+      );
+      if (raw < 1) perchFrame = requestAnimationFrame(step);
+      else {
+        perchFrame = 0;
+        transformCursor(to.x, to.y);
+        scheduleRoam();
+      }
+    };
+    perchFrame = requestAnimationFrame(step);
+  }
+
+  function scheduleRoam() {
+    if (roamTimer) clearTimeout(roamTimer);
+    roamTimer = 0;
+    if (!visible()) return;
+    roamTimer = setTimeout(() => {
+      roamTimer = 0;
+      if (activePoint || petDragging || mode !== "idle" || reducedMotionQuery.matches) {
+        scheduleRoam();
+        return;
+      }
+      const next = rocketPet.chooseNearbyPerch(
+        mouse,
+        position,
+        { width: innerWidth, height: innerHeight },
+        isSafePerch,
+      );
+      if (next) animatePerchHop(next);
+      else scheduleRoam();
+    }, 8000 + Math.random() * 6000);
   }
 
   function elementLabel(element) {
@@ -811,22 +1123,29 @@
       await new Promise((resolve) => setTimeout(resolve, 1400));
     }
     if (!visibleAutomationElement(element) || !automationElementInViewport(element)) return false;
-    navToken += 1;
-    activePoint = true;
-    const token = navToken;
     const rect = element.getBoundingClientRect();
     const point = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-    await bezierFlight({ ...position }, point);
-    if (token !== navToken || !element.isConnected) return false;
+    const landed = await flyTo({ ...point, label }, {
+      holdOpen: true,
+      resolveTarget: () => {
+        if (!element.isConnected) return null;
+        const liveRect = element.getBoundingClientRect();
+        return { x: liveRect.left + liveRect.width / 2, y: liveRect.top + liveRect.height / 2 };
+      },
+    });
+    if (!landed || !element.isConnected) return false;
+    const landedToken = navToken;
     // The bubble belongs exclusively to the Realtime transcript. The cursor
     // movement itself shows which control Tars is operating.
     if (transcriptText) setBubble(transcriptText);
     await new Promise((resolve) => setTimeout(resolve, 650));
-    transformCursor(point.x, point.y, DEFAULT_ROTATION, 0.82);
-    await new Promise((resolve) => setTimeout(resolve, 260));
-    transformCursor(point.x, point.y, DEFAULT_ROTATION, 1.12);
-    await new Promise((resolve) => setTimeout(resolve, 260));
-    transformCursor(point.x, point.y, DEFAULT_ROTATION, 1);
+    if (
+      landedToken !== navToken
+      || !visibleAutomationElement(element)
+      || !automationElementInViewport(element)
+      || element.disabled
+      || element.getAttribute("aria-disabled") === "true"
+    ) return false;
     return true;
   }
 
@@ -834,6 +1153,8 @@
     if (!await flyAutomationCursorTo(element, label)) return false;
     element.focus({ preventScroll: true });
     element.click();
+    rocketHoldOpen = false;
+    rocketTimer = setTimeout(() => returnRocket(navToken), 320);
     await new Promise((resolve) => setTimeout(resolve, 1600));
     return true;
   }
@@ -848,7 +1169,7 @@
   function finishGithubPrivateAutomation(status, keepPointer = false) {
     githubPrivateAutomationRunning = false;
     githubPrivateHandoffActive = keepPointer;
-    if (!keepPointer) activePoint = false;
+    if (!keepPointer) recallRocket();
     if (transcriptText) setBubble(transcriptText);
     reportGithubPrivateAutomation(status);
   }
@@ -917,13 +1238,13 @@
   function showLabCoach(message) {
     const text = String(message?.text || "").replace(/\s+/g, " ").trim().slice(0, 260);
     const rect = message?.targetRect;
-    setMode("speaking");
+    setMode("thinking");
     if (rect && [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite)) {
-      flyTo({
+      void flyTo({
         x: rect.x + rect.width / 2,
         y: rect.y + rect.height / 2,
         label: text,
-      });
+      }, { rawCoordinate: true });
     } else {
       setBubble(text);
     }
@@ -1228,17 +1549,21 @@
     const target = response?.targetId ? currentTargets.get(response.targetId) : null;
     if (target?.isConnected) {
       const point = pointForElement(target, response.label);
-      flyTo({ ...point, label: response.label });
-      if (response.action === "click") setTimeout(() => maybeClick(target, response.label), 750);
+      void flyTo({ ...point, label: response.label }, {
+        resolveTarget: () => target.isConnected ? pointForElement(target, response.label) : null,
+        onLand: response.action === "click" ? () => maybeClick(target, response.label) : undefined,
+      });
       return;
     }
     if (typeof response?.x === "number" && typeof response?.y === "number" && context.screenshotWidth && context.screenshotHeight) {
       const point = responsePoint(context, response.x, response.y, response.coordinate_space);
       if (point) {
-        flyTo({ ...point, label: response.label });
-        if (response.action === "click") {
-          setTimeout(() => requestCoordinateClick(context, point, response.label), 750);
-        }
+        void flyTo({ ...point, label: response.label }, {
+          rawCoordinate: true,
+          onLand: response.action === "click"
+            ? () => requestCoordinateClick(context, point, response.label)
+            : undefined,
+        });
       }
       else setStatus("Tars couldn't map that point", true);
       return;
@@ -1590,6 +1915,7 @@
 
   function updateMouse(next) {
     mouse = { x: next.x, y: next.y };
+    if (!rocketPose) updatePetGaze(mouse);
     recordCtrlTrailPoint(mouse);
     if (visible() && performance.now() - cursorReportAt > 120) {
       cursorReportAt = performance.now();
@@ -1809,9 +2135,10 @@
   }, true);
 
   window.addEventListener("click", (event) => {
+    if (event.composedPath().includes(host)) return;
     if (githubPrivateHandoffActive && /\bchange (?:repository )?visibility\b/i.test(associatedControlText(event.target))) {
       githubPrivateHandoffActive = false;
-      activePoint = false;
+      recallRocket();
     }
     observeGitHubCreate(event);
     emitLabInteraction("click", event.target);
@@ -1914,7 +2241,7 @@
       }
       if (message.state?.cursor) {
         mouse = { ...message.state.cursor };
-        position = { x: mouse.x + BUDDY_OFFSET_X, y: mouse.y + BUDDY_OFFSET_Y };
+        updatePetGaze(mouse);
       }
       renderVisibility();
       scheduleGitHubStateSnapshot(0);
@@ -1924,13 +2251,13 @@
       sendResponse(collectContext(message.contextId));
       return false;
     } else if (message.type === "TARS_MODE") {
-      // A delayed start acknowledgement must not put the cursor back into the
-      // listening waveform after Ctrl has already been released.
+      // A delayed start acknowledgement must not put the pet back into its
+      // listening pose after Ctrl has already been released.
       if (message.mode !== "listening" || pttHeld || message.trigger === "toolbar") setMode(message.mode);
     } else if (message.type === "TARS_STATUS") {
       // Ctrl owns the visual state while it is held. In particular, the
       // acknowledgement for interrupting old playback must not hide the live
-      // listening waveform.
+      // listening ear.
       if (pttHeld && ["idle", "thinking", "speaking"].includes(message.mode)) {
         sendResponse({ ok: true });
         return false;
@@ -1944,12 +2271,15 @@
         resetTranscriptMergeState();
         setBubble("");
       }
-      setMode(message.mode);
+      // Transcripts may finish after the final audio source. They update the
+      // bubble, but only physical playback may drive the speaking mouth.
+      if (message.mode !== "speaking" || message.playbackActive === true) {
+        setMode(message.mode);
+      }
       if (message.mode === "speaking" && message.append) {
         transcriptText = mergeTranscriptText(transcriptText, message.text);
-        // Don't clobber an active pointer bubble — Tars's pointing label owns
-        // the bubble during a point. It is restored in flyBackToCursor once the
-        // cursor returns to the live mouse.
+        // Don't clobber an active rocket-hand label. The transcript is restored
+        // after the hand docks back into the pet.
         if (!activePoint || githubPrivateAutomationRunning || githubPrivateHandoffActive) setBubble(transcriptText);
       } else if (message.mode === "speaking" && message.finished) {
         transcriptText = String(message.text || transcriptText).slice(-420);
@@ -1984,8 +2314,8 @@
     } else if (message.type === "TARS_LAB_COACH") {
       showLabCoach(message);
     } else if (message.type === "TARS_LAB_ENDED") {
-      navToken += 1;
-      activePoint = false;
+      if (rocketPose) recallRocket();
+      else activePoint = false;
       clearDrawings();
       setBubble("");
       setStatus("Lab monitoring ended", true);
@@ -2000,9 +2330,15 @@
     extensionState = { ...extensionState, ...nextState };
     const initial = nextState.cursor || position;
     mouse = { x: initial.x, y: initial.y };
-    position = { x: initial.x + BUDDY_OFFSET_X, y: initial.y + BUDDY_OFFSET_Y };
-    velocity = { x: 0, y: 0 };
+    if (!perchInitialized) {
+      position = rocketPet.clampPerch(
+        { x: initial.x + 96, y: initial.y + 72 },
+        { width: innerWidth, height: innerHeight },
+      );
+      perchInitialized = true;
+    }
     transformCursor(position.x, position.y);
+    updatePetGaze(mouse);
     renderVisibility();
     scheduleGitHubStateSnapshot(0);
   }
@@ -2031,7 +2367,15 @@
   // covers document.open()/document.write() replacements that do not emit a
   // reliable parent mutation or top-tab navigation event.
   setInterval(refreshDirectFrameBindings, 750);
-  requestAnimationFrame(animateFrame);
+  scheduleRoam();
+  const handlePetViewportChange = () => {
+    position = rocketPet.clampPerch(position, { width: innerWidth, height: innerHeight });
+    transformCursor(position.x, position.y);
+    if (activeRawCoordinate) recallRocket();
+  };
+  addEventListener("resize", handlePetViewportChange, true);
+  addEventListener("scroll", handlePetViewportChange, true);
+  reducedMotionQuery.addEventListener?.("change", scheduleRoam);
   if (CTRLTEACH_ORIGINS.has(window.location.origin)) {
     window.postMessage({
       type: "CTRLTEACH_TARS_EXTENSION_ATTACHED",

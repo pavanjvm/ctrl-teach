@@ -20,7 +20,7 @@ test("suspension clears offscreen playback and microphone turn state", () => {
   );
 });
 
-test("point localization keeps the loading ring visible until coordinates arrive", () => {
+test("point localization keeps the thinking pose visible until coordinates arrive", () => {
   assert.match(offscreenSource, /event\.type === "tars_point_pending"/);
   assert.match(offscreenSource, /mode:\s*"thinking"/);
   assert.match(offscreenSource, /Tars locating/);
