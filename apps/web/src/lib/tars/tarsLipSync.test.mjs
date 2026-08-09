@@ -10,6 +10,18 @@ const assistantSource = fs.readFileSync(
   "utf8",
 );
 const audioSource = fs.readFileSync(path.join(directory, "../../hooks/useAudio.ts"), "utf8");
+const petControllerSource = fs.readFileSync(
+  path.join(directory, "../../components/tars/useRocketPet.ts"),
+  "utf8",
+);
+const labCoachSource = fs.readFileSync(
+  path.join(directory, "../../components/labs/LabCoach.tsx"),
+  "utf8",
+);
+const petRendererSource = fs.readFileSync(
+  path.join(directory, "../../components/tars/TarsPet.tsx"),
+  "utf8",
+);
 
 test("the web pet speaks only while scheduled audio is playing", () => {
   assert.match(
@@ -27,4 +39,13 @@ test("playback becomes idle only after the scheduled source queue drains", () =>
   assert.match(audioSource, /source\.onended = \(\) => \{[\s\S]*?playerSourcesRef\.current\.delete\(source\)/);
   assert.match(audioSource, /if \(playerSourcesRef\.current\.size === 0\) schedulePlaybackIdleCheck\(\)/);
   assert.match(audioSource, /setIsPlaying\(false\)/);
+});
+
+test("the web pet stays where the learner drags it", () => {
+  assert.match(assistantSource, /mode,\s*roaming: false,/);
+  assert.match(labCoachSource, /mode: petMode,\s*roaming: false,/);
+  assert.match(petControllerSource, /TARS_PET_PERCH_STORAGE_KEY = "ctrlteach:tars-pet-perch"/);
+  assert.match(petControllerSource, /window\.localStorage\.setItem\(storageKey, JSON\.stringify\(next\)\)/);
+  assert.match(petControllerSource, /persistPerch\(perchRef\.current\)/);
+  assert.match(petRendererSource, /onLostPointerCapture=\{finishPointerDrag\}/);
 });

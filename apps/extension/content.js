@@ -10,6 +10,15 @@
   const IS_TOP_FRAME = window === window.top;
   const FRAME_INPUT_TYPE = "CTRLTEACH_TARS_FRAME_INPUT";
   const FRAME_INPUT_SOURCE = chrome.runtime.id;
+  const PET_PERCH_STORAGE_KEY = "tarsPetPerch";
+  const savedPetPerchPromise = chrome.storage.local.get(PET_PERCH_STORAGE_KEY)
+    .then((result) => {
+      const saved = result?.[PET_PERCH_STORAGE_KEY];
+      return Number.isFinite(saved?.x) && Number.isFinite(saved?.y)
+        ? { x: Number(saved.x), y: Number(saved.y) }
+        : null;
+    })
+    .catch(() => null);
   const childFrameCache = new WeakMap();
 
   function findChildFrame(root, source) {
@@ -246,7 +255,7 @@
       #cursor[data-launch-side="left"]:not([data-gesture="perched"]) #socket-left,
       #cursor[data-launch-side="right"]:not([data-gesture="perched"]) #socket-right { opacity: .9; }
       #cursor[data-mode="speaking"] #pet-svg { animation: petSpeak .78s ease-in-out infinite; }
-      #pet-ear { opacity: 0; transform-origin: 34px 18px; transform: scale(.55); transition: opacity .18s ease, transform .18s ease; filter: drop-shadow(1px 2px 2px rgba(16,18,15,.2)); }
+      #pet-ear { opacity: 0; transform-origin: 42px 18px; transform: scale(.62); transition: opacity .18s ease, transform .18s ease; filter: drop-shadow(1px 2px 2px rgba(16,18,15,.22)); }
       #cursor[data-mode="listening"] #pet-ear { opacity: 1; animation: listen .62s ease-in-out infinite alternate; }
       #pet-speaking-mouth { opacity: 0; transform-origin: 22px 29px; }
       #cursor[data-mode="speaking"] #pet-smile { opacity: 0; }
@@ -323,8 +332,12 @@
           <path id="pet-body-shape" d="M8.3 9.8C11.8 4.4 17.1 2 22 2s10.2 2.4 13.7 7.8c3.2 4.8 4.2 13.2 1.2 19.1C34.2 34.2 28.5 37 22 37S9.8 34.2 7.1 28.9c-3-5.9-2-14.3 1.2-19.1Z" fill="#b7ec52" stroke="#10120f" stroke-width="2"></path>
           <path d="M11.3 11.5c3-4 6.6-5.6 10.7-5.6s7.7 1.6 10.7 5.6" fill="none" stroke="rgba(255,255,255,.64)" stroke-width="2.2" stroke-linecap="round"></path>
           <g id="pet-ear">
-            <path d="M34.2 11.5c1.5-4.8 8.9-6.1 12.3-1.7 3.7 4.9 1.3 14-5.2 16.6-4.7 1.8-9.2-1-8.9-5.1.2-2.5 2-4.3 4.8-5 3-.7 4.3-2.9 3.1-4.8-1.2-1.9-3.9-1.7-6.1 0Z" fill="#e7ffb1" stroke="#10120f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
-            <path d="M38.3 11.5c2.7-.8 4.9 1.1 4.3 3.5-.5 1.9-2.2 2.8-4.1 2.8-1.5 0-2.4 1-2.3 2.2.1 1.1 1 1.8 2.1 2" fill="none" stroke="#527f19" stroke-width="1.6" stroke-linecap="round"></path>
+            <path id="pet-ear-helix" d="M34.4 14.2C34.8 8.4 39.2 4.5 44.1 4.8c5.4.3 8.6 5.2 8 10.7-.4 3.5-2.2 6.2-4.4 8.5-1.4 1.4-1.7 3.6-2.9 5.2-1.5 2.1-4.8 2.5-7.1.8-2.1-1.6-2.3-4.7-.6-6.8 1.2-1.5 2.9-2.5 3.8-4.4 1.1-2.3.8-5.2-.9-6-1.9-.9-3.5.4-3.8 2.4Z" fill="#e7ffb1" stroke="#10120f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path id="pet-ear-rim" d="M39.2 10.1c3.6-2.9 8.2-1.5 9.2 2.2.9 3.5-1.1 6.5-3.6 8.9-2 1.9-3.6 3.1-3.4 5.1.1 1.3 1.4 2 2.6 1.3" fill="none" stroke="#79a925" stroke-width="1.55" stroke-linecap="round"></path>
+            <path id="pet-ear-antihelix" d="M42.2 13.2c2.8-1.2 4.8 1.3 3.5 3.9-.8 1.5-2.6 1.4-3.9 2.6m3.9-2.6c.9.4 1.5 1 1.8 1.8" fill="none" stroke="#527f19" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path id="pet-ear-concha" d="M41.3 20.4c1.7-1.5 4.5-1.2 5 .7.5 1.7-1 3.2-2.8 3" fill="none" stroke="#527f19" stroke-width="1.45" stroke-linecap="round"></path>
+            <path id="pet-ear-tragus" d="M39.2 20.7c1.7-.4 2.7.4 2.9 1.5" fill="none" stroke="#527f19" stroke-width="1.35" stroke-linecap="round"></path>
+            <circle id="pet-ear-canal" cx="43.5" cy="21.6" r="1.15" fill="#26320f"></circle>
           </g>
           <g id="pet-eyes">
             <ellipse cx="16.3" cy="19" rx="5.2" ry="5.5" fill="#fff" stroke="#10120f" stroke-width="1.5"></ellipse>
@@ -551,6 +564,12 @@
     cursor.style.transform = `translate3d(${x - 24}px,${y - 22}px,0) translateX(${recoil}px) scale(${scale})`;
   }
 
+  function persistPetPerch(next = position) {
+    void chrome.storage.local.set({
+      [PET_PERCH_STORAGE_KEY]: { x: next.x, y: next.y },
+    }).catch(() => undefined);
+  }
+
   function beginPetDrag(event) {
     if (event.button !== 0 || !visible()) return;
     petDragging = true;
@@ -586,6 +605,7 @@
     if (releaseCapture && cursor.hasPointerCapture(event.pointerId)) {
       cursor.releasePointerCapture(event.pointerId);
     }
+    persistPetPerch();
     scheduleRoam();
     event.preventDefault();
     event.stopPropagation();
@@ -850,22 +870,7 @@
   function scheduleRoam() {
     if (roamTimer) clearTimeout(roamTimer);
     roamTimer = 0;
-    if (!visible()) return;
-    roamTimer = setTimeout(() => {
-      roamTimer = 0;
-      if (activePoint || petDragging || mode !== "idle" || reducedMotionQuery.matches) {
-        scheduleRoam();
-        return;
-      }
-      const next = rocketPet.chooseNearbyPerch(
-        mouse,
-        position,
-        { width: innerWidth, height: innerHeight },
-        isSafePerch,
-      );
-      if (next) animatePerchHop(next);
-      else scheduleRoam();
-    }, 8000 + Math.random() * 6000);
+    // Deliberately stationary: only an explicit learner drag may move Tars.
   }
 
   function elementLabel(element) {
@@ -2325,14 +2330,15 @@
     return false;
   });
 
-  function applyExtensionState(nextState) {
+  async function applyExtensionState(nextState) {
     if (!nextState) return;
     extensionState = { ...extensionState, ...nextState };
     const initial = nextState.cursor || position;
     mouse = { x: initial.x, y: initial.y };
     if (!perchInitialized) {
+      const saved = await savedPetPerchPromise;
       position = rocketPet.clampPerch(
-        { x: initial.x + 96, y: initial.y + 72 },
+        saved || { x: initial.x + 96, y: initial.y + 72 },
         { width: innerWidth, height: innerHeight },
       );
       perchInitialized = true;
@@ -2369,8 +2375,10 @@
   setInterval(refreshDirectFrameBindings, 750);
   scheduleRoam();
   const handlePetViewportChange = () => {
-    position = rocketPet.clampPerch(position, { width: innerWidth, height: innerHeight });
-    transformCursor(position.x, position.y);
+    const clamped = rocketPet.clampPerch(position, { width: innerWidth, height: innerHeight });
+    const moved = clamped.x !== position.x || clamped.y !== position.y;
+    transformCursor(clamped.x, clamped.y);
+    if (moved) persistPetPerch(clamped);
     if (activeRawCoordinate) recallRocket();
   };
   addEventListener("resize", handlePetViewportChange, true);

@@ -10,6 +10,11 @@ test("shows one large front-layer ear while listening and a hand-on-chin thinkin
   const bodyIndex = contentSource.indexOf('id="pet-body-shape"');
   const earIndex = contentSource.indexOf('id="pet-ear"');
   assert.match(contentSource, /id="pet-ear"/);
+  assert.match(contentSource, /id="pet-ear-helix"/);
+  assert.match(contentSource, /id="pet-ear-antihelix"/);
+  assert.match(contentSource, /id="pet-ear-concha"/);
+  assert.match(contentSource, /id="pet-ear-tragus"/);
+  assert.match(contentSource, /id="pet-ear-canal"/);
   assert.ok(bodyIndex >= 0 && earIndex > bodyIndex);
   assert.match(contentSource, /#cursor\[data-mode="listening"\] #pet-ear \{ opacity: 1;/);
   assert.doesNotMatch(contentSource, /id="pet-ears"|id="ear-ripple"/);
@@ -49,6 +54,18 @@ test("makes only the pet body draggable and clamps its viewport perch", () => {
   assert.match(contentSource, /rocketPet\.clampPerch\([\s\S]+event\.clientX - petDragOffset\.x/);
   assert.match(contentSource, /activePoint \|\| petDragging \|\| reducedMotionQuery\.matches/);
   assert.match(contentSource, /if \(event\.composedPath\(\)\.includes\(host\)\) return;/);
+});
+
+test("keeps the dragged perch fixed and restores it across pages", () => {
+  const scheduleStart = contentSource.indexOf("function scheduleRoam()");
+  const scheduleEnd = contentSource.indexOf("function elementLabel", scheduleStart);
+  const scheduleSource = contentSource.slice(scheduleStart, scheduleEnd);
+
+  assert.match(contentSource, /PET_PERCH_STORAGE_KEY = "tarsPetPerch"/);
+  assert.match(contentSource, /function persistPetPerch\(next = position\)/);
+  assert.match(contentSource, /persistPetPerch\(\);\s*scheduleRoam\(\);/);
+  assert.match(contentSource, /const saved = await savedPetPerchPromise/);
+  assert.doesNotMatch(scheduleSource, /setTimeout|chooseNearbyPerch|animatePerchHop/);
 });
 
 test("renders dashed and dotted strokes in physical SVG units", () => {

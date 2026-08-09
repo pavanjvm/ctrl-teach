@@ -131,6 +131,7 @@ export default function TarsPet({
         onPointerMove={movePointerDrag}
         onPointerUp={finishPointerDrag}
         onPointerCancel={finishPointerDrag}
+        onLostPointerCapture={finishPointerDrag}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -158,8 +159,12 @@ export default function TarsPet({
           <path className="tars-pet-shell" d="M8.3 9.8C11.8 4.4 17.1 2 22 2s10.2 2.4 13.7 7.8c3.2 4.8 4.2 13.2 1.2 19.1C34.2 34.2 28.5 37 22 37S9.8 34.2 7.1 28.9c-3-5.9-2-14.3 1.2-19.1Z" fill="#b7ec52" stroke="#10120f" strokeWidth="2" />
           <path d="M11.3 11.5c3-4 6.6-5.6 10.7-5.6s7.7 1.6 10.7 5.6" fill="none" stroke="rgba(255,255,255,.64)" strokeWidth="2.2" strokeLinecap="round" />
           <g className="tars-pet-ear">
-            <path d="M34.2 11.5c1.5-4.8 8.9-6.1 12.3-1.7 3.7 4.9 1.3 14-5.2 16.6-4.7 1.8-9.2-1-8.9-5.1.2-2.5 2-4.3 4.8-5 3-.7 4.3-2.9 3.1-4.8-1.2-1.9-3.9-1.7-6.1 0Z" fill="#e7ffb1" stroke="#10120f" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M38.3 11.5c2.7-.8 4.9 1.1 4.3 3.5-.5 1.9-2.2 2.8-4.1 2.8-1.5 0-2.4 1-2.3 2.2.1 1.1 1 1.8 2.1 2" fill="none" stroke="#527f19" strokeWidth="1.6" strokeLinecap="round" />
+            <path className="tars-pet-ear-helix" d="M34.4 14.2C34.8 8.4 39.2 4.5 44.1 4.8c5.4.3 8.6 5.2 8 10.7-.4 3.5-2.2 6.2-4.4 8.5-1.4 1.4-1.7 3.6-2.9 5.2-1.5 2.1-4.8 2.5-7.1.8-2.1-1.6-2.3-4.7-.6-6.8 1.2-1.5 2.9-2.5 3.8-4.4 1.1-2.3.8-5.2-.9-6-1.9-.9-3.5.4-3.8 2.4Z" fill="#e7ffb1" stroke="#10120f" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <path className="tars-pet-ear-rim" d="M39.2 10.1c3.6-2.9 8.2-1.5 9.2 2.2.9 3.5-1.1 6.5-3.6 8.9-2 1.9-3.6 3.1-3.4 5.1.1 1.3 1.4 2 2.6 1.3" fill="none" stroke="#79a925" strokeWidth="1.55" strokeLinecap="round" />
+            <path className="tars-pet-ear-antihelix" d="M42.2 13.2c2.8-1.2 4.8 1.3 3.5 3.9-.8 1.5-2.6 1.4-3.9 2.6m3.9-2.6c.9.4 1.5 1 1.8 1.8" fill="none" stroke="#527f19" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round" />
+            <path className="tars-pet-ear-concha" d="M41.3 20.4c1.7-1.5 4.5-1.2 5 .7.5 1.7-1 3.2-2.8 3" fill="none" stroke="#527f19" strokeWidth="1.45" strokeLinecap="round" />
+            <path className="tars-pet-ear-tragus" d="M39.2 20.7c1.7-.4 2.7.4 2.9 1.5" fill="none" stroke="#527f19" strokeWidth="1.35" strokeLinecap="round" />
+            <circle className="tars-pet-ear-canal" cx="43.5" cy="21.6" r="1.15" fill="#26320f" />
           </g>
           <g className="tars-pet-eyes">
             <ellipse cx="16.3" cy="19" rx="5.2" ry={launched ? 6.1 : 5.5} fill="#fff" stroke="#10120f" strokeWidth="1.5" />
@@ -244,7 +249,7 @@ export default function TarsPet({
         .tars-pet-body .tars-pet-eyes { transform-origin:22px 19px; animation:tarsPetBlink 6.2s ease-in-out infinite; }
         .tars-pet-body.mode-speaking:not(.is-hopping) svg { animation:tarsPetSpeak .78s ease-in-out infinite; }
         .tars-pet-body .tars-pet-socket { animation:tarsPetSocket .55s ease-in-out infinite; }
-        .tars-pet-ear { opacity:0;transform-origin:34px 18px;transform:scale(.55);transition:opacity .18s ease,transform .18s ease;filter:drop-shadow(1px 2px 2px rgba(16,18,15,.2)); }
+        .tars-pet-ear { opacity:0;transform-origin:42px 18px;transform:scale(.62);transition:opacity .18s ease,transform .18s ease;filter:drop-shadow(1px 2px 2px rgba(16,18,15,.22)); }
         .mode-listening .tars-pet-ear { opacity:1;animation:tarsPetListen .62s ease-in-out infinite alternate; }
         .tars-pet-speaking-mouth { opacity:0;transform-origin:22px 29px; }
         .mode-speaking .tars-pet-smile { opacity:0; }

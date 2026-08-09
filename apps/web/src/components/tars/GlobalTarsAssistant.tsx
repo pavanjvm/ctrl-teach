@@ -601,7 +601,7 @@ export default function GlobalTarsAssistant() {
   const pet = useRocketPet({
     initialPerch: { x: 90, y: 90 },
     mode,
-    roaming: showCursor,
+    roaming: false,
   });
 
   // The pet's perch remains the origin for Tars-authored arrows and lines.
@@ -679,14 +679,14 @@ export default function GlobalTarsAssistant() {
   }, [pet.perch]);
 
   useEffect(() => {
-    if (!showCursor) return;
+    if (!showCursor || !pet.perchHydrated || pet.hasStoredPerch) return;
     pet.setPerch({
       x: Math.max(62, window.innerWidth - 78),
       y: Math.max(64, window.innerHeight - 104),
     });
-  // The stable setter is intentional; reposition only when Tars becomes visible.
+  // Set the default once; a learner-dragged perch always wins.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showCursor]);
+  }, [showCursor, pet.perchHydrated, pet.hasStoredPerch]);
 
   const flyTo = useCallback((
     point: Point,

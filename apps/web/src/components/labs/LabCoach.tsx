@@ -335,7 +335,7 @@ export default function LabCoach({ scene, onComplete }: LabCoachProps) {
   const pet = useRocketPet({
     initialPerch: { x: 90, y: 90 },
     mode: petMode,
-    roaming: true,
+    roaming: false,
   });
   const coachPos = pet.perch;
   const [rects, setRects] = useState<Record<string, Rect | null>>({});
@@ -377,13 +377,14 @@ export default function LabCoach({ scene, onComplete }: LabCoachProps) {
   }, [scene, stepIndex, total]);
 
   useEffect(() => {
+    if (!pet.perchHydrated || pet.hasStoredPerch) return;
     pet.setPerch({
       x: Math.max(64, window.innerWidth - 82),
       y: Math.min(112, Math.max(70, window.innerHeight / 4)),
     });
-  // Set the initial lab perch once; subsequent movement belongs to the pet controller.
+  // Set the default once; a learner-dragged perch always wins.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [pet.perchHydrated, pet.hasStoredPerch]);
 
   // Each step launches the target-facing hand while the pet remains perched.
   // The resolver keeps the fingertip grounded through lab reflow and scrolling.

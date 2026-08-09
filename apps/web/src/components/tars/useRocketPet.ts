@@ -26,6 +26,7 @@ type UseRocketPetOptions = {
   initialPerch: Perch;
   mode: PetMode;
   roaming: boolean;
+  storageKey?: string;
 };
 
 type SegmentOptions = {
@@ -62,7 +63,27 @@ function isSafeBrowserPerch(point: Point2) {
   return text.length < 48 || rect.width * rect.height > 180_000;
 }
 
-export function useRocketPet({ initialPerch, mode, roaming }: UseRocketPetOptions) {
+export const TARS_PET_PERCH_STORAGE_KEY = "ctrlteach:tars-pet-perch";
+
+function storedPerch(value: string | null): Perch | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<Perch>;
+    if (Number.isFinite(parsed.x) && Number.isFinite(parsed.y)) {
+      return { x: Number(parsed.x), y: Number(parsed.y) };
+    }
+  } catch {
+    // Ignore malformed or inaccessible local state and use the default perch.
+  }
+  return null;
+}
+
+export function useRocketPet({
+  initialPerch,
+  mode,
+  roaming,
+  storageKey = TARS_PET_PERCH_STORAGE_KEY,
+}: UseRocketPetOptions) {
   const [perch, setPerchState] = useState(initialPerch);
   const [gesture, setGesture] = useState<RocketGesture>("perched");
   const [rocket, setRocketState] = useState<RocketPose | null>(null);
@@ -70,6 +91,8 @@ export function useRocketPet({ initialPerch, mode, roaming }: UseRocketPetOption
   const [label, setLabel] = useState("");
   const [hopping, setHopping] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [perchHydrated, setPerchHydrated] = useState(false);
+  const [hasStoredPerch, setHasStoredPerch] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(() =>
     typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
@@ -82,8 +105,10 @@ export function useRocketPet({ initialPerch, mode, roaming }: UseRocketPetOption
   const rocketRafRef = useRef<number | null>(null);
   const perchRafRef = useRef<number | null>(null);
   const activityRafRef = useRef<number | null>(null);
+  const dragPersistTimerRef = useRef<number | null>(null);
   const timersRef = useRef<number[]>([]);
   const activeRawCoordinateRef = useRef(false);
+  const hasStoredPerchRef = useRef(false);
 
   const setRocket = useCallback((next: RocketPose | null) => {
     rocketRef.current = next;
@@ -95,6 +120,34 @@ export function useRocketPet({ initialPerch, mode, roaming }: UseRocketPetOption
     setPerchState(next);
   }, []);
 
+  const persistPerch = useCallback((next: Perch) => {
+    if (!storageKey) return;
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(next));
+      hasStoredPerchRef.current = true;
+      setHasStoredPerch(true);
+    } catch {
+      // Storage can be unavailable in private or locked-down browser contexts.
+    }
+  }, [storageKey]);
+
+  useEffect(() => {
+    let saved: Perch | null = null;
+    if (storageKey) {
+      try {
+        saved = storedPerch(window.localStorage.getItem(storageKey));
+      } catch {
+        saved = null;
+      }
+    }
+    hasStoredPerchRef.current = Boolean(saved);
+    setHasStoredPerch(Boolean(saved));
+    if (saved) {
+      setPerch(clampPerch(saved, { width: window.innerWidth, height: window.innerHeight }));
+    }
+    setPerchHydrated(true);
+  }, [setPerch, storageKey]);
+
   const beginDrag = useCallback(() => {
     if (perchRafRef.current !== null) cancelAnimationFrame(perchRafRef.current);
     perchRafRef.current = null;
@@ -104,11 +157,22 @@ export function useRocketPet({ initialPerch, mode, roaming }: UseRocketPetOption
 
   const dragTo = useCallback((next: Perch) => {
     setPerch(clampPerch(next, { width: window.innerWidth, height: window.innerHeight }));
-  }, [setPerch]);
+    if (dragPersistTimerRef.current === null) {
+      dragPersistTimerRef.current = window.setTimeout(() => {
+        dragPersistTimerRef.current = null;
+        persistPerch(perchRef.current);
+      }, 80);
+    }
+  }, [persistPerch, setPerch]);
 
   const endDrag = useCallback(() => {
     setDragging(false);
-  }, []);
+    if (dragPersistTimerRef.current !== null) {
+      window.clearTimeout(dragPersistTimerRef.current);
+      dragPersistTimerRef.current = null;
+    }
+    persistPerch(perchRef.current);
+  }, [persistPerch]);
 
   const clearTimers = useCallback(() => {
     timersRef.current.forEach((timer) => window.clearTimeout(timer));
@@ -360,7 +424,9 @@ export function useRocketPet({ initialPerch, mode, roaming }: UseRocketPetOption
 
   useEffect(() => {
     const onViewportChange = () => {
-      setPerch(clampPerch(perchRef.current, { width: window.innerWidth, height: window.innerHeight }));
+      const clamped = clampPerch(perchRef.current, { width: window.innerWidth, height: window.innerHeight });
+      setPerch(clamped);
+      if (hasStoredPerchRef.current) persistPerch(clamped);
       if (activeRawCoordinateRef.current) recall();
     };
     window.addEventListener("resize", onViewportChange);
@@ -369,13 +435,14 @@ export function useRocketPet({ initialPerch, mode, roaming }: UseRocketPetOption
       window.removeEventListener("resize", onViewportChange);
       window.removeEventListener("scroll", onViewportChange, true);
     };
-  }, [recall, setPerch]);
+  }, [persistPerch, recall, setPerch]);
 
   useEffect(() => () => {
     tokenRef.current += 1;
     clearTimers();
     stopRocketFrame();
     if (perchRafRef.current !== null) cancelAnimationFrame(perchRafRef.current);
+    if (dragPersistTimerRef.current !== null) window.clearTimeout(dragPersistTimerRef.current);
   }, [clearTimers, stopRocketFrame]);
 
   const gazeTarget = rocket ?? activity;
@@ -389,6 +456,8 @@ export function useRocketPet({ initialPerch, mode, roaming }: UseRocketPetOption
     label,
     hopping,
     dragging,
+    perchHydrated,
+    hasStoredPerch,
     reducedMotion,
     gazeTarget,
     launch,
