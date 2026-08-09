@@ -81,6 +81,7 @@ test("spoken lab guidance has one transcript source", () => {
   assert.match(offscreenSource, /append: !event\.outputTranscription\.finished/);
   assert.match(offscreenSource, /transcriptOnly: true/);
   assert.match(offscreenSource, /resetTranscript: true/);
+  assert.match(offscreenSource, /resetTranscript: Boolean\(event\.resetTranscript\)/);
   const contentSource = fs.readFileSync(
     path.join(__dirname, "content.js"),
     "utf8",
@@ -108,14 +109,55 @@ test("the repeated-request exception stays scoped to the observed lab repository
   assert.match(contentSource, /checkedGitHubVisibility\(\) === "private"/);
   assert.match(contentSource, /flyAutomationCursorTo/);
   assert.match(contentSource, /automationClick\(settingsLink, "repository settings"\)/);
-  assert.match(contentSource, /flyAutomationCursorTo\(openVisibility, "change visibility"\)/);
+  assert.match(contentSource, /flyAutomationCursorTo\([\s\S]*?openVisibility,[\s\S]*?"change visibility"/);
   assert.match(contentSource, /finishGithubPrivateAutomation\("handoff", true\)/);
   assert.doesNotMatch(contentSource, /automationClick\(openVisibility, "change visibility"\)/);
   assert.match(workerSource, /message\.status === "handoff"[\s\S]*?one short, natural sentence/);
-  assert.doesNotMatch(workerSource, /say exactly|speak exactly|exactly this/i);
-  assert.match(contentSource, /Let Realtime begin narrating before the first visible cursor action/);
+  assert.match(workerSource, /Say exactly: \\"First, I'm opening repository Settings/);
+  assert.match(workerSource, /Say exactly: \\"Next, I'm moving to Change visibility/);
+  assert.match(contentSource, /narrateGithubPrivateAutomation\("settings"\)/);
+  assert.match(contentSource, /narrateGithubPrivateAutomation\("visibility"\)/);
   assert.match(contentSource, /if \(transcriptText\) setBubble\(transcriptText\)/);
   assert.doesNotMatch(contentSource, /setBubble\(label\)/);
-  assert.match(contentSource, /scrollBy\(\{ top: Math\.max\(420, innerHeight \* 0\.72\), behavior: "smooth" \}\)/);
+  assert.match(contentSource, /scrollElementForTars\(openVisibility|flyAutomationCursorTo\([\s\S]*?openVisibility/);
+  assert.match(contentSource, /waitForAutomationAction\(document, visibilityPatterns, 12_000\)/);
+  assert.match(contentSource, /waitForAutomationAction\(document, visibilityPatterns, 4000\)/);
+  assert.match(contentSource, /scrollElementForTars\(openVisibility, "change visibility"\)/);
+  assert.match(contentSource, /\{ allowScroll: false \}/);
+  assert.match(contentSource, /const githubDomTools = githubDomToolsApi\.createGithubDomTools/);
+  assert.match(contentSource, /Narration is presentation only/);
+  assert.doesNotMatch(contentSource, /usedAnchorScroll/);
+  assert.doesNotMatch(contentSource, /scrollBy\(/);
   assert.doesNotMatch(workerSource, /tabs\.update\(activeBrowserLab\.tabId, \{ url: settingsUrl \}\)/);
+});
+
+test("page mutations are serialized and duplicate GitHub automation is idempotent", () => {
+  const contentSource = fs.readFileSync(
+    path.join(__dirname, "content.js"),
+    "utf8",
+  );
+  const assetsSource = fs.readFileSync(
+    path.join(__dirname, "extension-assets.js"),
+    "utf8",
+  );
+  assert.match(assetsSource, /"page-action-gate\.js"/);
+  assert.match(contentSource, /pageActionGate\.begin\(/);
+  assert.match(contentSource, /observationId: context\.contextId/);
+  assert.match(contentSource, /pageActionGate\.abort\(claim\.token\)/);
+  assert.match(contentSource, /Tars paused to avoid repeating the same action/);
+  assert.match(workerSource, /if \(existing\.repositoryNameWithOwner !== observed\)/);
+  assert.match(workerSource, /return \{ ok: true, working: true \}/);
+});
+
+test("the second-request GitHub action waits for spoken approval playback", () => {
+  const offscreenSource = fs.readFileSync(
+    path.join(__dirname, "offscreen.js"),
+    "utf8",
+  );
+  assert.match(offscreenSource, /response\.action === "github_make_private"[\s\S]*?deferredActionCompletion\.queue\(response\)/);
+  assert.match(offscreenSource, /event\.deferredAction\?\.response/);
+  assert.match(offscreenSource, /deferredActionCompletion\.queue/);
+  assert.match(offscreenSource, /deferredActionCompletion\.markAudioStarted/);
+  assert.match(offscreenSource, /deferredActionCompletion\.drain\(\)/);
+  assert.doesNotMatch(offscreenSource, /proactivePlaybackWaiter/);
 });

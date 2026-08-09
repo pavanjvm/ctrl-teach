@@ -313,7 +313,7 @@ async function publishState(tabId = activeTabId) {
 }
 
 async function coachBrowserLab(tabId, text, targetRect = null, spokenInstruction = "") {
-  if (typeof tabId !== "number") return;
+  if (typeof tabId !== "number") return null;
   // Spoken guidance already streams its authoritative transcript back through
   // TARS_STATUS. Never render a second hardcoded copy of spoken text.
   if (!spokenInstruction) {
@@ -323,10 +323,31 @@ async function coachBrowserLab(tabId, text, targetRect = null, spokenInstruction
       targetRect,
     });
   }
-  await sendToOffscreen({
+  return sendToOffscreen({
     type: "TARS_PROACTIVE_TEXT",
     text: String(spokenInstruction || text || "").slice(0, 1600),
   });
+}
+
+async function narrateGithubPrivateAutomation(message, sender) {
+  if (
+    !activeBrowserLab?.githubPrivateAutomation
+    || sender.tab?.id !== activeBrowserLab.tabId
+  ) return { ok: false, error: "inactive_automation" };
+  const stage = String(message.stage || "");
+  const instructions = {
+    settings: "Say exactly: \"First, I'm opening repository Settings.\" Do not add any other words and do not call a tool.",
+    visibility: "Say exactly: \"Next, I'm moving to Change visibility.\" Do not add any other words and do not call a tool.",
+  };
+  const instruction = instructions[stage];
+  if (!instruction) return { ok: false, error: "invalid_stage" };
+  const result = await coachBrowserLab(
+    activeBrowserLab.tabId,
+    "",
+    null,
+    instruction,
+  );
+  return result?.ok ? { ok: true, narrationQueued: true } : { ok: false, error: "narration_unavailable" };
 }
 
 async function briefBrowserLab(tabId) {
@@ -650,6 +671,17 @@ async function beginGithubPrivateAutomation(response = {}) {
   if (!requested || !observed || requested !== observed) {
     return { ok: false, error: "repository_mismatch" };
   }
+  const existing = activeBrowserLab.githubPrivateAutomation;
+  if (existing) {
+    if (existing.repositoryNameWithOwner !== observed) {
+      return { ok: false, error: "automation_repository_mismatch" };
+    }
+    if (Date.now() - Number(existing.startedAt || 0) < 60_000) {
+      await continueGithubPrivateAutomation();
+      return { ok: true, working: true };
+    }
+    delete activeBrowserLab.githubPrivateAutomation;
+  }
   activeBrowserLab.githubPrivateAutomation = {
     repositoryNameWithOwner: observed,
     startedAt: Date.now(),
@@ -833,6 +865,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       case "TARS_GITHUB_PRIVATE_AUTOMATION_RESULT":
         sendResponse(await handleGithubPrivateAutomationResult(message, sender));
+        return;
+      case "TARS_GITHUB_PRIVATE_AUTOMATION_NARRATE":
+        sendResponse(await narrateGithubPrivateAutomation(message, sender));
         return;
       case "TARS_PTT_START":
         await beginPushToTalk(sender.tab?.id, "keyboard");

@@ -48,5 +48,34 @@
     };
   }
 
-  return { createPlaybackCompletionGate };
+  function createDeferredActionGate(onDispatch) {
+    let pending = null;
+    let audioStarted = false;
+
+    return {
+      queue(action) {
+        pending = action && typeof action === "object" ? { ...action } : null;
+      },
+      markAudioStarted() {
+        audioStarted = true;
+      },
+      drain() {
+        const action = pending;
+        const shouldDispatch = Boolean(action && audioStarted);
+        pending = null;
+        audioStarted = false;
+        if (shouldDispatch) onDispatch(action);
+        return shouldDispatch;
+      },
+      reset() {
+        pending = null;
+        audioStarted = false;
+      },
+      snapshot() {
+        return { pending: pending ? { ...pending } : null, audioStarted };
+      },
+    };
+  }
+
+  return { createDeferredActionGate, createPlaybackCompletionGate };
 });

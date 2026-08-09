@@ -6,17 +6,15 @@ const path = require("node:path");
 const contentSource = fs.readFileSync(path.join(__dirname, "content.js"), "utf8");
 const offscreenSource = fs.readFileSync(path.join(__dirname, "offscreen.js"), "utf8");
 
-test("shows one large front-layer ear while listening and a hand-on-chin thinking pose", () => {
+test("shows one compact full emoji ear while listening and a hand-on-chin thinking pose", () => {
   const bodyIndex = contentSource.indexOf('id="pet-body-shape"');
   const earIndex = contentSource.indexOf('id="pet-ear"');
   assert.match(contentSource, /id="pet-ear"/);
-  assert.match(contentSource, /id="pet-ear-helix"/);
-  assert.match(contentSource, /id="pet-ear-antihelix"/);
-  assert.match(contentSource, /id="pet-ear-concha"/);
-  assert.match(contentSource, /id="pet-ear-tragus"/);
-  assert.match(contentSource, /id="pet-ear-canal"/);
+  assert.match(contentSource, /id="pet-ear"[^>]*font-size="20"[^>]*>👂<\/text>/);
+  assert.doesNotMatch(contentSource, /id="pet-ear-(?:helix|antihelix|concha|tragus|canal)"/);
   assert.ok(bodyIndex >= 0 && earIndex > bodyIndex);
   assert.match(contentSource, /#cursor\[data-mode="listening"\] #pet-ear \{ opacity: 1;/);
+  assert.match(contentSource, /#cursor\[data-mode="listening"\] #hand-right \{ opacity: 0;/);
   assert.doesNotMatch(contentSource, /id="pet-ears"|id="ear-ripple"/);
   assert.match(contentSource, /#cursor\[data-mode="speaking"\] #pet-speaking-mouth \{ opacity: 1;/);
   assert.match(contentSource, /#cursor\[data-mode="thinking"\] #thought \{ opacity: 1;/);

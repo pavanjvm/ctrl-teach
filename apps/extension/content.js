@@ -174,6 +174,9 @@
   const SENSITIVE_TEXT = /\b(buy|purchase|pay|checkout|place order|delete|remove|erase|send|submit|publish|post|sign out|log out|change password|reset password|upload|download|allow|grant|confirm booking|book now)\b/i;
 
   const githubLabRules = globalThis.CtrlTeachGitHubLab;
+  const pageActionRules = globalThis.CtrlTeachPageActionGate;
+  const pageActionGate = pageActionRules.createActionGate();
+  const githubDomToolsApi = globalThis.CtrlTeachGithubDomTools;
   let extensionState = {
     enabled: false,
     suspended: false,
@@ -220,6 +223,8 @@
   let lastGitHubPolicySignal = "";
   let githubPrivateAutomationRunning = false;
   let githubPrivateHandoffActive = false;
+  let githubPrivateActionToken = "";
+  let githubPrivateStartRetries = 0;
   let cursorReportAt = 0;
   let statusText = "";
   let transcriptText = "";
@@ -255,8 +260,9 @@
       #cursor[data-launch-side="left"]:not([data-gesture="perched"]) #socket-left,
       #cursor[data-launch-side="right"]:not([data-gesture="perched"]) #socket-right { opacity: .9; }
       #cursor[data-mode="speaking"] #pet-svg { animation: petSpeak .78s ease-in-out infinite; }
-      #pet-ear { opacity: 0; transform-origin: 42px 18px; transform: scale(.62); transition: opacity .18s ease, transform .18s ease; filter: drop-shadow(1px 2px 2px rgba(16,18,15,.22)); }
+      #pet-ear { opacity: 0; transform-origin: 39px 21px; transform: scale(.82); transition: opacity .18s ease, transform .18s ease; filter: drop-shadow(1px 2px 2px rgba(16,18,15,.18)); }
       #cursor[data-mode="listening"] #pet-ear { opacity: 1; animation: listen .62s ease-in-out infinite alternate; }
+      #cursor[data-mode="listening"] #hand-right { opacity: 0; }
       #pet-speaking-mouth { opacity: 0; transform-origin: 22px 29px; }
       #cursor[data-mode="speaking"] #pet-smile { opacity: 0; }
       #cursor[data-mode="speaking"] #pet-speaking-mouth { opacity: 1; animation: talk .34s ease-in-out infinite; }
@@ -331,14 +337,7 @@
           <circle id="socket-right" cx="38.5" cy="25" r="3.2" fill="#26320f"></circle>
           <path id="pet-body-shape" d="M8.3 9.8C11.8 4.4 17.1 2 22 2s10.2 2.4 13.7 7.8c3.2 4.8 4.2 13.2 1.2 19.1C34.2 34.2 28.5 37 22 37S9.8 34.2 7.1 28.9c-3-5.9-2-14.3 1.2-19.1Z" fill="#b7ec52" stroke="#10120f" stroke-width="2"></path>
           <path d="M11.3 11.5c3-4 6.6-5.6 10.7-5.6s7.7 1.6 10.7 5.6" fill="none" stroke="rgba(255,255,255,.64)" stroke-width="2.2" stroke-linecap="round"></path>
-          <g id="pet-ear">
-            <path id="pet-ear-helix" d="M34.4 14.2C34.8 8.4 39.2 4.5 44.1 4.8c5.4.3 8.6 5.2 8 10.7-.4 3.5-2.2 6.2-4.4 8.5-1.4 1.4-1.7 3.6-2.9 5.2-1.5 2.1-4.8 2.5-7.1.8-2.1-1.6-2.3-4.7-.6-6.8 1.2-1.5 2.9-2.5 3.8-4.4 1.1-2.3.8-5.2-.9-6-1.9-.9-3.5.4-3.8 2.4Z" fill="#e7ffb1" stroke="#10120f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
-            <path id="pet-ear-rim" d="M39.2 10.1c3.6-2.9 8.2-1.5 9.2 2.2.9 3.5-1.1 6.5-3.6 8.9-2 1.9-3.6 3.1-3.4 5.1.1 1.3 1.4 2 2.6 1.3" fill="none" stroke="#79a925" stroke-width="1.55" stroke-linecap="round"></path>
-            <path id="pet-ear-antihelix" d="M42.2 13.2c2.8-1.2 4.8 1.3 3.5 3.9-.8 1.5-2.6 1.4-3.9 2.6m3.9-2.6c.9.4 1.5 1 1.8 1.8" fill="none" stroke="#527f19" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"></path>
-            <path id="pet-ear-concha" d="M41.3 20.4c1.7-1.5 4.5-1.2 5 .7.5 1.7-1 3.2-2.8 3" fill="none" stroke="#527f19" stroke-width="1.45" stroke-linecap="round"></path>
-            <path id="pet-ear-tragus" d="M39.2 20.7c1.7-.4 2.7.4 2.9 1.5" fill="none" stroke="#527f19" stroke-width="1.35" stroke-linecap="round"></path>
-            <circle id="pet-ear-canal" cx="43.5" cy="21.6" r="1.15" fill="#26320f"></circle>
-          </g>
+          <text id="pet-ear" x="31" y="30" font-size="20" font-family="Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif">👂</text>
           <g id="pet-eyes">
             <ellipse cx="16.3" cy="19" rx="5.2" ry="5.5" fill="#fff" stroke="#10120f" stroke-width="1.5"></ellipse>
             <ellipse cx="27.7" cy="19" rx="5.2" ry="5.5" fill="#fff" stroke="#10120f" stroke-width="1.5"></ellipse>
@@ -1104,6 +1103,100 @@
       && Number(style.opacity) !== 0;
   }
 
+  function pageActionStateKey() {
+    const root = document.scrollingElement || document.documentElement;
+    return [
+      location.href,
+      document.title,
+      Math.round(scrollX),
+      Math.round(scrollY),
+      Math.round(root?.scrollHeight || 0),
+      document.body?.childElementCount || 0,
+    ].join("|").slice(0, 500);
+  }
+
+  function pageActionElementKey(element, label = "") {
+    const semantic = element instanceof HTMLElement
+      ? `${selectorHint(element)}:${elementLabel(element)}`
+      : String(label || "coordinate");
+    return semantic.replace(/\s+/g, " ").trim().toLowerCase().slice(0, 260);
+  }
+
+  function pageActionBlocked(reason) {
+    if (reason === "busy") {
+      setStatus("Tars is finishing the current page action", true, 3200);
+    } else {
+      setStatus("Tars paused to avoid repeating the same action", true, 4200);
+    }
+  }
+
+  async function waitForCondition(predicate, timeoutMs = 2800, intervalMs = 100) {
+    const deadline = performance.now() + timeoutMs;
+    while (performance.now() < deadline) {
+      if (predicate()) return true;
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    return Boolean(predicate());
+  }
+
+  async function waitForPageActionSettle(beforeState, timeoutMs = 2200) {
+    let lastState = pageActionStateKey();
+    let stableReads = 0;
+    const changed = await waitForCondition(() => {
+      const nextState = pageActionStateKey();
+      const isChanged = nextState !== beforeState;
+      stableReads = nextState === lastState ? stableReads + 1 : 0;
+      lastState = nextState;
+      return isChanged && stableReads >= 2;
+    }, timeoutMs, 100);
+    if (!changed) await new Promise((resolve) => setTimeout(resolve, 180));
+    return changed;
+  }
+
+  async function waitForScrollSettle(timeoutMs = 3200) {
+    let lastX = scrollX;
+    let lastY = scrollY;
+    let moved = false;
+    let stableReads = 0;
+    return waitForCondition(() => {
+      const same = Math.abs(scrollX - lastX) < 1 && Math.abs(scrollY - lastY) < 1;
+      moved ||= !same;
+      stableReads = same ? stableReads + 1 : 0;
+      lastX = scrollX;
+      lastY = scrollY;
+      return (moved && stableReads >= 3) || (!moved && stableReads >= 5);
+    }, timeoutMs, 80);
+  }
+
+  async function scrollElementForTars(element, label, block = "center") {
+    return githubDomTools.scrollTo(element, label, block);
+  }
+
+  function semanticScrollElement(direction, label = "") {
+    const selectors = [
+      "a[href]", "button", "summary", "[role='button']", "[role='link']", "[role='heading']",
+      "h1", "h2", "h3", "h4", "h5", "h6", "section[id]", "[aria-label]",
+    ].join(",");
+    const candidates = [...new Set(document.querySelectorAll(selectors))]
+      .filter((element) => visibleAutomationElement(element) && element !== host && !host.contains(element))
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          element,
+          top: rect.top,
+          bottom: rect.bottom,
+          text: elementLabel(element),
+          actionable: isActionable(element),
+        };
+      })
+      .filter((candidate) => candidate.text.length >= 2 && candidate.text.length <= 240);
+    return pageActionRules.chooseScrollCandidate(candidates, {
+      direction,
+      label,
+      viewportHeight: innerHeight,
+    })?.element || null;
+  }
+
   function automationAction(root, patterns) {
     const candidates = root.querySelectorAll(
       "button,input[type='button'],input[type='submit'],[role='button'],summary,a[href]",
@@ -1115,17 +1208,34 @@
     }) || null;
   }
 
+  async function waitForAutomationAction(root, patterns, timeoutMs = 10_000) {
+    let action = automationAction(root, patterns);
+    if (action) return action;
+    await waitForCondition(() => {
+      action = automationAction(root, patterns);
+      return Boolean(action);
+    }, timeoutMs, 150);
+    return action;
+  }
+
   function automationElementInViewport(element) {
     const rect = element.getBoundingClientRect();
     return rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth;
   }
 
-  async function flyAutomationCursorTo(element, label) {
+  const githubDomTools = githubDomToolsApi.createGithubDomTools({
+    isUsable: visibleAutomationElement,
+    isInViewport: automationElementInViewport,
+    reducedMotion: () => reducedMotionQuery.matches,
+    waitForScroll: waitForScrollSettle,
+    onScroll: (label) => setStatus(`Tars is scrolling to ${label}`, true, 3600),
+  });
+
+  async function flyAutomationCursorTo(element, label, { allowScroll = true } = {}) {
     if (!visibleAutomationElement(element)) return false;
     if (!automationElementInViewport(element)) {
-      element.scrollIntoView({ block: "center", behavior: "smooth" });
-      setStatus(`Tars is scrolling to ${label}`, true, 3000);
-      await new Promise((resolve) => setTimeout(resolve, 1400));
+      if (!allowScroll) return false;
+      if (!await scrollElementForTars(element, label)) return false;
     }
     if (!visibleAutomationElement(element) || !automationElementInViewport(element)) return false;
     const rect = element.getBoundingClientRect();
@@ -1155,12 +1265,13 @@
   }
 
   async function automationClick(element, label) {
-    if (!await flyAutomationCursorTo(element, label)) return false;
-    element.focus({ preventScroll: true });
-    element.click();
+    if (!visibleAutomationElement(element)) return false;
+    if (!automationElementInViewport(element) && !await scrollElementForTars(element, label)) return false;
+    const beforeState = pageActionStateKey();
+    if (!githubDomTools.click(element)) return false;
     rocketHoldOpen = false;
     rocketTimer = setTimeout(() => returnRocket(navToken), 320);
-    await new Promise((resolve) => setTimeout(resolve, 1600));
+    await waitForPageActionSettle(beforeState, 3200);
     return true;
   }
 
@@ -1171,9 +1282,24 @@
     });
   }
 
+  async function narrateGithubPrivateAutomation(stage) {
+    // Narration is presentation only. The deterministic DOM controller must
+    // never be blocked by transcript, audio, or model completion events.
+    void runtimeSend({
+      type: "TARS_GITHUB_PRIVATE_AUTOMATION_NARRATE",
+      stage,
+    }).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+
   function finishGithubPrivateAutomation(status, keepPointer = false) {
     githubPrivateAutomationRunning = false;
     githubPrivateHandoffActive = keepPointer;
+    githubPrivateStartRetries = 0;
+    if (githubPrivateActionToken) {
+      pageActionGate.abort(githubPrivateActionToken);
+      githubPrivateActionToken = "";
+    }
     if (!keepPointer) recallRocket();
     if (transcriptText) setBubble(transcriptText);
     reportGithubPrivateAutomation(status);
@@ -1192,50 +1318,76 @@
       return;
     }
 
+    const claim = pageActionGate.begin({
+      owner: "github-private-recovery",
+      observationId: `github:${repositoryNwo}:${location.href}`,
+      actionKey: "github-private-recovery",
+      stateKey: pageActionStateKey(),
+    });
+    if (!claim.ok) {
+      if (claim.reason === "busy" && githubPrivateStartRetries < 3) {
+        githubPrivateStartRetries += 1;
+        setTimeout(() => void automateGithubRepositoryPrivate(repositoryNwo), 700);
+        return;
+      }
+      finishGithubPrivateAutomation("failed");
+      return;
+    }
+
+    githubPrivateActionToken = claim.token;
     githubPrivateAutomationRunning = true;
     githubPrivateHandoffActive = false;
     setStatus("Tars is taking you to Change visibility", true, 12_000);
-    // Let Realtime begin narrating before the first visible cursor action.
-    await new Promise((resolve) => setTimeout(resolve, 1400));
-    const deadline = Date.now() + 45_000;
-    let lastActionAt = 0;
-    while (Date.now() < deadline) {
-      if (checkedGitHubVisibility() === "private") {
-        scheduleGitHubStateSnapshot(0);
-        finishGithubPrivateAutomation("private");
-        return;
-      }
+    if (checkedGitHubVisibility() === "private") {
+      scheduleGitHubStateSnapshot(0);
+      finishGithubPrivateAutomation("private");
+      return;
+    }
 
-      if (location.pathname !== `/${repositoryNwo}/settings`) {
-        const settingsLink = [...document.querySelectorAll(`a[href="/${repositoryNwo}/settings"]`)]
-          .find((element) => visibleAutomationElement(element));
-        if (settingsLink) {
-          await automationClick(settingsLink, "repository settings");
-          lastActionAt = Date.now();
-          await new Promise((resolve) => setTimeout(resolve, 500));
-          continue;
-        }
+    if (location.pathname !== `/${repositoryNwo}/settings`) {
+      await narrateGithubPrivateAutomation("settings");
+      const settingsLink = [...document.querySelectorAll(`a[href="/${repositoryNwo}/settings"]`)]
+        .find((element) => visibleAutomationElement(element));
+      if (!settingsLink || !await automationClick(settingsLink, "repository settings")) {
         finishGithubPrivateAutomation("failed");
         return;
       }
-
-      const openVisibility = automationAction(document, [
-        /^change visibility$/i,
-        /^change repository visibility$/i,
-      ]);
-      if (openVisibility) {
-        if (await flyAutomationCursorTo(openVisibility, "change visibility")) {
-          finishGithubPrivateAutomation("handoff", true);
-          return;
-        }
-      } else {
-        scrollBy({ top: Math.max(420, innerHeight * 0.72), behavior: "smooth" });
-        setStatus("Tars is looking for Change visibility", true, 3000);
-        await new Promise((resolve) => setTimeout(resolve, 1400));
+      const reachedSettings = await waitForCondition(
+        () => location.pathname === `/${repositoryNwo}/settings`,
+        6500,
+        120,
+      );
+      if (!reachedSettings) {
+        finishGithubPrivateAutomation("failed");
+        return;
       }
+    }
 
-      await new Promise((resolve) => setTimeout(resolve, 650));
-      if (lastActionAt && Date.now() - lastActionAt > 12_000) break;
+    const visibilityPatterns = [
+      /\bchange visibility\b/i,
+      /\bchange repository visibility\b/i,
+    ];
+    setStatus("Tars is waiting for repository Settings to finish loading", true, 12_000);
+    let openVisibility = await waitForAutomationAction(document, visibilityPatterns, 12_000);
+    if (!openVisibility) {
+      finishGithubPrivateAutomation("failed");
+      return;
+    }
+    await narrateGithubPrivateAutomation("visibility");
+    openVisibility = await waitForAutomationAction(document, visibilityPatterns, 4000);
+    if (!openVisibility || !await scrollElementForTars(openVisibility, "change visibility")) {
+      finishGithubPrivateAutomation("failed");
+      return;
+    }
+    // The DOM tool has already grounded and scrolled the target. The rocket is
+    // now a visual pointer only and cannot prevent the page action.
+    if (openVisibility && await flyAutomationCursorTo(
+      openVisibility,
+      "change visibility",
+      { allowScroll: false },
+    )) {
+      finishGithubPrivateAutomation("handoff", true);
+      return;
     }
     finishGithubPrivateAutomation("failed");
   }
@@ -1464,37 +1616,47 @@
     return "";
   }
 
-  function confirmAction(action, reason) {
-    pendingConfirmation = action;
+  function confirmAction(action, reason, onCancel) {
+    pendingConfirmation = { run: action, cancel: onCancel };
     confirmCopy.textContent = reason;
     confirmLayer.classList.add("visible");
   }
 
   confirmCancel.addEventListener("click", () => {
+    const pending = pendingConfirmation;
     pendingConfirmation = null;
     confirmLayer.classList.remove("visible");
+    pending?.cancel?.();
   });
   confirmAccept.addEventListener("click", () => {
-    const action = pendingConfirmation;
+    const pending = pendingConfirmation;
     pendingConfirmation = null;
     confirmLayer.classList.remove("visible");
-    if (typeof action === "function") action();
+    if (typeof pending?.run === "function") pending.run();
   });
 
-  function maybeClick(element, label) {
-    if (!element?.isConnected || !isActionable(element)) return;
-    const reason = sensitiveReason(element, label);
-    if (reason) {
-      confirmAction(() => {
-        if (!element?.isConnected) return;
-        element.focus({ preventScroll: true });
-        element.click();
-      }, reason);
+  function maybeClick(element, label, onSettled = () => {}) {
+    if (!element?.isConnected || !isActionable(element)) {
+      onSettled("invalid");
+      return;
     }
-    else {
+    let executed = false;
+    const executeOnce = () => {
+      if (executed) return;
+      executed = true;
+      if (!element?.isConnected || !isActionable(element)) {
+        onSettled("invalid");
+        return;
+      }
       element.focus({ preventScroll: true });
       element.click();
+      onSettled("clicked");
+    };
+    const reason = sensitiveReason(element, label);
+    if (reason) {
+      confirmAction(executeOnce, reason, () => onSettled("cancelled"));
     }
+    else executeOnce();
   }
 
   function validContext(context) {
@@ -1514,19 +1676,25 @@
       && Math.abs(Number(viewport.scrollY || 0) - scrollY) <= 1;
   }
 
-  function requestCoordinateClick(context, point, label) {
+  function requestCoordinateClick(context, point, label, onSettled = () => {}) {
     if (!validCoordinateClickContext(context)) {
       setStatus("The page moved, so Tars did not click", true, 5000);
+      onSettled("stale");
       return;
     }
     const target = document.elementFromPoint(point.x, point.y);
     if (!(target instanceof HTMLElement) || target === host || host.contains(target)) {
       setStatus("Tars couldn't safely click that location", true, 5000);
+      onSettled("invalid");
       return;
     }
+    let executed = false;
     const run = () => {
+      if (executed) return;
+      executed = true;
       if (!validCoordinateClickContext(context)) {
         setStatus("The page moved, so Tars did not click", true, 5000);
+        onSettled("stale");
         return;
       }
       void runtimeSend({
@@ -1535,15 +1703,18 @@
         x: point.x,
         y: point.y,
       }).then((result) => {
-        if (!result?.ok) setStatus("Tars couldn't complete that visual click", true, 5000);
+        if (!result?.ok) {
+          setStatus("Tars couldn't complete that visual click", true, 5000);
+          onSettled("failed");
+        } else onSettled("clicked");
       });
     };
     const reason = sensitiveReason(target, label);
-    if (reason) confirmAction(run, reason);
+    if (reason) confirmAction(run, reason, () => onSettled("cancelled"));
     else run();
   }
 
-  function handlePoint(context, response) {
+  async function handlePoint(context, response) {
     if (!validContext(context)) {
       console.warn("[Tars] ignored point for stale or inactive context", {
         incoming: context?.contextId,
@@ -1551,24 +1722,58 @@
       });
       return;
     }
+    if (githubPrivateAutomationRunning) {
+      pageActionBlocked("busy");
+      return;
+    }
     const target = response?.targetId ? currentTargets.get(response.targetId) : null;
-    if (target?.isConnected) {
-      const point = pointForElement(target, response.label);
-      void flyTo({ ...point, label: response.label }, {
-        resolveTarget: () => target.isConnected ? pointForElement(target, response.label) : null,
-        onLand: response.action === "click" ? () => maybeClick(target, response.label) : undefined,
+    const wantsClick = response?.action === "click";
+    let claim = null;
+    let settled = false;
+    let clickBeforeState = "";
+    const beginClick = (actionKey) => {
+      if (!wantsClick) return true;
+      clickBeforeState = pageActionStateKey();
+      claim = pageActionGate.begin({
+        owner: "realtime-click",
+        observationId: context.contextId,
+        actionKey,
+        stateKey: pageActionStateKey(),
       });
+      if (!claim.ok) pageActionBlocked(claim.reason);
+      return claim.ok;
+    };
+    const settleClick = (outcome) => {
+      if (!claim?.ok || settled) return;
+      settled = true;
+      const token = claim.token;
+      void (async () => {
+        if (outcome === "clicked") await waitForPageActionSettle(clickBeforeState);
+        if (outcome === "cancelled") pageActionGate.abort(token);
+        else pageActionGate.finish(token, { stateKey: pageActionStateKey(), outcome });
+      })();
+    };
+    if (target?.isConnected) {
+      if (!beginClick(`click:${pageActionElementKey(target, response.label)}`)) return;
+      const point = pointForElement(target, response.label);
+      const landed = await flyTo({ ...point, label: response.label }, {
+        resolveTarget: () => target.isConnected ? pointForElement(target, response.label) : null,
+        onLand: wantsClick ? () => maybeClick(target, response.label, settleClick) : undefined,
+      });
+      if (!landed && claim?.ok && !settled) pageActionGate.abort(claim.token);
       return;
     }
     if (typeof response?.x === "number" && typeof response?.y === "number" && context.screenshotWidth && context.screenshotHeight) {
       const point = responsePoint(context, response.x, response.y, response.coordinate_space);
       if (point) {
-        void flyTo({ ...point, label: response.label }, {
+        if (!beginClick(`coordinate-click:${Math.round(point.x)}:${Math.round(point.y)}:${String(response.label || "").toLowerCase()}`)) return;
+        const landed = await flyTo({ ...point, label: response.label }, {
           rawCoordinate: true,
-          onLand: response.action === "click"
-            ? () => requestCoordinateClick(context, point, response.label)
+          onLand: wantsClick
+            ? () => requestCoordinateClick(context, point, response.label, settleClick)
             : undefined,
         });
+        if (!landed && claim?.ok && !settled) pageActionGate.abort(claim.token);
       }
       else setStatus("Tars couldn't map that point", true);
       return;
@@ -1587,12 +1792,52 @@
     }
   }
 
-  function handleAction(context, response) {
+  async function handleAction(context, response) {
     if (!validContext(context)) return;
     const action = response?.action;
-    if (action === "scroll_up") scrollBy({ top: -Math.max(320, innerHeight * 0.72), behavior: "smooth" });
-    else if (action === "scroll_down") scrollBy({ top: Math.max(320, innerHeight * 0.72), behavior: "smooth" });
-    else if (["pause_media", "play_media", "seek_media"].includes(action)) mediaAction(action, response.value);
+    if (!["scroll_up", "scroll_down", "pause_media", "play_media", "seek_media"].includes(action)) return;
+    const claim = pageActionGate.begin({
+      owner: "realtime-page-action",
+      observationId: context.contextId,
+      actionKey: `${action}:${String(response?.targetId || response?.label || response?.value || "").toLowerCase()}`,
+      stateKey: pageActionStateKey(),
+    });
+    if (!claim.ok) {
+      pageActionBlocked(claim.reason);
+      return;
+    }
+    const beforeState = pageActionStateKey();
+    let outcome = "completed";
+    if (action === "scroll_up" || action === "scroll_down") {
+      const direction = action === "scroll_up" ? "up" : "down";
+      const directTarget = response?.targetId ? currentTargets.get(response.targetId) : null;
+      const target = directTarget?.isConnected
+        ? directTarget
+        : semanticScrollElement(direction, response?.label || "");
+      if (target) {
+        outcome = await scrollElementForTars(target, response?.label || elementLabel(target) || "the next section")
+          ? "scrolled"
+          : "target_lost";
+      } else if (isGitHubPrivateRepositoryLab()) {
+        outcome = "target_unavailable";
+        setStatus("Tars couldn't safely ground that GitHub target, so it did not scroll", true, 5000);
+      } else {
+        const root = document.scrollingElement || document.documentElement;
+        const top = pageActionRules.absoluteScrollTop({
+          currentTop: scrollY,
+          viewportHeight: innerHeight,
+          scrollHeight: root.scrollHeight,
+          direction,
+        });
+        scrollTo({ top, behavior: reducedMotionQuery.matches ? "auto" : "smooth" });
+        await waitForScrollSettle();
+        outcome = "scrolled";
+      }
+    } else {
+      mediaAction(action, response.value);
+    }
+    await waitForPageActionSettle(beforeState, 1200);
+    pageActionGate.finish(claim.token, { stateKey: pageActionStateKey(), outcome });
   }
 
   function svgElement(name, attributes) {
@@ -2301,7 +2546,7 @@
         }
       }
     } else if (message.type === "TARS_POINT") {
-      handlePoint(message.context, message.response);
+      void handlePoint(message.context, message.response);
     } else if (message.type === "TARS_DRAW") {
       showSolMissingNotice([message.response]);
       handleDraw(message.context, message.tool, message.response);
@@ -2313,7 +2558,7 @@
         handleDraw(message.context, message.tool, response);
       }
     } else if (message.type === "TARS_ACTION") {
-      handleAction(message.context, message.response);
+      void handleAction(message.context, message.response);
     } else if (message.type === "TARS_GITHUB_MAKE_PRIVATE") {
       void automateGithubRepositoryPrivate(message.repositoryNameWithOwner);
     } else if (message.type === "TARS_LAB_COACH") {

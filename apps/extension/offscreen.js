@@ -13,6 +13,10 @@ let playerContext = null;
 let playerNextStart = 0;
 const playerSources = new Set();
 const scheduledPcmChunks = new Set();
+
+const deferredActionCompletion = TarsPlaybackGate.createDeferredActionGate((response) => {
+  void emit({ type: "TARS_ACTION", response });
+});
 const playbackCompletion = TarsPlaybackGate.createPlaybackCompletionGate(() => {
   void emit({
     type: "TARS_STATUS",
@@ -21,6 +25,7 @@ const playbackCompletion = TarsPlaybackGate.createPlaybackCompletionGate(() => {
     text: "Tars ready — hold Ctrl to talk",
     delayed: true,
   });
+  deferredActionCompletion.drain();
 });
 const MIN_VOICED_MS = 72;
 const MIN_CONTINUOUS_VOICE_MS = 32;
@@ -121,6 +126,7 @@ function clearPlayback() {
   // Reset before stopping sources because AudioBufferSourceNode.onended also
   // runs for an explicit stop. It must not complete an interrupted old turn.
   playbackCompletion.reset();
+  deferredActionCompletion.reset();
   for (const source of playerSources) {
     try { source.stop(); } catch {}
   }
@@ -173,6 +179,7 @@ async function playPcm(base64) {
     source.start(startAt);
     playerNextStart = startAt + buffer.duration;
     playbackCompletion.sourceScheduled();
+    deferredActionCompletion.markAudioStarted();
     void emit({ type: "TARS_STATUS", mode: "speaking", playbackActive: true });
   } catch (error) {
     if (source) {
@@ -302,7 +309,20 @@ function handleServerEvent(event) {
     return;
   }
   if (event.type === "tars_action") {
-    void emit({ type: "TARS_ACTION", response: event.response || {} });
+    const response = event.response || {};
+    if (response.action === "github_make_private") {
+      // Older servers emit the controlled action before beginning the approval
+      // sentence. Queue it locally so the deterministic DOM controller still
+      // starts only after that response has physically finished playing.
+      deferredActionCompletion.queue(response);
+      void emit({
+        type: "TARS_STATUS",
+        mode: "thinking",
+        resetTranscript: true,
+      });
+    } else {
+      void emit({ type: "TARS_ACTION", response });
+    }
     return;
   }
   if (event.type === "tars_recoverable_error") {
@@ -328,6 +348,7 @@ function handleServerEvent(event) {
       append: !event.outputTranscription.finished,
       finished: Boolean(event.outputTranscription.finished),
       transcriptOnly: true,
+      resetTranscript: Boolean(event.resetTranscript),
     });
   }
   for (const part of event.content?.parts || []) {
@@ -340,6 +361,9 @@ function handleServerEvent(event) {
         console.warn("[Tars] audio playback failed", error);
       });
     }
+  }
+  if (event.deferredAction?.response) {
+    deferredActionCompletion.queue(event.deferredAction.response);
   }
   if (event.turnComplete && !event.interrupted) {
     // Network streaming is complete, but scheduled PCM may still be audible.

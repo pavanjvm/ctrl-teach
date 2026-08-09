@@ -26,7 +26,8 @@ test("rejects stale or moved visual contexts before clicking", () => {
 });
 
 test("routes only explicit grounded coordinate clicks through the executor", () => {
-  assert.match(contentSource, /response\.action === "click"[\s\S]*?requestCoordinateClick/);
+  assert.match(contentSource, /const wantsClick = response\?\.action === "click"[\s\S]*?wantsClick[\s\S]*?requestCoordinateClick/);
+  assert.match(contentSource, /let executed = false;[\s\S]*?if \(executed\) return;[\s\S]*?TARS_COORDINATE_CLICK/);
   assert.match(contentSource, /const reason = sensitiveReason\(target, label\)/);
   assert.match(contentSource, /type: "TARS_COORDINATE_CLICK"/);
 });
