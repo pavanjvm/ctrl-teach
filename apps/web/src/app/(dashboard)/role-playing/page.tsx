@@ -456,7 +456,6 @@ function LiveRoleplay(props: {
       videoSource={false}
       startAudioOff
       startVideoOff
-      showLocalVideo={false}
       subscribeToTracksAutomatically
       strictMode
       aboutClient={{ integration: "ctrl-teach-roleplay" }}
@@ -490,6 +489,9 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
   const [sessionError, setSessionError] = useState("");
   const callRef = useRef<DailyCall | null>(null);
   const dailyAudioRef = useRef<DailyAudioHandle | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const localCameraStreamRef = useRef<MediaStream | null>(null);
+  const [localCameraState, setLocalCameraState] = useState<"loading" | "ready" | "unavailable">("loading");
   const authTokenRef = useRef(authToken);
   const faceReadyRef = useRef(false);
   const dailyJoinedRef = useRef(false);
@@ -631,6 +633,39 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
 
   useEffect(() => { faceReadyRef.current = faceReady; }, [faceReady]);
   useEffect(() => { authTokenRef.current = authToken; }, [authToken]);
+  useEffect(() => {
+    let cancelled = false;
+
+    const startLocalCamera = async () => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setLocalCameraState("unavailable");
+        return;
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: "user" },
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        localCameraStreamRef.current = stream;
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+        setLocalCameraState("ready");
+      } catch {
+        if (!cancelled) setLocalCameraState("unavailable");
+      }
+    };
+
+    void startLocalCamera();
+    return () => {
+      cancelled = true;
+      localCameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localCameraStreamRef.current = null;
+      if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    };
+  }, []);
   useEffect(() => {
     if (call && !call.isDestroyed()) callRef.current = call;
   }, [call]);
@@ -1063,6 +1098,16 @@ function LiveRoleplayCall({ authToken, brief, session, voice, onEnded }: {
               <Volume2 size={14} /> Enable sound
             </button>
           )}
+          <div className={`rp-self-view ${localCameraState}`}>
+            <video ref={localVideoRef} autoPlay muted playsInline aria-label="Your local camera preview" />
+            {localCameraState !== "ready" && (
+              <div className="rp-self-view-state">
+                {localCameraState === "loading" ? <LoaderCircle className="rp-spin" size={18} /> : <UserRound size={18} />}
+                <span>{localCameraState === "loading" ? "Starting camera" : "Camera unavailable"}</span>
+              </div>
+            )}
+            <span className="rp-self-view-label"><ShieldCheck size={11} /> You &middot; Local only</span>
+          </div>
           <div className="rp-video-caption"><span><Volume2 size={14} /> Live AI actor</span></div>
         </div>
 

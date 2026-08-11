@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     realtime_reasoning_effort: Literal["minimal", "low", "medium", "high", "xhigh"] = "high"
     realtime_voice: str = "ash"
     transcription_model: str = "gpt-4o-mini-transcribe"
+    classroom_transcription_model: str = "gpt-transcribe"
     course_generation_model: str = "gpt-5.4-mini"
     image_model: str = "gpt-image-2"
     # Keep the learner-facing interview responsive and bound longer background

@@ -87,6 +87,11 @@
 .rp-video-loading strong{font-size:13px}.rp-video-loading span{margin-top:4px;color:#90988b;font-size:10px}
 .rp-connection-pill{position:absolute;top:16px;left:50%;z-index:3;display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid rgba(255,255,255,.14);border-radius:999px;background:rgba(14,16,12,.72);color:#e7eadf;font-size:9.5px;transform:translateX(-50%);backdrop-filter:blur(8px)}
 .rp-enable-sound{position:absolute;top:16px;right:16px;z-index:4;display:inline-flex;height:34px;align-items:center;gap:7px;padding:0 11px;border:1px solid rgba(255,255,255,.2);border-radius:5px;background:rgba(14,16,12,.82);color:#f2f4ed;font-size:9.5px;font-weight:750;backdrop-filter:blur(8px)}
+.rp-self-view{position:absolute;top:16px;left:16px;z-index:4;width:clamp(138px,18vw,190px);aspect-ratio:4/3;overflow:hidden;border:1px solid rgba(255,255,255,.22);border-radius:7px;background:#20241d;box-shadow:0 12px 32px rgba(0,0,0,.28)}
+.rp-self-view video{display:block;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.rp-self-view.loading video,.rp-self-view.unavailable video{opacity:0}
+.rp-self-view-state{position:absolute;inset:0;display:grid;align-content:center;justify-items:center;gap:7px;color:#c9cec4;font-size:9px}
+.rp-self-view-label{position:absolute;right:7px;bottom:7px;left:7px;display:flex;align-items:center;gap:5px;padding:5px 7px;border:1px solid rgba(255,255,255,.12);border-radius:4px;background:rgba(10,12,9,.7);color:#f2f5ed;font-size:8.5px;font-weight:750;backdrop-filter:blur(8px)}
 .rp-video-caption{position:absolute;right:15px;bottom:15px;left:15px;z-index:3;display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid rgba(255,255,255,.12);border-radius:5px;background:rgba(10,12,9,.66);color:#f5f7f1;backdrop-filter:blur(10px)}
 .rp-video-caption span{display:inline-flex;align-items:center;gap:7px;font-size:10.5px;font-weight:700}.rp-video-caption small{color:#b3baad;font-size:9px}
 .rp-live-sidebar{display:flex;min-height:0;overflow:hidden;flex-direction:column;border-left:1px solid var(--border);background:#f8f9f6}

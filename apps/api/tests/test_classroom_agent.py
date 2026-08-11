@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from io import BytesIO
 import inspect
 import re
@@ -17,9 +18,14 @@ from app.agents.tars_agent import (
     build_tars_agent,
     draw_on_screen,
 )
+from app.config import settings
 from app.main import (
     _audio_interruption_requires_visual_abort,
+    _handle_raw_event,
+    _prepare_realtime_input_audio,
+    _reasoning_effort_for_mode,
     _send_json,
+    _transcription_model_for_mode,
     _turn_detection_for_mode,
     _turn_requires_learner_response,
     websocket_endpoint,
@@ -33,11 +39,45 @@ from app.tools import canvas_tools
 
 
 class ClassroomAgentTests(unittest.TestCase):
+    def test_classroom_audio_bypasses_backend_resampling(self) -> None:
+        pcm = b"\x01\x00\x02\x00"
+        with patch("app.main._resample_pcm16") as resample:
+            self.assertIs(
+                _prepare_realtime_input_audio(pcm, classroom_mode=True),
+                pcm,
+            )
+        resample.assert_not_called()
+
     def test_page_tars_uses_explicit_ptt_while_teaching_uses_vad(self) -> None:
         self.assertIsNone(_turn_detection_for_mode(push_to_talk=True))
         self.assertEqual(
             _turn_detection_for_mode(push_to_talk=False),
             {"type": "semantic_vad", "interrupt_response": True},
+        )
+        self.assertEqual(
+            _turn_detection_for_mode(push_to_talk=False, classroom_mode=True),
+            {
+                "type": "semantic_vad",
+                "interrupt_response": True,
+                "eagerness": "high",
+                "create_response": True,
+            },
+        )
+
+    def test_classroom_uses_low_latency_reasoning(self) -> None:
+        self.assertEqual(
+            _reasoning_effort_for_mode(classroom_mode=True),
+            "low",
+        )
+
+    def test_classroom_uses_higher_accuracy_input_transcription(self) -> None:
+        self.assertEqual(
+            _transcription_model_for_mode(classroom_mode=True),
+            settings.classroom_transcription_model,
+        )
+        self.assertEqual(
+            _transcription_model_for_mode(classroom_mode=False),
+            settings.transcription_model,
         )
 
     def test_push_to_talk_interruption_does_not_abort_visuals_twice(self) -> None:
@@ -255,6 +295,31 @@ class ClassroomPointGroundingTests(unittest.IsolatedAsyncioTestCase):
 
 
 class WebSocketSendTests(unittest.IsolatedAsyncioTestCase):
+    async def test_raw_learner_transcript_delta_is_forwarded(self) -> None:
+        websocket = AsyncMock()
+        websocket.send_text = AsyncMock(return_value=None)
+
+        await _handle_raw_event(
+            {
+                "type": "conversation.item.input_audio_transcription.delta",
+                "item_id": "learner-turn-1",
+                "delta": "branches",
+            },
+            websocket,
+            {},
+            set(),
+        )
+
+        payload = json.loads(websocket.send_text.await_args.args[0])
+        self.assertEqual(
+            payload["inputTranscription"],
+            {
+                "text": "branches",
+                "finished": False,
+                "itemId": "learner-turn-1",
+            },
+        )
+
     async def test_send_json_reports_delivery_result(self) -> None:
         websocket = type("WebSocketStub", (), {})()
         websocket.send_text = AsyncMock(return_value=None)

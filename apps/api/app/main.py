@@ -184,6 +184,13 @@ def _resample_pcm16(data: bytes, src_rate: int, dst_rate: int) -> bytes:
     return resampled.tobytes()
 
 
+def _prepare_realtime_input_audio(data: bytes, *, classroom_mode: bool) -> bytes:
+    """Return model-native PCM, bypassing conversion for Live Classroom."""
+    if classroom_mode:
+        return data
+    return _resample_pcm16(data, _INPUT_RATE, _OUTPUT_RATE)
+
+
 def _to_base64(value: Any) -> str:
     """Normalise an audio chunk (bytes or base64 str) to a base64 string.
 
@@ -327,15 +334,35 @@ async def health():
 # ── Realtime session config ───────────────────────────────────────────────────
 
 
-def _turn_detection_for_mode(*, push_to_talk: bool) -> Optional[dict[str, Any]]:
+def _turn_detection_for_mode(
+    *,
+    push_to_talk: bool,
+    classroom_mode: bool = False,
+) -> Optional[dict[str, Any]]:
     """Return explicit PTT or semantic-VAD turn detection for a session mode."""
 
     if push_to_talk:
         return None
-    return {
+    turn_detection: dict[str, Any] = {
         "type": "semantic_vad",
         "interrupt_response": True,
     }
+    if classroom_mode:
+        turn_detection["eagerness"] = "high"
+        turn_detection["create_response"] = True
+    return turn_detection
+
+
+def _reasoning_effort_for_mode(*, classroom_mode: bool) -> str:
+    """Favor conversational latency during Live Classroom voice turns."""
+    return "low" if classroom_mode else settings.realtime_reasoning_effort
+
+
+def _transcription_model_for_mode(*, classroom_mode: bool) -> str:
+    """Use the higher-accuracy learner transcript model in Live Classroom."""
+    if classroom_mode:
+        return settings.classroom_transcription_model
+    return settings.transcription_model
 
 
 def _audio_interruption_requires_visual_abort(agent_kind: str) -> bool:
@@ -355,6 +382,7 @@ def _build_runner(
     voice: str,
     *,
     push_to_talk: bool = False,
+    classroom_mode: bool = False,
 ) -> RealtimeRunner:
     """Build a RealtimeRunner configured for low-latency bidi voice."""
     # Tars is explicitly push-to-talk and commits on Ctrl release. Disabling
@@ -362,14 +390,21 @@ def _build_runner(
     # is still capturing the screen context that belongs to that same turn.
     # Do not infer this from agent.name: page assistance and teaching share the
     # same TARS identity but intentionally use different turn-taking modes.
-    turn_detection = _turn_detection_for_mode(push_to_talk=push_to_talk)
+    turn_detection = _turn_detection_for_mode(
+        push_to_talk=push_to_talk,
+        classroom_mode=classroom_mode,
+    )
     model_settings = {
         "model_name": settings.realtime_model,
-        "reasoning": {"effort": settings.realtime_reasoning_effort},
+        "reasoning": {
+            "effort": _reasoning_effort_for_mode(classroom_mode=classroom_mode),
+        },
         "audio": {
             "input": {
                 "format": "pcm16",
-                "transcription": {"model": settings.transcription_model},
+                "transcription": {
+                    "model": _transcription_model_for_mode(classroom_mode=classroom_mode),
+                },
                 "turn_detection": turn_detection,
             },
             "output": {
@@ -1439,14 +1474,15 @@ skipping required work, or weaken lab success criteria or cleanup.
                     if len(message["bytes"]) > _MAX_WS_AUDIO_FRAME_BYTES:
                         await websocket.close(code=1009, reason="Audio frame too large")
                         return
-                    # Live Classroom is deliberately half-duplex. With a
-                    # WebSocket transport the browser owns output playback,
-                    # so server response completion is not proof that the
-                    # learner has heard the turn. Ignore ambient/echo PCM until
-                    # the browser acknowledges that its playback queue drained.
-                    if classroom_mode and state.get("assistant_turn_in_progress"):
-                        continue
-                    pcm16 = _resample_pcm16(message["bytes"], _INPUT_RATE, _OUTPUT_RATE)
+                    # Classroom audio stays live during teacher playback so
+                    # semantic VAD can detect learner speech and interrupt the
+                    # active response. Echo control remains a browser concern.
+                    # Classroom captures the model-native 24 kHz PCM format, so
+                    # pass it through without an extra quality-losing resample.
+                    pcm16 = _prepare_realtime_input_audio(
+                        message["bytes"],
+                        classroom_mode=classroom_mode,
+                    )
                     session = state.get("session")
                     if session is not None:
                         try:
@@ -1916,6 +1952,12 @@ skipping required work, or weaken lab success criteria or cleanup.
                         ))
                         logger.info("Tars input audio buffer cleared")
 
+                    elif msg_type == "clear_input_audio":
+                        await session._model.send_event(RealtimeModelSendRawMessage(
+                            message={"type": "input_audio_buffer.clear", "other_data": {}}
+                        ))
+                        logger.info("Realtime input audio buffer cleared by client mute")
+
                     elif msg_type == "canvas_elements":
                         elements = json_msg.get("elements", [])
                         from app.tools.canvas_tools import update_cursor_from_canvas
@@ -1959,6 +2001,7 @@ skipping required work, or weaken lab success criteria or cleanup.
             root_agent,
             tutor_voice,
             push_to_talk=agent_kind == "tars",
+            classroom_mode=classroom_mode,
         )
         mcfg = _model_config()
 
@@ -2552,6 +2595,12 @@ skipping required work, or weaken lab success criteria or cleanup.
                         # ── Interruption ────────────────────────────────────
                         elif etype == "audio_interrupted":
                             state["assistant_turn_in_progress"] = False
+                            logger.info(
+                                "Realtime audio interrupted: user=%s session=%s classroom=%s",
+                                user_id,
+                                session_id,
+                                classroom_mode,
+                            )
                             interrupt_event = state.get("suppressed_interrupt_event")
                             if isinstance(interrupt_event, asyncio.Event):
                                 interrupt_event.set()
@@ -2623,8 +2672,9 @@ skipping required work, or weaken lab success criteria or cleanup.
                                         "author": state.get("current_agent", "tutor_agent"),
                                     })
 
-                            # User (input) speech transcript — completed only.
+                            # User (input) speech transcript final.
                             elif dtype == "input_audio_transcription_completed":
+                                item_id = getattr(data, "item_id", "") or ""
                                 full = getattr(data, "transcript", "") or ""
                                 if full:
                                     _cancel_auto_continue()
@@ -2663,20 +2713,29 @@ skipping required work, or weaken lab success criteria or cleanup.
                                                 )
                                             )
                                     logger.info("Realtime input transcript: %r", full)
-                                    # delta + finish pair so the frontend's
-                                    # input-transcript UI renders + finalises.
-                                    await _send_json(websocket, {
-                                        "inputTranscription": {
-                                            "text": full,
-                                            "finished": False,
-                                        },
-                                    })
                                     await _send_json(websocket, {
                                         "inputTranscription": {
                                             "text": full,
                                             "finished": True,
+                                            "itemId": item_id,
                                         },
                                     })
+
+                            # The SDK currently forwards learner transcript
+                            # deltas only inside its raw-server-event wrapper.
+                            elif dtype == "raw_server_event":
+                                raw = getattr(data, "data", None)
+                                if (
+                                    isinstance(raw, dict)
+                                    and raw.get("type")
+                                    == "conversation.item.input_audio_transcription.delta"
+                                ):
+                                    await _handle_raw_event(
+                                        raw,
+                                        websocket,
+                                        state,
+                                        _output_partial_open,
+                                    )
 
                             # Legacy dict payload path (kept for safety).
                             elif isinstance(data, dict):
@@ -2815,8 +2874,6 @@ async def _handle_raw_event(
 ) -> None:
     """Translate raw Realtime API events into ADK-shaped transcript envelopes."""
     ev_type = data.get("type", "")
-    # DEBUG — temporary diagnostic for transcript-not-showing-in-chat issue
-    print(f"[RAW] {ev_type}", flush=True)
 
     # ── Assistant (output) transcript deltas/final ──────────────────────────
     if ev_type == "response.audio_transcript.delta":
@@ -2849,7 +2906,17 @@ async def _handle_raw_event(
         })
         output_partial_open.discard(item_id)
 
-    # ── User (input) transcript final ────────────────────────────────────────
+    # ── User (input) transcript deltas/final ─────────────────────────────────
+    elif ev_type == "conversation.item.input_audio_transcription.delta":
+        text = data.get("delta") or ""
+        if text:
+            await _send_json(websocket, {
+                "inputTranscription": {
+                    "text": text,
+                    "finished": False,
+                    "itemId": data.get("item_id", ""),
+                },
+            })
     elif ev_type == "conversation.item.input_audio_transcription.completed":
         full = data.get("transcript") or ""
         if full:
@@ -2878,12 +2945,12 @@ async def _handle_raw_event(
                 state["github_visibility_help_request_count"] = (
                     prior_requests + 1
                 )
-            # Mimic delta+finish so the frontend's transcript UI renders it.
             await _send_json(websocket, {
-                "inputTranscription": {"text": full, "finished": False},
-            })
-            await _send_json(websocket, {
-                "inputTranscription": {"text": full, "finished": True},
+                "inputTranscription": {
+                    "text": full,
+                    "finished": True,
+                    "itemId": data.get("item_id", ""),
+                },
             })
 
     # ── Audio fallback (only if the high-level `audio` event didn't already

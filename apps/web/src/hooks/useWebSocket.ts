@@ -440,6 +440,13 @@ export function useWebSocket() {
     }
   }, []);
 
+  const clearInputAudio = useCallback(() => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "clear_input_audio" }));
+    }
+  }, []);
+
   const sendImage = useCallback(
     (base64Data: string, mimeType = "image/jpeg") => {
       const ws = wsRef.current;
@@ -767,12 +774,11 @@ export function useWebSocket() {
         if (currentInputIdRef.current) {
           const curId = currentInputIdRef.current;
           if (finished) {
-            // Final event — just mark complete, don't touch text
-            // (the accumulated deltas already have the full content;
-            //  appending the final cumulative payload would double it)
+            // The completed payload is authoritative and can correct words
+            // from provisional transcript deltas.
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === curId ? { ...m, partial: false } : m
+                m.id === curId ? { ...m, text, partial: false } : m
               )
             );
             currentInputIdRef.current = null;
@@ -786,12 +792,12 @@ export function useWebSocket() {
               )
             );
           }
-        } else if (!finished) {
+        } else {
           const id = crypto.randomUUID();
-          currentInputIdRef.current = id;
+          currentInputIdRef.current = finished ? null : id;
           setMessages((prev) => [
             ...prev,
-            { id, role: "user", text, partial: true, timestamp: Date.now() },
+            { id, role: "user", text, partial: !finished, timestamp: Date.now() },
           ]);
         }
       }
@@ -801,17 +807,6 @@ export function useWebSocket() {
         beginAssistantTurn();
         const text = event.outputTranscription.text;
         const finished = event.outputTranscription.finished;
-
-        // Finalize any open input transcription when output begins
-        if (currentInputIdRef.current && !currentOutputIdRef.current) {
-          const inputId = currentInputIdRef.current;
-          currentInputIdRef.current = null;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === inputId ? { ...m, partial: false } : m
-            )
-          );
-        }
 
         if (currentOutputIdRef.current) {
           const curId = currentOutputIdRef.current;
@@ -1027,6 +1022,7 @@ export function useWebSocket() {
     sendRoleplayStart,
     sendCompanionContext,
     sendAudio,
+    clearInputAudio,
     sendImage,
     sendCanvasSnapshot,
     sendCanvasElements,

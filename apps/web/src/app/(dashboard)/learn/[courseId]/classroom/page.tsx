@@ -39,6 +39,8 @@ const WhiteboardCanvas = dynamic(
 );
 
 type LessonEntry = { lesson: Lesson; module: Module; index: number };
+const CLASSROOM_INPUT_SAMPLE_RATE = 24_000;
+
 type ClassroomQuiz = {
   id: string;
   question: string;
@@ -271,7 +273,6 @@ function ClassroomSession({
   const { completeLesson, isLessonComplete, setActiveLesson } = useLearner();
   const [sessionId] = useState(() => `classroom-${generateId()}`);
   const [presentation, setPresentation] = useState<CanvasCommand[]>([]);
-  const [isRecording, setIsRecording] = useState(false);
   const [micEnabled, setMicEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [completedNow, setCompletedNow] = useState(false);
@@ -295,6 +296,7 @@ function ClassroomSession({
   const bridgedDrawsRef = useRef(new Set<string>());
   const startedRef = useRef(false);
   const snapshotTimerRef = useRef<number | null>(null);
+  const micEnabledRef = useRef(true);
 
   const {
     status,
@@ -312,19 +314,25 @@ function ClassroomSession({
     sendText,
     sendClassroomStart,
     sendAudio,
+    clearInputAudio,
     sendCanvasSnapshot,
     acknowledgeVisualSync,
   } = useWebSocket();
   const {
     isPlaying,
+    isRecording,
     startRecording,
     stopRecording,
     initPlayer,
+    resumeContexts,
     playAudioChunk,
     waitForPlaybackComplete,
     clearPlayback,
     cleanup,
   } = useAudio();
+  const sendClassroomAudio = useCallback((pcm: ArrayBuffer) => {
+    if (micEnabledRef.current) sendAudio(pcm);
+  }, [sendAudio]);
   const [tarsPointTarget, setTarsPointTarget] = useState<{ x: number; y: number; label?: string; id: string } | null>(null);
 
   const combinedCommands = useMemo(
@@ -351,6 +359,21 @@ function ClassroomSession({
   const startClassroom = useCallback(async () => {
     if (!user || status !== "disconnected") return;
     setError(null);
+    if (micEnabled && !isRecording) {
+      micEnabledRef.current = true;
+      try {
+        await startRecording(sendClassroomAudio, {
+          resumeContext: true,
+          sampleRate: CLASSROOM_INPUT_SAMPLE_RATE,
+        });
+        if (micEnabledRef.current) resumeContexts();
+        else stopRecording();
+      } catch {
+        micEnabledRef.current = false;
+        setMicEnabled(false);
+        setError("Microphone access is unavailable. You can still type to the teacher.");
+      }
+    }
     try {
       const token = await getToken();
       if (!token) throw new Error("Sign in again to start Live Classroom.");
@@ -366,7 +389,7 @@ function ClassroomSession({
         onInterrupt: clearPlayback,
         onToolAudio: (encoded) => playAudioChunk(base64ToArrayBuffer(encoded)),
         waitForPlaybackComplete,
-        halfDuplexAudio: true,
+        halfDuplexAudio: false,
         onError: setError,
         onEvent: (event) => {
           if (
@@ -426,7 +449,7 @@ function ClassroomSession({
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : "Live Classroom could not start.");
     }
-  }, [clearPlayback, completeLesson, connect, course.id, entry.lesson.id, getToken, initPlayer, playAudioChunk, sessionId, status, user, waitForPlaybackComplete]);
+  }, [clearPlayback, completeLesson, connect, course.id, entry.lesson.id, getToken, initPlayer, isRecording, micEnabled, playAudioChunk, resumeContexts, sendClassroomAudio, sessionId, startRecording, status, stopRecording, user, waitForPlaybackComplete]);
 
   useEffect(() => {
     if (!realtimeReady || startedRef.current || presentation.length === 0) return;
@@ -467,13 +490,23 @@ function ClassroomSession({
 
   useEffect(() => {
     if (status !== "connected" || !micEnabled || isRecording) return;
-    startRecording(sendAudio)
-      .then(() => setIsRecording(true))
+    startRecording(sendClassroomAudio, {
+      sampleRate: CLASSROOM_INPUT_SAMPLE_RATE,
+    })
+      .then(() => {
+        if (!micEnabledRef.current) {
+          stopRecording();
+          return;
+        }
+        resumeContexts();
+      })
       .catch(() => {
+        if (!micEnabledRef.current) return;
+        micEnabledRef.current = false;
         setMicEnabled(false);
         setError("Microphone access is unavailable. You can still type to the teacher.");
       });
-  }, [isRecording, micEnabled, sendAudio, startRecording, status]);
+  }, [isRecording, micEnabled, resumeContexts, sendClassroomAudio, startRecording, status, stopRecording]);
 
   useEffect(() => {
     const meta = lastSnapshotRef.current;
@@ -555,19 +588,39 @@ function ClassroomSession({
   }, [cleanup, disconnect, stopRecording]);
 
   function toggleMic() {
-    if (micEnabled) {
+    if (micEnabledRef.current) {
+      micEnabledRef.current = false;
       setMicEnabled(false);
       stopRecording();
-      setIsRecording(false);
+      clearInputAudio();
       return;
     }
-    setError(null);
+    micEnabledRef.current = true;
     setMicEnabled(true);
+    setError(null);
+    startRecording(sendClassroomAudio, {
+      resumeContext: true,
+      sampleRate: CLASSROOM_INPUT_SAMPLE_RATE,
+    })
+      .then(() => {
+        if (!micEnabledRef.current) {
+          stopRecording();
+          return;
+        }
+        resumeContexts();
+      })
+      .catch(() => {
+        if (!micEnabledRef.current) return;
+        micEnabledRef.current = false;
+        setMicEnabled(false);
+        setError("Microphone access is unavailable. You can still type to the teacher.");
+      });
   }
 
   function stopClassroom() {
+    micEnabledRef.current = false;
+    clearInputAudio();
     stopRecording();
-    setIsRecording(false);
     cleanup();
     disconnect();
   }
@@ -620,9 +673,9 @@ function ClassroomSession({
             <button type="button" className="classroom-start" onClick={startClassroom}><Play size={14} /> Start lesson</button>
           ) : (
             <>
-              <button type="button" onClick={toggleMic} aria-pressed={!micEnabled}>
-                {micEnabled ? <Mic size={15} /> : <MicOff size={15} />}
-                {micEnabled ? (isAssistantTurnActive ? "Mic paused" : "Mic on") : "Mic off"}
+              <button type="button" onClick={toggleMic} aria-pressed={micEnabled && isRecording}>
+                {micEnabled && isRecording ? <Mic size={15} /> : <MicOff size={15} />}
+                {micEnabled ? (isRecording ? "Mic on" : "Starting mic") : "Mic off"}
               </button>
               <button type="button" onClick={stopClassroom}><Square size={13} /> End</button>
             </>

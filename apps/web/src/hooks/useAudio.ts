@@ -18,6 +18,9 @@ export function useAudio() {
   const recorderNodeRef = useRef<AudioWorkletNode | null>(null);
   const recorderGainRef = useRef<GainNode | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
+  const recordingRef = useRef(false);
+  const recorderStartingRef = useRef(false);
+  const recorderGenerationRef = useRef(0);
 
   // Player refs
   const playerCtxRef = useRef<AudioContext | null>(null);
@@ -55,12 +58,23 @@ export function useAudio() {
   // ── Start Microphone Recording ───────────────────────────────────────────
 
   const startRecording = useCallback(
-    async (onAudioData: (pcm: ArrayBuffer) => void) => {
-      if (isRecording) return;
+    async (
+      onAudioData: (pcm: ArrayBuffer) => void,
+      options?: { resumeContext?: boolean; sampleRate?: number },
+    ) => {
+      if (recordingRef.current || recorderStartingRef.current) return;
+      const generation = recorderGenerationRef.current + 1;
+      recorderGenerationRef.current = generation;
+      recorderStartingRef.current = true;
 
-      // Create AudioContext at 16 kHz (Live API input requirement)
-      const ctx = new AudioContext({ sampleRate: 16000 });
-      recorderCtxRef.current = ctx;
+      try {
+        // Most existing callers use the legacy 16 kHz browser-to-server format.
+        // Realtime callers can request 24 kHz and avoid server-side resampling.
+        const ctx = new AudioContext({ sampleRate: options?.sampleRate ?? 16_000 });
+        recorderCtxRef.current = ctx;
+        if (options?.resumeContext && ctx.state === "suspended") {
+          await ctx.resume();
+        }
 
       // Register the PCM recorder worklet
       const workletCode = `
@@ -90,6 +104,11 @@ export function useAudio() {
           autoGainControl: true,
         },
       });
+      if (recorderGenerationRef.current !== generation) {
+        stream.getTracks().forEach((track) => track.stop());
+        if (ctx.state !== "closed") void ctx.close();
+        return;
+      }
       micStreamRef.current = stream;
 
       const source = ctx.createMediaStreamSource(stream);
@@ -106,6 +125,10 @@ export function useAudio() {
       silentGain.connect(ctx.destination);
 
       node.port.onmessage = (event: MessageEvent) => {
+        if (
+          recorderGenerationRef.current !== generation
+          || !recordingRef.current
+        ) return;
         const float32: Float32Array = event.data;
         // Convert Float32 [-1.0, 1.0] → Int16
         const pcm16 = new Int16Array(float32.length);
@@ -115,14 +138,23 @@ export function useAudio() {
         onAudioData(pcm16.buffer);
       };
 
-      setIsRecording(true);
+        recordingRef.current = true;
+        setIsRecording(true);
+      } finally {
+        if (recorderGenerationRef.current === generation) {
+          recorderStartingRef.current = false;
+        }
+      }
     },
-    [isRecording]
+    []
   );
 
   // ── Stop Recording ───────────────────────────────────────────────────────
 
   const stopRecording = useCallback(() => {
+    recorderGenerationRef.current += 1;
+    recorderStartingRef.current = false;
+    recordingRef.current = false;
     micStreamRef.current?.getTracks().forEach((t) => t.stop());
     micStreamRef.current = null;
     recorderNodeRef.current?.disconnect();
