@@ -1,0 +1,3178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="A source-grounded, interactive architecture map of the Ctrl+Teach monorepo.">
+  <title>Ctrl+Teach Atlas</title>
+  <style>
+    :root {
+      --ink: #102022;
+      --ink-2: #293b3d;
+      --muted: #647679;
+      --muted-2: #8b9a9b;
+      --paper: #edf0eb;
+      --surface: #f8faf6;
+      --surface-2: #e7ece5;
+      --surface-3: #dce4dc;
+      --line: #c7d1c8;
+      --line-strong: #9eaca2;
+      --flow: #0c827f;
+      --flow-bright: #13a19d;
+      --flow-soft: rgba(12, 130, 127, 0.12);
+      --payload: #d58018;
+      --payload-soft: rgba(213, 128, 24, 0.16);
+      --box-top: #fbfcf9;
+      --box-left: #dbe2da;
+      --box-right: #c3cec4;
+      --box-edge: #899990;
+      --grid: rgba(16, 32, 34, 0.055);
+      --plate: rgba(16, 32, 34, 0.025);
+      --plate-side: rgba(16, 32, 34, 0.085);
+      --shadow: rgba(16, 32, 34, 0.17);
+      --route-halo: rgba(248, 250, 246, 0.94);
+      --focus: #006f6d;
+      --violet: #7967b5;
+      --lime: #6f8e31;
+      --rose: #b45c72;
+      --blue: #527ba8;
+    }
+
+    :root[data-theme="dark"] {
+      --ink: #e8eee9;
+      --ink-2: #c7d2cc;
+      --muted: #8ca0a1;
+      --muted-2: #667b7d;
+      --paper: #091113;
+      --surface: #10191b;
+      --surface-2: #172326;
+      --surface-3: #1d2b2e;
+      --line: #263538;
+      --line-strong: #405256;
+      --flow: #46c8c2;
+      --flow-bright: #6fddd7;
+      --flow-soft: rgba(70, 200, 194, 0.13);
+      --payload: #f0ad52;
+      --payload-soft: rgba(240, 173, 82, 0.15);
+      --box-top: #1c2a2d;
+      --box-left: #142022;
+      --box-right: #0f191b;
+      --box-edge: #415559;
+      --grid: rgba(232, 238, 233, 0.05);
+      --plate: rgba(232, 238, 233, 0.025);
+      --plate-side: rgba(0, 0, 0, 0.24);
+      --shadow: rgba(0, 0, 0, 0.48);
+      --route-halo: rgba(9, 17, 19, 0.92);
+      --focus: #74e2dc;
+      --violet: #a896df;
+      --lime: #a4c760;
+      --rose: #df8ba0;
+      --blue: #7faad8;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --ink: #e8eee9;
+        --ink-2: #c7d2cc;
+        --muted: #8ca0a1;
+        --muted-2: #667b7d;
+        --paper: #091113;
+        --surface: #10191b;
+        --surface-2: #172326;
+        --surface-3: #1d2b2e;
+        --line: #263538;
+        --line-strong: #405256;
+        --flow: #46c8c2;
+        --flow-bright: #6fddd7;
+        --flow-soft: rgba(70, 200, 194, 0.13);
+        --payload: #f0ad52;
+        --payload-soft: rgba(240, 173, 82, 0.15);
+        --box-top: #1c2a2d;
+        --box-left: #142022;
+        --box-right: #0f191b;
+        --box-edge: #415559;
+        --grid: rgba(232, 238, 233, 0.05);
+        --plate: rgba(232, 238, 233, 0.025);
+        --plate-side: rgba(0, 0, 0, 0.24);
+        --shadow: rgba(0, 0, 0, 0.48);
+        --route-halo: rgba(9, 17, 19, 0.92);
+        --focus: #74e2dc;
+        --violet: #a896df;
+        --lime: #a4c760;
+        --rose: #df8ba0;
+        --blue: #7faad8;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: var(--paper);
+      color: var(--ink);
+      font: 12px/1.5 ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    code { font: 0.94em/1.4 ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace; }
+    .sans { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .eyebrow {
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .app { display: grid; grid-template-rows: 60px minmax(0, 1fr); height: 100%; min-width: 960px; }
+    .topbar {
+      z-index: 20;
+      display: flex;
+      align-items: stretch;
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--surface) 96%, transparent);
+    }
+    .brand {
+      display: flex;
+      min-width: 254px;
+      padding: 0 17px;
+      align-items: center;
+      gap: 9px;
+      border-right: 1px solid var(--line);
+    }
+    .brand-mark {
+      display: grid;
+      width: 25px;
+      height: 25px;
+      place-items: center;
+      border: 1px solid var(--flow);
+      color: var(--flow);
+      font-size: 10px;
+      font-weight: 800;
+    }
+    .brand strong { font-size: 15px; letter-spacing: -0.035em; }
+    .brand-tag {
+      padding: 2px 5px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 8px;
+      letter-spacing: 0.14em;
+    }
+    .stat {
+      display: flex;
+      min-width: 105px;
+      padding: 9px 14px;
+      flex-direction: column;
+      justify-content: center;
+      border-right: 1px solid var(--line);
+    }
+    .stat.wide { min-width: 160px; }
+    .stat strong { margin-top: 2px; overflow: hidden; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+    .top-spacer { flex: 1; }
+    .top-controls { display: flex; padding: 0 13px; align-items: center; gap: 7px; }
+    .chrome-button {
+      min-height: 31px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--ink-2);
+      cursor: pointer;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+    }
+    .chrome-button:hover { border-color: var(--flow); color: var(--flow); }
+    .chrome-button[aria-pressed="true"], .chrome-button.active { border-color: var(--flow); background: var(--flow-soft); color: var(--flow); }
+    .segments { display: flex; border: 1px solid var(--line); }
+    .segments .chrome-button { min-width: 35px; border: 0; border-right: 1px solid var(--line); }
+    .segments .chrome-button:last-child { border-right: 0; }
+
+    .workspace { display: grid; grid-template-columns: 254px minmax(360px, 1fr) 386px; min-height: 0; }
+    .rail, .panel { min-height: 0; background: var(--surface); }
+    .rail { overflow: auto; border-right: 1px solid var(--line); }
+    .rail-head { padding: 15px 14px 12px; }
+    .rail-title { display: flex; align-items: center; justify-content: space-between; }
+    .rail-title span:last-child { color: var(--muted-2); font-size: 9px; }
+    .search-shell { position: relative; margin-top: 11px; }
+    .search-shell svg { position: absolute; top: 9px; left: 9px; width: 13px; height: 13px; color: var(--muted); pointer-events: none; }
+    .search-shell input {
+      width: 100%;
+      height: 34px;
+      padding: 0 31px 0 29px;
+      border: 1px solid var(--line);
+      border-radius: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-size: 10px;
+    }
+    .search-shell input::placeholder { color: var(--muted-2); }
+    .search-key {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      min-width: 18px;
+      padding: 1px 4px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      text-align: center;
+      font-size: 9px;
+    }
+    .rail-section { padding: 9px 0 0; border-top: 1px solid var(--line); }
+    .rail-section-title { display: flex; padding: 4px 15px 9px; align-items: center; justify-content: space-between; }
+    .rail-section-title span:last-child { color: var(--muted-2); font-size: 9px; }
+    .row-button {
+      display: grid;
+      width: 100%;
+      min-height: 43px;
+      padding: 8px 14px;
+      grid-template-columns: 25px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      border: 0;
+      border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+      background: transparent;
+      color: var(--ink-2);
+      text-align: left;
+      cursor: pointer;
+    }
+    .row-button:hover { background: var(--surface-2); color: var(--ink); }
+    .row-button.selected { background: var(--flow-soft); box-shadow: inset 3px 0 var(--flow); color: var(--flow); }
+    .row-index { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: 0.08em; }
+    .row-name { overflow: hidden; font-size: 11px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+    .row-meta { color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; }
+    .row-swatch { width: 16px; height: 3px; background: var(--flow); }
+    .row-swatch.amber { background: var(--payload); }
+    .row-swatch.violet { background: var(--violet); }
+    .row-swatch.lime { background: var(--lime); }
+    .row-swatch.rose { background: var(--rose); }
+    .row-swatch.blue { background: var(--blue); }
+    .search-results { display: none; border-top: 1px solid var(--line); }
+    .search-results.visible { display: block; }
+    .search-result { min-height: 52px; align-items: start; }
+    .search-result .row-name { white-space: normal; }
+    .search-result small { display: block; margin-top: 2px; overflow: hidden; color: var(--muted); font-size: 8px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+    .rail-foot { padding: 13px 15px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 8px; line-height: 1.65; }
+    .rail-foot code { color: var(--ink-2); }
+
+    .stage { position: relative; min-width: 0; overflow: hidden; background: var(--paper); container-name: atlas-stage; container-type: inline-size; }
+    canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+    canvas.dragging { cursor: grabbing; }
+    .stage-kicker {
+      position: absolute;
+      top: 13px;
+      left: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+    .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--flow); box-shadow: 0 0 0 3px var(--flow-soft); }
+    .tooltip {
+      position: absolute;
+      z-index: 10;
+      width: max-content;
+      max-width: 260px;
+      padding: 8px 10px;
+      border: 1px solid var(--line-strong);
+      background: var(--surface);
+      box-shadow: 0 8px 24px var(--shadow);
+      opacity: 0;
+      transform: translate(-50%, calc(-100% - 15px));
+      transition: opacity 100ms ease;
+      pointer-events: none;
+    }
+    .tooltip.visible { opacity: 1; }
+    .tooltip strong { display: block; color: var(--ink); font-size: 10px; }
+    .tooltip span { color: var(--muted); font-size: 9px; }
+    .legend {
+      position: absolute;
+      left: 14px;
+      bottom: 43px;
+      display: flex;
+      padding: 7px 9px;
+      align-items: center;
+      gap: 14px;
+      border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+      background: color-mix(in srgb, var(--surface) 90%, transparent);
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+    .legend span { display: flex; align-items: center; gap: 6px; }
+    .legend i { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--flow); }
+    .legend i.support { border-top: 1px dashed var(--line-strong); }
+    .legend i.payload { width: 7px; height: 7px; border: 0; border-radius: 50%; background: var(--payload); }
+    .view-controls { position: absolute; right: 14px; bottom: 43px; display: grid; gap: 5px; }
+    .view-controls button { width: 31px; height: 31px; padding: 0; font-size: 13px; }
+    .step-float {
+      position: absolute;
+      left: 50%;
+      bottom: 46px;
+      display: none;
+      min-width: 280px;
+      max-width: calc(100% - 270px);
+      padding: 8px 12px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      box-shadow: 0 8px 25px var(--shadow);
+      color: var(--ink-2);
+      font-size: 9px;
+      text-align: center;
+      transform: translateX(-50%);
+    }
+    .step-float.visible { display: block; }
+    .step-float b { color: var(--flow); }
+    .stage-hint {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      min-height: 31px;
+      padding: 8px 13px;
+      border-top: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 8px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+      text-align: right;
+      text-transform: uppercase;
+    }
+
+    .panel { overflow: auto; border-left: 1px solid var(--line); }
+    .tabs {
+      position: sticky;
+      z-index: 8;
+      top: 0;
+      display: grid;
+      padding: 12px;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .tabs button { height: 34px; }
+    .panel-body { padding: 22px 22px 38px; }
+    .panel h1 { margin: 7px 0 12px; font: 620 27px/1.08 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: -0.045em; text-wrap: balance; }
+    .panel h2 { margin: 0; font: 650 13px/1.3 Inter, ui-sans-serif, sans-serif; letter-spacing: -0.015em; }
+    .panel p { margin: 0; color: var(--ink-2); font: 12.5px/1.67 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    .summary-grid { display: grid; margin-top: 18px; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); }
+    .summary-grid > div { min-width: 0; padding: 10px; border-right: 1px solid var(--line); }
+    .summary-grid > div:last-child { border-right: 0; }
+    .summary-grid strong { display: block; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+    .summary-grid span { display: block; margin-top: 2px; color: var(--muted); font-size: 8px; letter-spacing: 0.09em; text-transform: uppercase; }
+    .section { margin-top: 24px; padding-top: 15px; border-top: 1px solid var(--line); }
+    .section-head { display: flex; margin-bottom: 10px; align-items: center; justify-content: space-between; }
+    .section-head span:last-child { color: var(--muted); font-size: 8px; }
+    .route-copy { color: var(--ink-2); font-size: 10px; line-height: 1.65; }
+    .route-copy b { color: var(--flow); font-weight: 650; }
+    .how-list { margin: 0; padding: 0; list-style: none; counter-reset: how; }
+    .how-list li {
+      position: relative;
+      padding: 0 0 14px 30px;
+      color: var(--ink-2);
+      font: 11.5px/1.58 Inter, ui-sans-serif, sans-serif;
+      counter-increment: how;
+    }
+    .how-list li::before {
+      position: absolute;
+      top: 1px;
+      left: 0;
+      display: grid;
+      width: 19px;
+      height: 19px;
+      place-items: center;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      content: counter(how, decimal-leading-zero);
+      font: 700 7px/1 ui-monospace, monospace;
+    }
+    .timeline { position: relative; display: grid; gap: 0; }
+    .timeline-row {
+      position: relative;
+      display: grid;
+      width: 100%;
+      min-height: 54px;
+      padding: 7px 8px 8px 34px;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      border: 0;
+      border-top: 1px solid var(--line);
+      background: transparent;
+      color: var(--ink-2);
+      text-align: left;
+      cursor: pointer;
+    }
+    .timeline-row:last-child { border-bottom: 1px solid var(--line); }
+    .timeline-row::before {
+      position: absolute;
+      z-index: 2;
+      top: 19px;
+      left: 9px;
+      display: grid;
+      width: 16px;
+      height: 16px;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      background: var(--surface);
+      color: var(--muted);
+      content: attr(data-step);
+      font-size: 7px;
+      font-weight: 800;
+    }
+    .timeline-row::after { position: absolute; top: 35px; bottom: -20px; left: 17px; width: 1px; background: var(--line); content: ""; }
+    .timeline-row:last-child::after { display: none; }
+    .timeline-row:hover { background: var(--surface-2); }
+    .timeline-row.active { background: var(--flow-soft); color: var(--ink); }
+    .timeline-row.active::before { border-color: var(--flow); background: var(--flow); color: var(--surface); }
+    .timeline-route { display: block; overflow: hidden; font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .timeline-detail { display: block; margin-top: 2px; color: var(--muted); font: 9px/1.35 Inter, ui-sans-serif, sans-serif; }
+    .timeline-arrow { color: var(--muted); font-size: 10px; }
+    .source-list { display: grid; gap: 0; border: 1px solid var(--line); }
+    .source-item { padding: 7px 9px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 9px; line-height: 1.45; overflow-wrap: anywhere; }
+    .source-item:last-child { border-bottom: 0; }
+    .source-item mark { background: var(--payload-soft); color: var(--ink); }
+    .endpoint-list { max-height: 320px; overflow: auto; border: 1px solid var(--line); }
+    .endpoint {
+      display: grid;
+      padding: 7px 8px;
+      grid-template-columns: 43px minmax(0, 1fr);
+      gap: 7px;
+      border-bottom: 1px solid var(--line);
+      align-items: baseline;
+    }
+    .endpoint:last-child { border-bottom: 0; }
+    .endpoint-method { color: var(--flow); font-size: 8px; font-weight: 800; }
+    .endpoint code { overflow-wrap: anywhere; color: var(--ink-2); font-size: 8px; }
+    .endpoint small { display: block; margin-top: 2px; color: var(--muted); font-size: 7px; }
+    .pills { display: flex; flex-wrap: wrap; gap: 5px; }
+    .pill { padding: 3px 7px; border: 1px solid var(--flow); background: var(--flow-soft); color: var(--flow); font-size: 8px; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
+    .pill.payload { border-color: var(--payload); background: var(--payload-soft); color: var(--payload); }
+    .empty-note { padding: 12px; border: 1px dashed var(--line); color: var(--muted); font-size: 9px; }
+
+    @media (max-width: 1280px) {
+      .workspace { grid-template-columns: 228px minmax(330px, 1fr) 348px; }
+      .brand { min-width: 228px; }
+      .stat.optional { display: none; }
+      .panel-body { padding-right: 18px; padding-left: 18px; }
+    }
+    @container atlas-stage (max-width: 560px) {
+      .step-float { display: none !important; }
+      .legend { gap: 9px; }
+      .legend span:nth-child(2) { display: none; }
+      .stage-hint { font-size: 7px; letter-spacing: 0.055em; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app" aria-label="Ctrl+Teach source atlas">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">C+</span>
+        <strong>Ctrl+Teach</strong>
+        <span class="brand-tag">ATLAS</span>
+      </div>
+      <div class="stat wide"><span class="eyebrow">Repository</span><strong>ctrl+teach · monorepo</strong></div>
+      <div class="stat"><span class="eyebrow">Modules</span><strong id="moduleCount">—</strong></div>
+      <div class="stat"><span class="eyebrow">API surface</span><strong id="endpointCount">—</strong></div>
+      <div class="stat optional"><span class="eyebrow">Next routes</span><strong id="routeCount">—</strong></div>
+      <div class="stat wide optional"><span class="eyebrow">Selected flow</span><strong id="selectedFlow">None</strong></div>
+      <div class="top-spacer"></div>
+      <div class="top-controls">
+        <button class="chrome-button" id="playButton" type="button">Pause</button>
+        <button class="chrome-button" id="stepButton" type="button">Next step</button>
+        <div class="segments" id="speedControl" aria-label="Animation speed">
+          <button class="chrome-button" type="button" data-speed="0.5">.5×</button>
+          <button class="chrome-button active" type="button" data-speed="1">1×</button>
+          <button class="chrome-button" type="button" data-speed="2">2×</button>
+        </div>
+        <button class="chrome-button" id="themeButton" type="button">Theme</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="rail" aria-label="Atlas navigation">
+        <div class="rail-head">
+          <div class="rail-title"><span class="eyebrow">Find territory</span><span id="searchCount">27 modules</span></div>
+          <label class="search-shell">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.2-3.2"></path></svg>
+            <input id="moduleSearch" type="search" autocomplete="off" spellcheck="false" placeholder="Module, source, endpoint…" aria-label="Search modules, source paths, and endpoints">
+            <span class="search-key" aria-hidden="true">/</span>
+          </label>
+        </div>
+        <div class="search-results" id="searchResults"></div>
+        <div id="browseSections">
+          <section class="rail-section" aria-labelledby="flowsHeading">
+            <div class="rail-section-title"><span class="eyebrow" id="flowsHeading">Runtime flows</span><span>06</span></div>
+            <div id="flowList"></div>
+          </section>
+          <section class="rail-section" aria-labelledby="hoodsHeading">
+            <div class="rail-section-title"><span class="eyebrow" id="hoodsHeading">Neighborhoods</span><span>06</span></div>
+            <div id="hoodList"></div>
+          </section>
+        </div>
+        <footer class="rail-foot">
+          Generated from <code>apps/api/app</code>, <code>apps/web/src</code>, and <code>apps/extension</code>.<br>
+          Source fingerprint <code id="fingerprint">—</code>
+        </footer>
+      </aside>
+
+      <section class="stage" aria-label="Interactive isometric codebase map">
+        <canvas id="atlasCanvas">Interactive isometric architecture map. Use the flow list and source panel to inspect the codebase.</canvas>
+        <div class="stage-kicker"><span class="live-dot"></span><span>Source-grounded topology · generated inventory</span></div>
+        <div class="tooltip" id="tooltip" role="tooltip" aria-hidden="true"></div>
+        <div class="step-float" id="stepFloat" aria-live="polite"></div>
+        <div class="legend" aria-hidden="true">
+          <span><i></i>Selected flow</span>
+          <span><i class="support"></i>Source link</span>
+          <span><i class="payload"></i>Payload</span>
+        </div>
+        <div class="view-controls">
+          <button class="chrome-button" id="zoomIn" type="button" aria-label="Zoom in">+</button>
+          <button class="chrome-button" id="zoomOut" type="button" aria-label="Zoom out">−</button>
+          <button class="chrome-button" id="fitButton" type="button" aria-label="Fit map" title="Fit map (0)">0</button>
+        </div>
+        <div class="stage-hint">Click a block · Drag to pan · Scroll to zoom · Space play/pause · ← → step · / search · Esc clear</div>
+      </section>
+
+      <aside class="panel" aria-label="Selection details">
+        <div class="tabs" role="tablist" aria-label="Detail view">
+          <button class="chrome-button" id="whatTab" type="button" role="tab" aria-selected="true">What it does</button>
+          <button class="chrome-button" id="howTab" type="button" role="tab" aria-selected="false">How it is built</button>
+        </div>
+        <div class="panel-body" id="panelBody"></div>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+/* ATLAS_DATA_START */
+const ATLAS = {
+  "schema": 1,
+  "fingerprint": "275e5397e34f",
+  "counts": {
+    "apiFiles": 64,
+    "apiPythonModules": 63,
+    "routerFiles": 15,
+    "mountedRouters": 13,
+    "restEndpoints": 61,
+    "websocketEndpoints": 1,
+    "mainRestEndpoints": 1,
+    "agentFiles": 11,
+    "agentModules": 10,
+    "serviceModules": 9,
+    "webFiles": 120,
+    "webSourceModules": 88,
+    "nextRoutePages": 30,
+    "extensionFiles": 30,
+    "extensionScripts": 26,
+    "extensionTests": 13
+  },
+  "hoods": [
+    {
+      "id": "CL",
+      "name": "Web client",
+      "sub": "Next.js 15 · React 19"
+    },
+    {
+      "id": "EX",
+      "name": "Chrome extension",
+      "sub": "Manifest V3 · Tars"
+    },
+    {
+      "id": "ED",
+      "name": "API edge",
+      "sub": "FastAPI · signed sessions"
+    },
+    {
+      "id": "AG",
+      "name": "Agent layer",
+      "sub": "OpenAI Realtime SDK"
+    },
+    {
+      "id": "SV",
+      "name": "Services & data",
+      "sub": "SQLite · local assets"
+    },
+    {
+      "id": "OW",
+      "name": "Outside world",
+      "sub": "provider and browser boundaries"
+    }
+  ],
+  "modules": [
+    {
+      "id": "PG",
+      "hood": "CL",
+      "gx": 0,
+      "gy": 0,
+      "h": 32,
+      "st": 5,
+      "name": "App Router pages",
+      "note": "30 filesystem route pages cover onboarding, discovery, learning, paths, the library, roleplay, profiles, and admin.",
+      "files": [
+        "apps/web/src/app/(auth)/login/page.tsx",
+        "apps/web/src/app/(auth)/signup/page.tsx",
+        "apps/web/src/app/(dashboard)/board/page.tsx",
+        "apps/web/src/app/(dashboard)/course-factory/page.tsx",
+        "apps/web/src/app/(dashboard)/courses/page.tsx",
+        "apps/web/src/app/(dashboard)/dashboard/page.tsx",
+        "apps/web/src/app/(dashboard)/discover/page.tsx",
+        "apps/web/src/app/(dashboard)/learn/[courseId]/[lessonId]/page.tsx",
+        "apps/web/src/app/(dashboard)/learn/[courseId]/classroom/page.tsx",
+        "apps/web/src/app/(dashboard)/learn/[courseId]/page.tsx",
+        "apps/web/src/app/(dashboard)/learn/completion/page.tsx",
+        "apps/web/src/app/(dashboard)/learn/page.tsx",
+        "apps/web/src/app/(dashboard)/library/page.tsx",
+        "apps/web/src/app/(dashboard)/path/[roadmapId]/page.tsx",
+        "apps/web/src/app/(dashboard)/path/custom/[roadmapId]/page.tsx",
+        "apps/web/src/app/(dashboard)/path/page.tsx",
+        "apps/web/src/app/(dashboard)/profile/page.tsx",
+        "apps/web/src/app/(dashboard)/role-playing/page.tsx",
+        "apps/web/src/app/(dashboard)/teaching-profiles/page.tsx",
+        "apps/web/src/app/(dashboard)/tutors/[id]/page.tsx",
+        "apps/web/src/app/(dashboard)/tutors/page.tsx",
+        "apps/web/src/app/admin/courses/page.tsx",
+        "apps/web/src/app/admin/dashboard/page.tsx",
+        "apps/web/src/app/admin/login/page.tsx",
+        "apps/web/src/app/admin/page.tsx",
+        "apps/web/src/app/admin/tars/page.tsx",
+        "apps/web/src/app/onboarding/page.tsx",
+        "apps/web/src/app/page.tsx",
+        "apps/web/src/app/privacy/page.tsx",
+        "apps/web/src/app/terms/page.tsx"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "LP",
+      "hood": "CL",
+      "gx": 0,
+      "gy": 1.55,
+      "h": 38,
+      "st": 3,
+      "name": "Learner state & catalog",
+      "note": "LearnerProvider owns onboarding preferences, the active course and lesson, XP, streak, confidence, and badges; local state is mirrored to Profile.preferences.ctrlteach.",
+      "files": [
+        "apps/web/src/lib/courses/catalog.ts",
+        "apps/web/src/lib/courses/generated.ts",
+        "apps/web/src/lib/learning/provider.tsx",
+        "apps/web/src/lib/learning/skillProfile.ts"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "RT",
+      "hood": "CL",
+      "gx": 1.45,
+      "gy": 0,
+      "h": 27,
+      "st": 2,
+      "name": "Realtime client transport",
+      "note": "The browser WebSocket and audio hooks carry signed session setup, PCM frames, transcripts, tool events, interruptions, and reconnect state.",
+      "files": [
+        "apps/web/src/hooks/useAudio.ts",
+        "apps/web/src/hooks/useWebSocket.ts",
+        "apps/web/src/types/whiteboard.ts"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "LC",
+      "hood": "CL",
+      "gx": 1.45,
+      "gy": 1.55,
+      "h": 24,
+      "st": 3,
+      "name": "Learning lab surfaces",
+      "note": "Embedded practice uses selector-grounded pointer coaching; real-tool labs open through BrowserLabPanel and collect verifiable evidence from the extension.",
+      "files": [
+        "apps/web/src/components/labs/LabCoach.tsx",
+        "apps/web/src/components/labs/UserStoryBuilder.tsx",
+        "apps/web/src/components/learning/BrowserLabPanel.tsx",
+        "apps/web/src/lib/learning/browserLabReview.ts",
+        "apps/web/src/lib/learning/labScenes.ts"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "WB",
+      "hood": "CL",
+      "gx": 2.9,
+      "gy": 0,
+      "h": 29,
+      "st": 3,
+      "name": "Whiteboard & transcript",
+      "note": "Excalidraw rendering, transcript presentation, and text/diagram layout solvers turn realtime tool output into a readable classroom surface.",
+      "files": [
+        "apps/web/src/components/realtime/TranscriptPanel.tsx",
+        "apps/web/src/components/realtime/WhiteboardCanvas.tsx",
+        "apps/web/src/lib/realtime/classroomTextLayout.ts",
+        "apps/web/src/lib/realtime/diagramLayout.ts"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "TP",
+      "hood": "CL",
+      "gx": 2.9,
+      "gy": 1.55,
+      "h": 22,
+      "st": 4,
+      "name": "Tars companion (web)",
+      "note": "The in-app rocket, global assistant, motion and lip-sync code share session state with the Chrome extension through a page bridge.",
+      "files": [
+        "apps/web/src/components/tars/GlobalTarsAssistant.tsx",
+        "apps/web/src/components/tars/TarsExtensionBridge.tsx",
+        "apps/web/src/components/tars/TarsPet.tsx",
+        "apps/web/src/components/tars/useRocketPet.ts",
+        "apps/web/src/lib/tars/boardBridge.ts",
+        "apps/web/src/lib/tars/petMotion.ts",
+        "apps/web/src/lib/tars/provider.tsx",
+        "apps/web/src/lib/tars/routes.ts",
+        "apps/web/src/lib/tars/teachingProfiles.ts",
+        "apps/web/src/lib/tars/wakeTemplate.ts"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "SW",
+      "hood": "EX",
+      "gx": 0.1,
+      "gy": 4.25,
+      "h": 34,
+      "st": 2,
+      "name": "Extension service worker",
+      "note": "The MV3 background worker owns extension session state, opens browser-lab tabs, routes frames, and posts grounded evidence to the API.",
+      "files": [
+        "apps/extension/extension-assets.js",
+        "apps/extension/page-action-gate.js",
+        "apps/extension/service-worker.js"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "CT",
+      "hood": "EX",
+      "gx": 1.55,
+      "gy": 4.25,
+      "h": 27,
+      "st": 3,
+      "name": "Content & grounding scripts",
+      "note": "The injected page layer resolves live DOM targets, traverses frames and open shadow roots, renders pointer guidance, and observes GitHub workflow state.",
+      "files": [
+        "apps/extension/content.js",
+        "apps/extension/drawing-lifetime.js",
+        "apps/extension/github-dom-tools.js",
+        "apps/extension/github-lab.js",
+        "apps/extension/grounding-geometry.js"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "RK",
+      "hood": "EX",
+      "gx": 3,
+      "gy": 4.25,
+      "h": 21,
+      "st": 3,
+      "name": "Rocket & offscreen audio",
+      "note": "The extension renders the rocket in page DOM while an offscreen document and PCM worklet handle microphone capture and voice playback.",
+      "files": [
+        "apps/extension/offscreen.html",
+        "apps/extension/offscreen.js",
+        "apps/extension/pcm-worklet.js",
+        "apps/extension/playback-gate.js",
+        "apps/extension/rocket-pet.js"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "MN",
+      "hood": "ED",
+      "gx": 5.15,
+      "gy": 2.15,
+      "h": 43,
+      "st": 2,
+      "name": "FastAPI realtime gateway",
+      "note": "FastAPI exposes 1 realtime socket at /ws/{user_id}/{session_id}; it validates subprotocol auth, resolves lesson context, and selects the tutor, roleplay, or page-mode Tars agent.",
+      "files": [
+        "apps/api/app/main.py",
+        "apps/api/app/utils/ws_signals.py"
+      ],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/health",
+          "source": "apps/api/app/main.py",
+          "line": 322,
+          "transport": "rest"
+        },
+        {
+          "method": "WS",
+          "path": "/ws/{user_id}/{session_id}",
+          "source": "apps/api/app/main.py",
+          "line": 406,
+          "transport": "websocket"
+        }
+      ]
+    },
+    {
+      "id": "AR",
+      "hood": "ED",
+      "gx": 5.15,
+      "gy": 0.55,
+      "h": 34,
+      "st": 4,
+      "name": "Mounted REST routers",
+      "note": "13 mounted router instances expose 60 API operations; the health route lives directly on main.py.",
+      "files": [
+        "apps/api/app/routers/auth_router.py",
+        "apps/api/app/routers/browser_labs.py",
+        "apps/api/app/routers/dashboard.py",
+        "apps/api/app/routers/discover.py",
+        "apps/api/app/routers/generated_courses.py",
+        "apps/api/app/routers/learning_paths.py",
+        "apps/api/app/routers/platform_courses.py",
+        "apps/api/app/routers/roleplay.py",
+        "apps/api/app/routers/schedule.py",
+        "apps/api/app/routers/tars.py",
+        "apps/api/app/routers/teaching_profiles.py",
+        "apps/api/app/routers/users.py"
+      ],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/admin/courses",
+          "source": "apps/api/app/routers/platform_courses.py",
+          "line": 125,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/courses",
+          "source": "apps/api/app/routers/platform_courses.py",
+          "line": 134,
+          "transport": "rest"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/admin/courses/{course_id}",
+          "source": "apps/api/app/routers/platform_courses.py",
+          "line": 202,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/courses/{course_id}/publish",
+          "source": "apps/api/app/routers/platform_courses.py",
+          "line": 220,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/courses/{course_id}/unpublish",
+          "source": "apps/api/app/routers/platform_courses.py",
+          "line": 239,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/admin/courses/import-generated/{generated_course_id}",
+          "source": "apps/api/app/routers/platform_courses.py",
+          "line": 156,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/admin/login",
+          "source": "apps/api/app/routers/auth_router.py",
+          "line": 62,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/login",
+          "source": "apps/api/app/routers/auth_router.py",
+          "line": 57,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/auth/register",
+          "source": "apps/api/app/routers/auth_router.py",
+          "line": 93,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/browser-labs/{course_id}/{lesson_id}/attempts",
+          "source": "apps/api/app/routers/browser_labs.py",
+          "line": 42,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/browser-labs/attempts/{attempt_id}",
+          "source": "apps/api/app/routers/browser_labs.py",
+          "line": 53,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/browser-labs/attempts/{attempt_id}/evidence",
+          "source": "apps/api/app/routers/browser_labs.py",
+          "line": 63,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/browser-labs/attempts/{attempt_id}/recoveries/{recovery_id}/practice-attempts",
+          "source": "apps/api/app/routers/browser_labs.py",
+          "line": 84,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/browser-labs/attempts/{attempt_id}/recoveries/{recovery_id}/retry",
+          "source": "apps/api/app/routers/browser_labs.py",
+          "line": 105,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/browser-labs/attempts/{attempt_id}/recovery",
+          "source": "apps/api/app/routers/browser_labs.py",
+          "line": 74,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/dashboard/all",
+          "source": "apps/api/app/routers/dashboard.py",
+          "line": 187,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/dashboard/progress",
+          "source": "apps/api/app/routers/dashboard.py",
+          "line": 132,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/dashboard/sessions",
+          "source": "apps/api/app/routers/dashboard.py",
+          "line": 65,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/dashboard/stats",
+          "source": "apps/api/app/routers/dashboard.py",
+          "line": 40,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/dashboard/streak",
+          "source": "apps/api/app/routers/dashboard.py",
+          "line": 92,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/dashboard/study-plans",
+          "source": "apps/api/app/routers/dashboard.py",
+          "line": 171,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/dashboard/topics",
+          "source": "apps/api/app/routers/dashboard.py",
+          "line": 147,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/discover",
+          "source": "apps/api/app/routers/discover.py",
+          "line": 412,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/discover/path",
+          "source": "apps/api/app/routers/discover.py",
+          "line": 369,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/discover/roadmap",
+          "source": "apps/api/app/routers/discover.py",
+          "line": 395,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/generated-courses",
+          "source": "apps/api/app/routers/generated_courses.py",
+          "line": 460,
+          "transport": "rest"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/generated-courses/{course_id}",
+          "source": "apps/api/app/routers/generated_courses.py",
+          "line": 514,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/generated-courses/{course_id}",
+          "source": "apps/api/app/routers/generated_courses.py",
+          "line": 545,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/generated-courses/{course_id}/archive",
+          "source": "apps/api/app/routers/generated_courses.py",
+          "line": 478,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/generated-courses/{course_id}/generate",
+          "source": "apps/api/app/routers/generated_courses.py",
+          "line": 405,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/generated-courses/{course_id}/intake-answer",
+          "source": "apps/api/app/routers/generated_courses.py",
+          "line": 321,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/generated-courses/{course_id}/restore",
+          "source": "apps/api/app/routers/generated_courses.py",
+          "line": 497,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/generated-courses/intake",
+          "source": "apps/api/app/routers/generated_courses.py",
+          "line": 187,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/learning-paths",
+          "source": "apps/api/app/routers/learning_paths.py",
+          "line": 206,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/learning-paths/{path_id}",
+          "source": "apps/api/app/routers/learning_paths.py",
+          "line": 215,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/learning-paths/{path_id}/nodes/{node_id}/generate",
+          "source": "apps/api/app/routers/learning_paths.py",
+          "line": 233,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/learning-paths/{path_id}/refresh",
+          "source": "apps/api/app/routers/learning_paths.py",
+          "line": 228,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/learning-paths/roles",
+          "source": "apps/api/app/routers/learning_paths.py",
+          "line": 201,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/platform-courses",
+          "source": "apps/api/app/routers/platform_courses.py",
+          "line": 98,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/platform-courses/{course_id}",
+          "source": "apps/api/app/routers/platform_courses.py",
+          "line": 111,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/roleplay/faces",
+          "source": "apps/api/app/routers/roleplay.py",
+          "line": 206,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/roleplay/sessions",
+          "source": "apps/api/app/routers/roleplay.py",
+          "line": 251,
+          "transport": "rest"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/roleplay/sessions/{conversation_id}",
+          "source": "apps/api/app/routers/roleplay.py",
+          "line": 416,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/roleplay/sessions/{conversation_id}",
+          "source": "apps/api/app/routers/roleplay.py",
+          "line": 323,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/roleplay/sessions/{conversation_id}/end-beacon",
+          "source": "apps/api/app/routers/roleplay.py",
+          "line": 426,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/roleplay/sessions/{conversation_id}/events",
+          "source": "apps/api/app/routers/roleplay.py",
+          "line": 363,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/schedule",
+          "source": "apps/api/app/routers/schedule.py",
+          "line": 112,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/schedule",
+          "source": "apps/api/app/routers/schedule.py",
+          "line": 124,
+          "transport": "rest"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/schedule/{session_id}",
+          "source": "apps/api/app/routers/schedule.py",
+          "line": 168,
+          "transport": "rest"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/schedule/{session_id}",
+          "source": "apps/api/app/routers/schedule.py",
+          "line": 152,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/schedule/all",
+          "source": "apps/api/app/routers/schedule.py",
+          "line": 180,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/tars",
+          "source": "apps/api/app/routers/tars.py",
+          "line": 156,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/tars/extension-session",
+          "source": "apps/api/app/routers/tars.py",
+          "line": 114,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/tars/speak",
+          "source": "apps/api/app/routers/tars.py",
+          "line": 296,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/teaching-profiles",
+          "source": "apps/api/app/routers/teaching_profiles.py",
+          "line": 36,
+          "transport": "rest"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/teaching-profiles/selection",
+          "source": "apps/api/app/routers/teaching_profiles.py",
+          "line": 50,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/users/me",
+          "source": "apps/api/app/routers/users.py",
+          "line": 107,
+          "transport": "rest"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/users/me",
+          "source": "apps/api/app/routers/users.py",
+          "line": 230,
+          "transport": "rest"
+        },
+        {
+          "method": "GET",
+          "path": "/api/users/me/full",
+          "source": "apps/api/app/routers/users.py",
+          "line": 130,
+          "transport": "rest"
+        },
+        {
+          "method": "POST",
+          "path": "/api/users/sync",
+          "source": "apps/api/app/routers/users.py",
+          "line": 264,
+          "transport": "rest"
+        }
+      ]
+    },
+    {
+      "id": "AU",
+      "hood": "ED",
+      "gx": 5.15,
+      "gy": 3.75,
+      "h": 27,
+      "st": 4,
+      "name": "Auth, limits & middleware",
+      "note": "Signed bearer sessions, short-lived extension tokens, password hashing, rate limits, and request-body caps guard both browser and extension traffic.",
+      "files": [
+        "apps/api/app/auth/__init__.py",
+        "apps/api/app/auth/dependencies.py",
+        "apps/api/app/auth/extension_tokens.py",
+        "apps/api/app/auth/passwords.py",
+        "apps/api/app/auth/rate_limit.py",
+        "apps/api/app/auth/session_tokens.py",
+        "apps/api/app/middleware/__init__.py",
+        "apps/api/app/middleware/body_limit.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "TU",
+      "hood": "AG",
+      "gx": 7.25,
+      "gy": 0.25,
+      "h": 35,
+      "st": 2,
+      "name": "Tutor agent",
+      "note": "The lesson-scoped voice tutor owns canvas, plot, media, storage, and progress tools directly, with planner and progress handoffs available when needed.",
+      "files": [
+        "apps/api/app/agents/companion_identity.py",
+        "apps/api/app/agents/prompt_builder.py",
+        "apps/api/app/agents/tutor_agent.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "CA",
+      "hood": "AG",
+      "gx": 7.25,
+      "gy": 1.55,
+      "h": 29,
+      "st": 3,
+      "name": "Canvas, plot & media tools",
+      "note": "Direct tutor tools emit whiteboard commands, plots, educational images, snapshots, and early canvas pushes. canvas_agent.py remains only as a deprecated compatibility shell.",
+      "files": [
+        "apps/api/app/tools/canvas_tools.py",
+        "apps/api/app/tools/media_tools.py",
+        "apps/api/app/tools/plot_tools.py",
+        "apps/api/app/tools/storage_tools.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "RA",
+      "hood": "AG",
+      "gx": 7.25,
+      "gy": 2.85,
+      "h": 28,
+      "st": 1,
+      "name": "Roleplay agent",
+      "note": "A dedicated Realtime agent validates the requested OpenAI voice and follows the learner's scenario while Tavus remains the face renderer.",
+      "files": [
+        "apps/api/app/agents/roleplay_agent.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "TA",
+      "hood": "AG",
+      "gx": 7.25,
+      "gy": 4.15,
+      "h": 29,
+      "st": 2,
+      "name": "Tars page agent",
+      "note": "Page-mode Tars combines structured page context with locator output to decide what to say, where to point, and which transient drawing to show.",
+      "files": [
+        "apps/api/app/agents/tars_agent.py",
+        "apps/api/app/services/companion_context.py",
+        "apps/api/app/services/tars_visual_locator.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "PP",
+      "hood": "AG",
+      "gx": 8.65,
+      "gy": 2.15,
+      "h": 24,
+      "st": 2,
+      "name": "Planner & progress handoffs",
+      "note": "The active tutor can hand work to planner and progress agents; despite the legacy filename, firestore_tools.py writes learner progress through the current local database layer.",
+      "files": [
+        "apps/api/app/agents/planner_agent.py",
+        "apps/api/app/agents/progress_agent.py",
+        "apps/api/app/tools/firestore_tools.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "CS",
+      "hood": "SV",
+      "gx": 10.35,
+      "gy": 0.35,
+      "h": 32,
+      "st": 2,
+      "name": "Generated course pipeline",
+      "note": "A resumable job moves through research, outline, lesson, and image stages, persisting intermediate output so interrupted work continues from its last checkpoint.",
+      "files": [
+        "apps/api/app/routers/generated_courses.py",
+        "apps/api/app/services/course_factory.py",
+        "apps/api/app/services/generated_courses.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "BS",
+      "hood": "SV",
+      "gx": 10.35,
+      "gy": 1.7,
+      "h": 27,
+      "st": 2,
+      "name": "Browser lab evidence",
+      "note": "Structured assertions, attempt history, evidence intake, misconception detection, practice checks, and retry state power real-tool labs.",
+      "files": [
+        "apps/api/app/routers/browser_labs.py",
+        "apps/api/app/services/browser_labs.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "RS",
+      "hood": "SV",
+      "gx": 10.35,
+      "gy": 3.05,
+      "h": 27,
+      "st": 3,
+      "name": "Discovery & learning paths",
+      "note": "Prompt roadmaps and persisted learning paths are matched against learner skills; a path node can seed a generated course.",
+      "files": [
+        "apps/api/app/routers/discover.py",
+        "apps/api/app/routers/learning_paths.py",
+        "apps/api/app/services/learning_path.py",
+        "apps/api/app/services/roadmap_generation.py",
+        "apps/web/src/lib/learning/roadmapMatching.ts"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "DB",
+      "hood": "SV",
+      "gx": 11.8,
+      "gy": 1.05,
+      "h": 20,
+      "st": 1,
+      "name": "SQLite data model",
+      "note": "SQLAlchemy models persist users, profiles, progress, schedules, generated-course jobs, platform courses, lab attempts, and roleplay ownership records in SQLite.",
+      "files": [
+        "apps/api/app/db.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "UP",
+      "hood": "SV",
+      "gx": 11.8,
+      "gy": 2.5,
+      "h": 16,
+      "st": 2,
+      "name": "Generated asset storage",
+      "note": "Generated lesson images are served only from the generated uploads subtree; private learner snapshots stay on disk for agent workflows.",
+      "files": [
+        "apps/api/app/config.py",
+        "apps/api/app/tools/storage_tools.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "OA",
+      "hood": "OW",
+      "gx": 8.65,
+      "gy": 6.45,
+      "h": 39,
+      "st": 1,
+      "name": "OpenAI",
+      "note": "OpenAI provides realtime voice, transcription, grounded discovery, course writing, lesson imagery, and visual-location reasoning; model defaults stay centralized in config.py.",
+      "files": [
+        "apps/api/app/config.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "TV",
+      "hood": "OW",
+      "gx": 10.1,
+      "gy": 6.45,
+      "h": 31,
+      "st": 1,
+      "name": "Tavus CVI",
+      "note": "Tavus Echo creates the private face session and returns Daily room credentials; server-enforced timeouts protect metered credits.",
+      "files": [
+        "apps/api/app/routers/roleplay.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "DY",
+      "hood": "OW",
+      "gx": 11.55,
+      "gy": 6.45,
+      "h": 25,
+      "st": 1,
+      "name": "Daily room",
+      "note": "The browser joins Tavus's Daily room in call-object mode to receive the remote actor; local camera and room microphone tracks remain disabled.",
+      "files": [
+        "apps/web/src/app/(dashboard)/role-playing/page.tsx"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "FC",
+      "hood": "OW",
+      "gx": 7.2,
+      "gy": 6.45,
+      "h": 23,
+      "st": 2,
+      "name": "Firecrawl (optional)",
+      "note": "When configured, Firecrawl searches and extracts current course sources and parses uploaded curricula; OpenAI or local fallbacks keep the workflows usable without it.",
+      "files": [
+        "apps/api/app/routers/discover.py",
+        "apps/api/app/services/course_factory.py"
+      ],
+      "endpoints": []
+    },
+    {
+      "id": "BT",
+      "hood": "OW",
+      "gx": 5.75,
+      "gy": 6.45,
+      "h": 22,
+      "st": 2,
+      "name": "Live browser target",
+      "note": "Real browser pages are the territory for extension labs. Target-specific DOM adapters and generic grounding geometry turn visible state into evidence and pointer anchors.",
+      "files": [
+        "apps/extension/github-dom-tools.js",
+        "apps/extension/github-lab.js",
+        "apps/extension/grounding-geometry.js"
+      ],
+      "endpoints": []
+    }
+  ],
+  "flows": [
+    {
+      "id": "study",
+      "name": "Study session",
+      "payload": "PCM · TOOL EVENTS",
+      "color": "teal",
+      "what": "A learner opens a lesson and talks to Tars. Signed PCM audio travels over the one realtime socket; OpenAI returns voice while direct tutor tools update the whiteboard and learner progress.",
+      "how": [
+        "StudyMode opens /ws/{user_id}/{session_id} with the bearer session in the WebSocket subprotocol.",
+        "The gateway resolves the course and lesson, applies the teaching profile, and builds the tutor session.",
+        "Microphone PCM streams to OpenAI Realtime and synthesized speech streams back through the same socket.",
+        "Canvas, plot, media, and storage tools emit structured events for the whiteboard client.",
+        "Progress tools persist mastery and session notes in SQLite; LearnerProvider refreshes the learner-facing state."
+      ],
+      "path": [
+        "PG",
+        "LP",
+        "RT",
+        "MN",
+        "AU",
+        "TU",
+        "OA",
+        "CA",
+        "WB",
+        "DB"
+      ],
+      "steps": [
+        "Open the lesson workspace and resolve the active lesson.",
+        "Start the signed realtime client and microphone pipeline.",
+        "Connect to the single FastAPI WebSocket gateway.",
+        "Validate the signed session and load learner context.",
+        "Build the lesson-scoped tutor and teaching profile.",
+        "Stream speech and reasoning through OpenAI Realtime.",
+        "Dispatch structured canvas, plot, media, and progress tools.",
+        "Render the whiteboard and transcript without overlap.",
+        "Persist mastery, notes, and session evidence in SQLite."
+      ]
+    },
+    {
+      "id": "generate",
+      "name": "Course generation",
+      "payload": "COURSE JSON · PNG",
+      "color": "amber",
+      "what": "A goal, curriculum, or uploaded document becomes a complete course through a resumable research → outline → lessons → images pipeline. Every stage is checkpointed before the next starts.",
+      "how": [
+        "The create-course surface posts an intake form to /api/generated-courses/intake and answers any follow-up questions.",
+        "POST /api/generated-courses/{course_id}/generate returns 202 while the owner-scoped background job continues.",
+        "course_factory optionally extracts source material with Firecrawl, then writes the outline and lessons with the configured OpenAI model.",
+        "The image model writes lesson assets under the generated uploads directory.",
+        "generated_courses.py persists intermediate stages and merges completed owner-scoped courses into the learner catalog."
+      ],
+      "path": [
+        "PG",
+        "AR",
+        "CS",
+        "FC",
+        "OA",
+        "UP",
+        "DB",
+        "LP"
+      ],
+      "steps": [
+        "Submit a prompt, curriculum, or document from the create-course UI.",
+        "Create the owner-scoped intake job and start generation.",
+        "Extract current sources or parse the curriculum when Firecrawl is available.",
+        "Generate the outline, lesson content, and imagery with configured OpenAI models.",
+        "Write generated lesson artwork to the public generated-assets subtree.",
+        "Checkpoint every stage and completed course record in SQLite.",
+        "Merge the finished course into the learner's visible catalog."
+      ]
+    },
+    {
+      "id": "roleplay",
+      "name": "Video roleplay",
+      "payload": "VIDEO · PCM",
+      "color": "violet",
+      "what": "The learner rehearses with an AI actor. Tavus owns the face session, Daily carries the remote video, and the existing OpenAI Realtime socket supplies the intelligence and selected voice.",
+      "how": [
+        "POST /api/roleplay/sessions creates an owned Tavus Echo conversation and returns private Daily credentials.",
+        "The page joins Daily in call-object mode with local camera and room-microphone tracks disabled.",
+        "A mode=roleplay WebSocket sends learner microphone audio to roleplay_agent with the selected OpenAI voice.",
+        "OpenAI speech is forwarded into the Tavus/Daily session so Tavus renders the chosen face against it.",
+        "DELETE /api/roleplay/sessions/{conversation_id} or the end-beacon closes the metered room on every exit path."
+      ],
+      "path": [
+        "PG",
+        "AR",
+        "TV",
+        "DY",
+        "RT",
+        "MN",
+        "RA",
+        "OA"
+      ],
+      "steps": [
+        "Choose the scenario, Tavus face, and OpenAI voice.",
+        "Create the owned Tavus Echo conversation through the API.",
+        "Receive the private Daily room URL and meeting token.",
+        "Join the remote video room with local room tracks disabled.",
+        "Open a signed roleplay-mode WebSocket for learner microphone audio.",
+        "Select the dedicated roleplay agent and validate its voice.",
+        "Generate the live response voice and scenario reasoning with OpenAI."
+      ]
+    },
+    {
+      "id": "lab",
+      "name": "Browser lab",
+      "payload": "DOM EVIDENCE",
+      "color": "lime",
+      "what": "A learner performs the real task on a real site. The extension observes the live DOM, the API scores structured assertions, and missed evidence becomes targeted practice and a retry instead of a dead end.",
+      "how": [
+        "BrowserLabPanel creates an attempt, then asks the extension to open the blueprint's allow-listed launch URL.",
+        "The service worker owns the attempt and content scripts observe the target page, including frames and open shadow roots.",
+        "Evidence posts to /api/browser-labs/attempts/{attempt_id}/evidence with the short-lived extension token.",
+        "browser_labs.py evaluates task and cleanup assertions, tracks misconceptions, and manages practice/retry state.",
+        "The learning surface polls the attempt and awards completion only after verified evidence returns."
+      ],
+      "path": [
+        "LC",
+        "AR",
+        "BS",
+        "TP",
+        "SW",
+        "CT",
+        "BT",
+        "DB"
+      ],
+      "steps": [
+        "Create or resume a structured browser-lab attempt.",
+        "Load the assertion plan and persisted attempt state.",
+        "Bridge the active lab and extension identity from the web app.",
+        "Open the allow-listed target tab and own the lab lifecycle.",
+        "Observe real DOM state, pointer anchors, frames, and shadow roots.",
+        "Perform the task on the live browser target and collect evidence.",
+        "Persist verification, recovery, practice, and retry history."
+      ]
+    },
+    {
+      "id": "tars",
+      "name": "Tars companion",
+      "payload": "SPEECH · POINTER",
+      "color": "rose",
+      "what": "The rocket companion follows the learner across the app and supported browser pages. It reads grounded page context, chooses a target, points to it, and speaks the next concise instruction.",
+      "how": [
+        "TarsExtensionBridge mints a short-lived extension session through POST /api/tars/extension-session.",
+        "The extension and in-app assistant connect to the same /ws/{user_id}/{session_id} gateway in page mode.",
+        "companion_context normalizes visible state; tars_agent chooses speech, pointer, and temporary drawing tools.",
+        "tars_visual_locator resolves semantic targets when direct DOM identifiers are unavailable.",
+        "The web pet or extension rocket renders motion and offscreen audio plays the response."
+      ],
+      "path": [
+        "TP",
+        "AR",
+        "AU",
+        "SW",
+        "CT",
+        "MN",
+        "TA",
+        "OA",
+        "RK"
+      ],
+      "steps": [
+        "Enable the shared Tars state in the web app.",
+        "Mint a short-lived signed extension session.",
+        "Store the extension identity and gate privileged page actions.",
+        "Read grounded page context from the supported tab.",
+        "Connect page mode to the common realtime gateway.",
+        "Choose speech, pointer, and temporary drawing actions.",
+        "Resolve ambiguous visual targets and generate the voice turn with OpenAI.",
+        "Render rocket motion and play PCM audio in the page."
+      ]
+    },
+    {
+      "id": "discover",
+      "name": "Discover & path",
+      "payload": "ROADMAP",
+      "color": "blue",
+      "what": "A role or rough learning goal becomes a bounded roadmap. Discovery can use current web sources, path services organize the nodes, and any chosen node can seed a resumable generated course.",
+      "how": [
+        "/api/discover/roadmap turns the onboarding or path prompt into an interactive roadmap using OpenAI or a local fallback.",
+        "/api/discover/path can merge Firecrawl and OpenAI web-search hits into a grounded multimodal learning path.",
+        "POST /api/learning-paths persists a custom path and its node state in SQLite.",
+        "roadmapMatching compares path topics with the learner's skill profile in the client.",
+        "POST /api/learning-paths/{path_id}/nodes/{node_id}/generate hands a selected node to the generated-course pipeline."
+      ],
+      "path": [
+        "PG",
+        "AR",
+        "RS",
+        "FC",
+        "OA",
+        "DB",
+        "LP",
+        "CS"
+      ],
+      "steps": [
+        "Capture a role, topic, or free-form learning goal.",
+        "Route the request to discovery and learning-path APIs.",
+        "Build roadmap nodes and gather current sources when requested.",
+        "Search or extract live material when Firecrawl is configured.",
+        "Rank, normalize, or generate the path with OpenAI.",
+        "Persist custom path and node progress in SQLite.",
+        "Match the roadmap against the learner's current skill profile."
+      ]
+    }
+  ],
+  "support": [
+    [
+      "PG",
+      "LP"
+    ],
+    [
+      "PG",
+      "RT"
+    ],
+    [
+      "RT",
+      "MN"
+    ],
+    [
+      "MN",
+      "AU"
+    ],
+    [
+      "AR",
+      "AU"
+    ],
+    [
+      "MN",
+      "TU"
+    ],
+    [
+      "MN",
+      "RA"
+    ],
+    [
+      "MN",
+      "TA"
+    ],
+    [
+      "TU",
+      "CA"
+    ],
+    [
+      "TU",
+      "PP"
+    ],
+    [
+      "CA",
+      "WB"
+    ],
+    [
+      "AR",
+      "CS"
+    ],
+    [
+      "AR",
+      "RS"
+    ],
+    [
+      "AR",
+      "BS"
+    ],
+    [
+      "CS",
+      "DB"
+    ],
+    [
+      "CS",
+      "UP"
+    ],
+    [
+      "CS",
+      "OA"
+    ],
+    [
+      "CS",
+      "FC"
+    ],
+    [
+      "RS",
+      "DB"
+    ],
+    [
+      "BS",
+      "DB"
+    ],
+    [
+      "TP",
+      "SW"
+    ],
+    [
+      "SW",
+      "CT"
+    ],
+    [
+      "SW",
+      "RK"
+    ],
+    [
+      "CT",
+      "BT"
+    ],
+    [
+      "TV",
+      "DY"
+    ]
+  ],
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/admin/courses",
+      "source": "apps/api/app/routers/platform_courses.py",
+      "line": 125,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/courses",
+      "source": "apps/api/app/routers/platform_courses.py",
+      "line": 134,
+      "transport": "rest"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/courses/{course_id}",
+      "source": "apps/api/app/routers/platform_courses.py",
+      "line": 202,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/courses/{course_id}/publish",
+      "source": "apps/api/app/routers/platform_courses.py",
+      "line": 220,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/courses/{course_id}/unpublish",
+      "source": "apps/api/app/routers/platform_courses.py",
+      "line": 239,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/courses/import-generated/{generated_course_id}",
+      "source": "apps/api/app/routers/platform_courses.py",
+      "line": 156,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/admin/login",
+      "source": "apps/api/app/routers/auth_router.py",
+      "line": 62,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login",
+      "source": "apps/api/app/routers/auth_router.py",
+      "line": 57,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/register",
+      "source": "apps/api/app/routers/auth_router.py",
+      "line": 93,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/browser-labs/{course_id}/{lesson_id}/attempts",
+      "source": "apps/api/app/routers/browser_labs.py",
+      "line": 42,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/browser-labs/attempts/{attempt_id}",
+      "source": "apps/api/app/routers/browser_labs.py",
+      "line": 53,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/browser-labs/attempts/{attempt_id}/evidence",
+      "source": "apps/api/app/routers/browser_labs.py",
+      "line": 63,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/browser-labs/attempts/{attempt_id}/recoveries/{recovery_id}/practice-attempts",
+      "source": "apps/api/app/routers/browser_labs.py",
+      "line": 84,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/browser-labs/attempts/{attempt_id}/recoveries/{recovery_id}/retry",
+      "source": "apps/api/app/routers/browser_labs.py",
+      "line": 105,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/browser-labs/attempts/{attempt_id}/recovery",
+      "source": "apps/api/app/routers/browser_labs.py",
+      "line": 74,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboard/all",
+      "source": "apps/api/app/routers/dashboard.py",
+      "line": 187,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboard/progress",
+      "source": "apps/api/app/routers/dashboard.py",
+      "line": 132,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboard/sessions",
+      "source": "apps/api/app/routers/dashboard.py",
+      "line": 65,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboard/stats",
+      "source": "apps/api/app/routers/dashboard.py",
+      "line": 40,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboard/streak",
+      "source": "apps/api/app/routers/dashboard.py",
+      "line": 92,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboard/study-plans",
+      "source": "apps/api/app/routers/dashboard.py",
+      "line": 171,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/dashboard/topics",
+      "source": "apps/api/app/routers/dashboard.py",
+      "line": 147,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/discover",
+      "source": "apps/api/app/routers/discover.py",
+      "line": 412,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/discover/path",
+      "source": "apps/api/app/routers/discover.py",
+      "line": 369,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/discover/roadmap",
+      "source": "apps/api/app/routers/discover.py",
+      "line": 395,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/generated-courses",
+      "source": "apps/api/app/routers/generated_courses.py",
+      "line": 460,
+      "transport": "rest"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/generated-courses/{course_id}",
+      "source": "apps/api/app/routers/generated_courses.py",
+      "line": 514,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/generated-courses/{course_id}",
+      "source": "apps/api/app/routers/generated_courses.py",
+      "line": 545,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/generated-courses/{course_id}/archive",
+      "source": "apps/api/app/routers/generated_courses.py",
+      "line": 478,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/generated-courses/{course_id}/generate",
+      "source": "apps/api/app/routers/generated_courses.py",
+      "line": 405,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/generated-courses/{course_id}/intake-answer",
+      "source": "apps/api/app/routers/generated_courses.py",
+      "line": 321,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/generated-courses/{course_id}/restore",
+      "source": "apps/api/app/routers/generated_courses.py",
+      "line": 497,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/generated-courses/intake",
+      "source": "apps/api/app/routers/generated_courses.py",
+      "line": 187,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/learning-paths",
+      "source": "apps/api/app/routers/learning_paths.py",
+      "line": 206,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/learning-paths/{path_id}",
+      "source": "apps/api/app/routers/learning_paths.py",
+      "line": 215,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/learning-paths/{path_id}/nodes/{node_id}/generate",
+      "source": "apps/api/app/routers/learning_paths.py",
+      "line": 233,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/learning-paths/{path_id}/refresh",
+      "source": "apps/api/app/routers/learning_paths.py",
+      "line": 228,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/learning-paths/roles",
+      "source": "apps/api/app/routers/learning_paths.py",
+      "line": 201,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform-courses",
+      "source": "apps/api/app/routers/platform_courses.py",
+      "line": 98,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform-courses/{course_id}",
+      "source": "apps/api/app/routers/platform_courses.py",
+      "line": 111,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/roleplay/faces",
+      "source": "apps/api/app/routers/roleplay.py",
+      "line": 206,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/roleplay/sessions",
+      "source": "apps/api/app/routers/roleplay.py",
+      "line": 251,
+      "transport": "rest"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/roleplay/sessions/{conversation_id}",
+      "source": "apps/api/app/routers/roleplay.py",
+      "line": 416,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/roleplay/sessions/{conversation_id}",
+      "source": "apps/api/app/routers/roleplay.py",
+      "line": 323,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/roleplay/sessions/{conversation_id}/end-beacon",
+      "source": "apps/api/app/routers/roleplay.py",
+      "line": 426,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/roleplay/sessions/{conversation_id}/events",
+      "source": "apps/api/app/routers/roleplay.py",
+      "line": 363,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/schedule",
+      "source": "apps/api/app/routers/schedule.py",
+      "line": 112,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/schedule",
+      "source": "apps/api/app/routers/schedule.py",
+      "line": 124,
+      "transport": "rest"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/schedule/{session_id}",
+      "source": "apps/api/app/routers/schedule.py",
+      "line": 168,
+      "transport": "rest"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/schedule/{session_id}",
+      "source": "apps/api/app/routers/schedule.py",
+      "line": 152,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/schedule/all",
+      "source": "apps/api/app/routers/schedule.py",
+      "line": 180,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tars",
+      "source": "apps/api/app/routers/tars.py",
+      "line": 156,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tars/extension-session",
+      "source": "apps/api/app/routers/tars.py",
+      "line": 114,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tars/speak",
+      "source": "apps/api/app/routers/tars.py",
+      "line": 296,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/teaching-profiles",
+      "source": "apps/api/app/routers/teaching_profiles.py",
+      "line": 36,
+      "transport": "rest"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/teaching-profiles/selection",
+      "source": "apps/api/app/routers/teaching_profiles.py",
+      "line": 50,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/users/me",
+      "source": "apps/api/app/routers/users.py",
+      "line": 107,
+      "transport": "rest"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/users/me",
+      "source": "apps/api/app/routers/users.py",
+      "line": 230,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/api/users/me/full",
+      "source": "apps/api/app/routers/users.py",
+      "line": 130,
+      "transport": "rest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/users/sync",
+      "source": "apps/api/app/routers/users.py",
+      "line": 264,
+      "transport": "rest"
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "source": "apps/api/app/main.py",
+      "line": 322,
+      "transport": "rest"
+    },
+    {
+      "method": "WS",
+      "path": "/ws/{user_id}/{session_id}",
+      "source": "apps/api/app/main.py",
+      "line": 406,
+      "transport": "websocket"
+    }
+  ]
+};
+/* ATLAS_DATA_END */
+
+    const HOODS = ATLAS.hoods;
+    const MODULES = ATLAS.modules;
+    const FLOWS = ATLAS.flows;
+    const SUPPORT = ATLAS.support;
+    const byId = Object.fromEntries(MODULES.map((module) => [module.id, module]));
+    const hoodById = Object.fromEntries(HOODS.map((hood) => [hood.id, hood]));
+
+    const canvas = document.getElementById("atlasCanvas");
+    const ctx = canvas.getContext("2d");
+    const tooltip = document.getElementById("tooltip");
+    const panelBody = document.getElementById("panelBody");
+    const flowList = document.getElementById("flowList");
+    const hoodList = document.getElementById("hoodList");
+    const searchInput = document.getElementById("moduleSearch");
+    const searchResults = document.getElementById("searchResults");
+    const browseSections = document.getElementById("browseSections");
+    const stepFloat = document.getElementById("stepFloat");
+
+    const TILE_W = 124;
+    const TILE_H = 62;
+    const BOX_W = 54;
+    const BOX_D = 50;
+    const FLOW_MS = 2600;
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let view = { x: 0, y: 0, z: 1 };
+    let dpr = 1;
+    let hoverId = null;
+    let selectedModule = null;
+    let selectedFlow = null;
+    let selectedHood = null;
+    let currentStep = 0;
+    let playing = !reducedMotion;
+    let speed = 1;
+    let animationOrigin = 0;
+    let detailTab = "what";
+    let drag = null;
+
+    const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+    const esc = (value) => String(value).replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
+
+    function iso(gx, gy) {
+      return { x: (gx - gy) * TILE_W / 2, y: (gx + gy) * TILE_H / 2 };
+    }
+
+    function screen(point) {
+      return { x: point.x * view.z + view.x, y: point.y * view.z + view.y };
+    }
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      dpr = Math.min(devicePixelRatio || 1, 2);
+      canvas.width = Math.max(1, Math.round(rect.width * dpr));
+      canvas.height = Math.max(1, Math.round(rect.height * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function fitMap() {
+      const rect = canvas.getBoundingClientRect();
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      for (const module of MODULES) {
+        const point = iso(module.gx, module.gy);
+        minX = Math.min(minX, point.x - BOX_W - 72);
+        maxX = Math.max(maxX, point.x + BOX_W + 72);
+        minY = Math.min(minY, point.y - module.h - module.st * 4 - 62);
+        maxY = Math.max(maxY, point.y + BOX_D + 35);
+      }
+      view.z = clamp(Math.min(rect.width / (maxX - minX + 100), rect.height / (maxY - minY + 90)), 0.34, 1.08);
+      view.x = rect.width / 2 - (minX + maxX) / 2 * view.z;
+      view.y = rect.height / 2 - (minY + maxY) / 2 * view.z;
+    }
+
+    function zoomAt(factor, cx, cy) {
+      const rect = canvas.getBoundingClientRect();
+      cx ??= rect.width / 2;
+      cy ??= rect.height / 2;
+      const next = clamp(view.z * factor, 0.3, 2.7);
+      view.x = cx - (cx - view.x) * (next / view.z);
+      view.y = cy - (cy - view.y) * (next / view.z);
+      view.z = next;
+    }
+
+    function polygon(points) {
+      ctx.beginPath();
+      points.forEach((point, index) => index ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
+      ctx.closePath();
+    }
+
+    function roundedRect(x, y, width, height, radius) {
+      const r = Math.min(radius, width / 2, height / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + width, y, x + width, y + height, r);
+      ctx.arcTo(x + width, y + height, x, y + height, r);
+      ctx.arcTo(x, y + height, x, y, r);
+      ctx.arcTo(x, y, x + width, y, r);
+      ctx.closePath();
+    }
+
+    function boxGeometry(module) {
+      const center = screen(iso(module.gx, module.gy));
+      const halfX = BOX_W * view.z / 2;
+      const halfY = BOX_D * TILE_H / TILE_W * view.z / 2;
+      const height = (module.h + module.st * 3) * view.z;
+      const roofY = center.y - height;
+      const top = [
+        { x: center.x, y: roofY - halfY },
+        { x: center.x + halfX, y: roofY },
+        { x: center.x, y: roofY + halfY },
+        { x: center.x - halfX, y: roofY },
+      ];
+      const left = [top[3], top[2], { x: center.x, y: center.y + halfY }, { x: center.x - halfX, y: center.y }];
+      const right = [top[1], top[2], { x: center.x, y: center.y + halfY }, { x: center.x + halfX, y: center.y }];
+      return { center, halfX, halfY, height, roofY, top, left, right };
+    }
+
+    function pointInPolygon(point, points) {
+      let inside = false;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const a = points[i];
+        const b = points[j];
+        if ((a.y > point.y) !== (b.y > point.y) && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+      }
+      return inside;
+    }
+
+    function hitTest(point) {
+      return [...MODULES]
+        .sort((a, b) => (b.gx + b.gy) - (a.gx + a.gy))
+        .find((module) => {
+          const geometry = boxGeometry(module);
+          return pointInPolygon(point, geometry.top) || pointInPolygon(point, geometry.left) || pointInPolygon(point, geometry.right);
+        });
+    }
+
+    function roofAnchor(module) {
+      const geometry = boxGeometry(module);
+      return { x: geometry.center.x, y: geometry.roofY - geometry.halfY * 0.05 };
+    }
+
+    function cubicPoint(p0, p1, p2, p3, t) {
+      const u = 1 - t;
+      const a = u * u * u;
+      const b = 3 * u * u * t;
+      const c = 3 * u * t * t;
+      const d = t * t * t;
+      return { x: a * p0.x + b * p1.x + c * p2.x + d * p3.x, y: a * p0.y + b * p1.y + c * p2.y + d * p3.y };
+    }
+
+    function stringHash(value) {
+      let hash = 0;
+      for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+      return hash;
+    }
+
+    function curveBetween(from, to, key, subtle = false) {
+      const p0 = roofAnchor(from);
+      const p3 = roofAnchor(to);
+      const dx = p3.x - p0.x;
+      const dy = p3.y - p0.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const nx = -dy / distance;
+      const ny = dx / distance;
+      const sign = stringHash(key) % 2 ? 1 : -1;
+      const bend = sign * clamp(distance * (subtle ? 0.035 : 0.075), 4, subtle ? 18 : 40);
+      const lift = clamp(distance * (subtle ? 0.035 : 0.11), subtle ? 8 : 18, subtle ? 25 : 74);
+      const p1 = { x: p0.x + dx * 0.32 + nx * bend, y: p0.y + dy * 0.22 + ny * bend - lift };
+      const p2 = { x: p0.x + dx * 0.68 + nx * bend, y: p0.y + dy * 0.78 + ny * bend - lift };
+      const points = [];
+      const samples = subtle ? 18 : 34;
+      for (let i = 0; i <= samples; i += 1) points.push(cubicPoint(p0, p1, p2, p3, i / samples));
+      return points;
+    }
+
+    function trace(points) {
+      ctx.beginPath();
+      points.forEach((point, index) => index ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
+    }
+
+    function polylineLength(points) {
+      let total = 0;
+      for (let i = 1; i < points.length; i += 1) total += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+      return total;
+    }
+
+    function pointAlong(points, fraction) {
+      let remaining = clamp(fraction, 0, 1) * polylineLength(points);
+      for (let i = 1; i < points.length; i += 1) {
+        const length = Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+        if (remaining <= length) {
+          const amount = length ? remaining / length : 0;
+          return {
+            x: points[i - 1].x + (points[i].x - points[i - 1].x) * amount,
+            y: points[i - 1].y + (points[i].y - points[i - 1].y) * amount,
+          };
+        }
+        remaining -= length;
+      }
+      return points.at(-1);
+    }
+
+    function flowColor(flow) {
+      return ({ teal: css("--flow"), amber: css("--payload"), violet: css("--violet"), lime: css("--lime"), rose: css("--rose"), blue: css("--blue") })[flow?.color] || css("--flow");
+    }
+
+    function drawGround() {
+      const rect = canvas.getBoundingClientRect();
+      ctx.fillStyle = css("--paper");
+      ctx.fillRect(0, 0, rect.width, rect.height);
+      ctx.strokeStyle = css("--grid");
+      ctx.lineWidth = 1;
+      for (let grid = -5; grid <= 18; grid += 1) {
+        let start = screen(iso(grid, -5));
+        let end = screen(iso(grid, 11));
+        ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(end.x, end.y); ctx.stroke();
+        start = screen(iso(-5, grid));
+        end = screen(iso(18, grid));
+        ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(end.x, end.y); ctx.stroke();
+      }
+    }
+
+    function hoodBounds(hood) {
+      const modules = MODULES.filter((module) => module.hood === hood.id);
+      const pad = 0.68;
+      const gx0 = Math.min(...modules.map((module) => module.gx)) - pad;
+      const gx1 = Math.max(...modules.map((module) => module.gx)) + pad;
+      const gy0 = Math.min(...modules.map((module) => module.gy)) - pad;
+      const gy1 = Math.max(...modules.map((module) => module.gy)) + pad;
+      return { gx0, gx1, gy0, gy1 };
+    }
+
+    function drawNeighborhoods() {
+      for (const hood of HOODS) {
+        const bounds = hoodBounds(hood);
+        const top = [
+          iso(bounds.gx0, bounds.gy0),
+          iso(bounds.gx1, bounds.gy0),
+          iso(bounds.gx1, bounds.gy1),
+          iso(bounds.gx0, bounds.gy1),
+        ].map(screen);
+        const depth = 8 * view.z;
+        polygon([top[2], top[3], { x: top[3].x, y: top[3].y + depth }, { x: top[2].x, y: top[2].y + depth }]);
+        ctx.fillStyle = css("--plate-side");
+        ctx.fill();
+        polygon(top);
+        ctx.fillStyle = selectedHood === hood.id ? css("--flow-soft") : css("--plate");
+        ctx.fill();
+        ctx.strokeStyle = selectedHood === hood.id ? css("--flow") : css("--line");
+        ctx.setLineDash([5, 5]);
+        ctx.lineWidth = selectedHood === hood.id ? 1.4 : 1;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (view.z > 0.47) {
+          const label = screen(iso(bounds.gx0, bounds.gy0));
+          const detail = view.z > 0.74 ? ` · ${hood.sub}` : "";
+          ctx.fillStyle = selectedHood === hood.id ? css("--flow") : css("--muted");
+          ctx.font = `700 ${clamp(8.5 * view.z, 7.5, 9)}px ui-monospace, monospace`;
+          ctx.textAlign = "left";
+          ctx.fillText(`${hood.id}  ${hood.name.toUpperCase()}${detail}`, label.x + 8, label.y - 18);
+        }
+      }
+    }
+
+    function drawSupportLinks() {
+      const activeModules = selectedFlow ? new Set(selectedFlow.path) : null;
+      for (const [fromId, toId] of SUPPORT) {
+        const relevant = hoverId === fromId || hoverId === toId || selectedModule === fromId || selectedModule === toId;
+        const inFlow = activeModules?.has(fromId) && activeModules?.has(toId);
+        if (selectedFlow && !relevant) continue;
+        const points = curveBetween(byId[fromId], byId[toId], `support-${fromId}-${toId}`, true);
+        trace(points);
+        ctx.strokeStyle = relevant ? css("--flow") : css("--box-edge");
+        ctx.globalAlpha = relevant ? 0.66 : selectedFlow && inFlow ? 0.13 : 0.24;
+        ctx.lineWidth = relevant ? 1.35 : 0.85;
+        ctx.setLineDash([3, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function activeModuleSet() {
+      if (selectedFlow) return new Set(selectedFlow.path);
+      if (selectedHood) return new Set(MODULES.filter((module) => module.hood === selectedHood).map((module) => module.id));
+      return null;
+    }
+
+    function drawPrisms() {
+      const active = activeModuleSet();
+      const ordered = [...MODULES].sort((a, b) => (a.gx + a.gy) - (b.gx + b.gy));
+      for (const module of ordered) {
+        const geometry = boxGeometry(module);
+        const dimmed = active && !active.has(module.id) && selectedModule !== module.id && hoverId !== module.id;
+        const currentFrom = selectedFlow?.path[currentStep];
+        const currentTo = selectedFlow?.path[currentStep + 1];
+        const hot = hoverId === module.id || selectedModule === module.id || currentFrom === module.id || currentTo === module.id;
+        ctx.globalAlpha = dimmed ? 0.22 : 1;
+
+        const shadow = geometry.right.map((point) => ({ x: point.x + 7 * view.z, y: point.y + 9 * view.z }));
+        polygon(shadow);
+        ctx.fillStyle = css("--shadow");
+        ctx.globalAlpha *= 0.16;
+        ctx.fill();
+        ctx.globalAlpha = dimmed ? 0.22 : 1;
+
+        polygon(geometry.left);
+        ctx.fillStyle = css("--box-left");
+        ctx.fill();
+        ctx.strokeStyle = css("--box-edge");
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+
+        polygon(geometry.right);
+        ctx.fillStyle = css("--box-right");
+        ctx.fill();
+        ctx.stroke();
+
+        const seamCount = Math.min(module.st - 1, 5);
+        if (seamCount > 0) {
+          ctx.strokeStyle = css("--box-edge");
+          ctx.globalAlpha *= 0.48;
+          for (let index = 1; index <= seamCount; index += 1) {
+            const fraction = index / (seamCount + 1);
+            const yLeft = geometry.roofY + geometry.height * fraction;
+            ctx.beginPath();
+            ctx.moveTo(geometry.center.x - geometry.halfX, yLeft);
+            ctx.lineTo(geometry.center.x, yLeft + geometry.halfY);
+            ctx.lineTo(geometry.center.x + geometry.halfX, yLeft);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = dimmed ? 0.22 : 1;
+        }
+
+        polygon(geometry.top);
+        ctx.fillStyle = hot ? css("--flow-soft") : css("--box-top");
+        ctx.fill();
+        ctx.strokeStyle = hot ? flowColor(selectedFlow) : css("--box-edge");
+        ctx.lineWidth = hot ? 1.8 : 1;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(geometry.top[3].x + 2, geometry.top[3].y - 0.5);
+        ctx.lineTo(geometry.top[0].x, geometry.top[0].y + 1);
+        ctx.lineTo(geometry.top[1].x - 2, geometry.top[1].y - 0.5);
+        ctx.strokeStyle = hot ? flowColor(selectedFlow) : css("--surface");
+        ctx.globalAlpha = dimmed ? 0.12 : 0.72;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function arrowOn(points, fraction, color, alpha) {
+      const before = pointAlong(points, fraction - 0.018);
+      const at = pointAlong(points, fraction);
+      const angle = Math.atan2(at.y - before.y, at.x - before.x);
+      const size = 4.3;
+      ctx.save();
+      ctx.translate(at.x, at.y);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.moveTo(size, 0);
+      ctx.lineTo(-size, -size * 0.72);
+      ctx.lineTo(-size, size * 0.72);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.globalAlpha = alpha;
+      ctx.fill();
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+
+    function drawFlow(now) {
+      if (!selectedFlow) return;
+      const color = flowColor(selectedFlow);
+      for (let index = 0; index < selectedFlow.path.length - 1; index += 1) {
+        const from = byId[selectedFlow.path[index]];
+        const to = byId[selectedFlow.path[index + 1]];
+        const points = curveBetween(from, to, `${selectedFlow.id}-${index}`);
+        const current = index === currentStep;
+        const complete = index < currentStep;
+        const alpha = current ? 1 : complete ? 0.34 : 0.14;
+
+        trace(points);
+        ctx.strokeStyle = css("--route-halo");
+        ctx.globalAlpha = current ? 1 : 0.38;
+        ctx.lineWidth = current ? 6.4 : 3.2;
+        ctx.stroke();
+
+        trace(points);
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = current ? 2.8 : 1.15;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        arrowOn(points, 0.84, color, alpha);
+
+        const badge = pointAlong(points, 0.5);
+        ctx.beginPath();
+        ctx.arc(badge.x, badge.y, current ? 8.2 : 3.8, 0, Math.PI * 2);
+        ctx.fillStyle = current ? color : css("--surface");
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = current ? 1 : 0.42;
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        if (current) {
+          ctx.fillStyle = css("--surface");
+          ctx.font = "800 8px ui-monospace, monospace";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(String(index + 1), badge.x, badge.y + 0.25);
+          ctx.textBaseline = "alphabetic";
+        }
+
+        if (current) {
+          const cycle = ((now - animationOrigin) / (FLOW_MS / speed)) % 1;
+          for (let dot = 0; dot < 4; dot += 1) {
+            const fraction = (cycle + dot / 4) % 1;
+            const point = pointAlong(points, fraction);
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, dot === 0 ? 4.1 : 3.3, 0, Math.PI * 2);
+            ctx.fillStyle = css("--payload");
+            ctx.globalAlpha = 0.42 + 0.58 * Math.sin(Math.PI * fraction);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+          }
+        }
+      }
+    }
+
+    function labelOverlaps(rect, occupied) {
+      return occupied.some((other) => !(rect.x + rect.w + 3 < other.x || other.x + other.w + 3 < rect.x || rect.y + rect.h + 2 < other.y || other.y + other.h + 2 < rect.y));
+    }
+
+    function truncateLabel(value, max = 25) {
+      return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+    }
+
+    function drawLabels() {
+      const active = activeModuleSet();
+      const occupied = [];
+      const ordered = [...MODULES].sort((a, b) => {
+        const ah = hoverId === a.id || selectedModule === a.id ? 1 : 0;
+        const bh = hoverId === b.id || selectedModule === b.id ? 1 : 0;
+        return bh - ah || (a.gx + a.gy) - (b.gx + b.gy);
+      });
+      for (const module of ordered) {
+        const dimmed = active && !active.has(module.id);
+        if (dimmed && module.id !== hoverId && module.id !== selectedModule) continue;
+        const geometry = boxGeometry(module);
+        const hot = hoverId === module.id || selectedModule === module.id || selectedFlow?.path[currentStep] === module.id || selectedFlow?.path[currentStep + 1] === module.id;
+        const compact = view.z < 0.57 && !hot;
+        const name = compact ? module.id : truncateLabel(module.name);
+        const fontSize = compact ? 8 : clamp(10.2 * view.z, 9, 10.7);
+        ctx.font = `${compact ? 800 : 650} ${fontSize}px ui-monospace, monospace`;
+        const nameWidth = ctx.measureText(name).width;
+        const chipWidth = compact ? 0 : 23;
+        const width = Math.ceil(nameWidth + chipWidth + (compact ? 12 : 18));
+        const height = compact ? 18 : 23;
+        let rect = { x: geometry.center.x - width / 2, y: geometry.top[0].y - height - 10, w: width, h: height };
+        const offsets = [0, -18, 18, -34, 34];
+        let placed = false;
+        for (const offset of offsets) {
+          const candidate = { ...rect, x: rect.x + offset };
+          if (!labelOverlaps(candidate, occupied)) {
+            rect = candidate;
+            placed = true;
+            break;
+          }
+        }
+        if (!placed && !hot) continue;
+        occupied.push(rect);
+
+        ctx.beginPath();
+        ctx.moveTo(geometry.center.x, geometry.top[0].y - 2);
+        ctx.lineTo(clamp(geometry.center.x, rect.x + 5, rect.x + rect.w - 5), rect.y + rect.h);
+        ctx.strokeStyle = hot ? flowColor(selectedFlow) : css("--line-strong");
+        ctx.globalAlpha = 0.6;
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        roundedRect(rect.x, rect.y, rect.w, rect.h, 2);
+        ctx.fillStyle = css("--surface");
+        ctx.fill();
+        ctx.strokeStyle = hot ? flowColor(selectedFlow) : css("--line-strong");
+        ctx.lineWidth = hot ? 1.25 : 0.8;
+        ctx.stroke();
+        ctx.textBaseline = "middle";
+        ctx.textAlign = "left";
+        if (!compact) {
+          ctx.fillStyle = hot ? flowColor(selectedFlow) : css("--muted");
+          ctx.font = `800 7.5px ui-monospace, monospace`;
+          ctx.fillText(module.id, rect.x + 7, rect.y + rect.h / 2 + 0.3);
+          ctx.beginPath();
+          ctx.moveTo(rect.x + chipWidth, rect.y + 5);
+          ctx.lineTo(rect.x + chipWidth, rect.y + rect.h - 5);
+          ctx.strokeStyle = css("--line");
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        ctx.fillStyle = hot ? flowColor(selectedFlow) : css("--ink-2");
+        ctx.font = `${compact ? 800 : 650} ${fontSize}px ui-monospace, monospace`;
+        ctx.fillText(name, rect.x + (compact ? 6 : chipWidth + 6), rect.y + rect.h / 2 + 0.3);
+        ctx.textBaseline = "alphabetic";
+      }
+    }
+
+    function frame(now) {
+      if (!animationOrigin) animationOrigin = now;
+      if (playing && selectedFlow && !reducedMotion) {
+        const edgeCount = selectedFlow.path.length - 1;
+        const elapsed = Math.max(0, now - animationOrigin);
+        const nextStep = Math.floor(elapsed / (FLOW_MS / speed)) % edgeCount;
+        if (nextStep !== currentStep) {
+          currentStep = nextStep;
+          paintStepState();
+        }
+      }
+      drawGround();
+      drawNeighborhoods();
+      drawSupportLinks();
+      drawPrisms();
+      drawFlow(now);
+      drawLabels();
+      requestAnimationFrame(frame);
+    }
+
+    function flowMembership(module) {
+      return FLOWS.filter((flow) => flow.path.includes(module.id));
+    }
+
+    function sourceList(files) {
+      return `<div class="source-list">${files.map((file) => `<div class="source-item"><code>${esc(file)}</code></div>`).join("")}</div>`;
+    }
+
+    function endpointList(endpoints) {
+      if (!endpoints.length) return "";
+      return `<div class="endpoint-list">${endpoints.map((endpoint) => `
+        <div class="endpoint">
+          <span class="endpoint-method">${esc(endpoint.method)}</span>
+          <div><code>${esc(endpoint.path)}</code><small>${esc(endpoint.source)}:${endpoint.line}</small></div>
+        </div>`).join("")}</div>`;
+    }
+
+    function timelineMarkup(flow) {
+      return `<div class="timeline" id="flowTimeline">${flow.steps.map((detail, index) => {
+        const from = byId[flow.path[index]];
+        const to = byId[flow.path[index + 1]];
+        return `<button class="timeline-row${index === currentStep ? " active" : ""}" type="button" data-timeline-step="${index}" data-step="${String(index + 1).padStart(2, "0")}">
+          <span><span class="timeline-route">${esc(from.name)} → ${esc(to.name)}</span><span class="timeline-detail">${esc(detail)}</span></span>
+          <span class="timeline-arrow">↗</span>
+        </button>`;
+      }).join("")}</div>`;
+    }
+
+    function paintPanel() {
+      document.querySelector(".panel").scrollTop = 0;
+      if (selectedModule) {
+        const module = byId[selectedModule];
+        const hood = hoodById[module.hood];
+        const memberships = flowMembership(module);
+        panelBody.innerHTML = `
+          <span class="eyebrow">${esc(module.id)} · ${esc(hood.name)}</span>
+          <h1>${esc(module.name)}</h1>
+          <p>${esc(module.note)}</p>
+          <div class="summary-grid">
+            <div><strong>${module.files.length}</strong><span>source files</span></div>
+            <div><strong>${module.endpoints.length}</strong><span>endpoints</span></div>
+            <div><strong>${memberships.length}</strong><span>runtime flows</span></div>
+          </div>
+          ${module.endpoints.length ? `<section class="section"><div class="section-head"><span class="eyebrow">API operations</span><span>${module.endpoints.length} generated</span></div>${endpointList(module.endpoints)}</section>` : ""}
+          <section class="section"><div class="section-head"><span class="eyebrow">Source territory</span><span>${module.files.length} verified</span></div>${sourceList(module.files)}</section>
+          <section class="section"><div class="section-head"><span class="eyebrow">Appears in</span></div><div class="pills">${memberships.length ? memberships.map((flow) => `<span class="pill">${esc(flow.name)}</span>`).join("") : '<span class="pill payload">Support topology</span>'}</div></section>`;
+        return;
+      }
+
+      if (selectedHood) {
+        const hood = hoodById[selectedHood];
+        const modules = MODULES.filter((module) => module.hood === hood.id);
+        const files = new Set(modules.flatMap((module) => module.files));
+        panelBody.innerHTML = `
+          <span class="eyebrow">Neighborhood · ${esc(hood.id)}</span>
+          <h1>${esc(hood.name)}</h1>
+          <p>${esc(hood.sub)}. This plate groups modules that share a deployment or responsibility boundary; click any block to inspect its generated source list.</p>
+          <div class="summary-grid">
+            <div><strong>${modules.length}</strong><span>modules</span></div>
+            <div><strong>${files.size}</strong><span>unique files</span></div>
+            <div><strong>${FLOWS.filter((flow) => flow.path.some((id) => modules.some((module) => module.id === id))).length}</strong><span>flows</span></div>
+          </div>
+          <section class="section"><div class="section-head"><span class="eyebrow">Modules</span><span>click on map</span></div>${sourceList(modules.map((module) => `${module.id}  ${module.name}`))}</section>`;
+        return;
+      }
+
+      if (!selectedFlow) {
+        const counts = ATLAS.counts;
+        panelBody.innerHTML = `
+          <span class="eyebrow">Repository territory</span>
+          <h1>Runtime flows, tied to source</h1>
+          <p>The city is curated for comprehension, but its counts, mounted API operations, module source lists, and route-page inventory are generated from the working tree. Select a flow to trace payloads; select a block to verify the files beneath it.</p>
+          <div class="summary-grid">
+            <div><strong>${MODULES.length}</strong><span>map modules</span></div>
+            <div><strong>${counts.restEndpoints}</strong><span>REST operations</span></div>
+            <div><strong>${counts.nextRoutePages}</strong><span>Next routes</span></div>
+          </div>
+          <section class="section"><div class="section-head"><span class="eyebrow">Generated inventory</span><span>${esc(ATLAS.fingerprint)}</span></div>
+            <div class="source-list">
+              <div class="source-item">${counts.apiPythonModules} Python files · ${counts.mountedRouters} mounted routers · ${counts.agentModules} non-init agent modules · ${counts.serviceModules} service modules</div>
+              <div class="source-item">${counts.webSourceModules} web TS/JS modules · ${counts.nextRoutePages} App Router pages</div>
+              <div class="source-item">${counts.extensionFiles} extension files · ${counts.extensionTests} test suites · Chrome Manifest V3</div>
+              <div class="source-item">${counts.restEndpoints} REST operations · ${counts.websocketEndpoints} WebSocket route</div>
+            </div>
+          </section>`;
+        return;
+      }
+
+      const flow = selectedFlow;
+      const sourceFiles = [...new Set(flow.path.flatMap((id) => byId[id].files))];
+      const content = detailTab === "what"
+        ? `<p>${esc(flow.what)}</p>
+           <section class="section"><div class="section-head"><span class="eyebrow">Route</span><span>${flow.path.length} modules</span></div><div class="route-copy">${flow.path.map((id) => `<b>${esc(id)}</b> ${esc(byId[id].name)}`).join(" → ")}</div></section>
+           <section class="section"><div class="section-head"><span class="eyebrow">Step timeline</span><span>click to inspect</span></div>${timelineMarkup(flow)}</section>`
+        : `<ol class="how-list">${flow.how.map((item) => `<li>${esc(item)}</li>`).join("")}</ol>
+           <section class="section"><div class="section-head"><span class="eyebrow">Grounded source set</span><span>${sourceFiles.length} files</span></div>${sourceList(sourceFiles)}</section>`;
+      panelBody.innerHTML = `
+        <span class="eyebrow">Selected runtime flow</span>
+        <h1>${esc(flow.name)}</h1>
+        <div class="pills" style="margin-bottom:15px"><span class="pill payload">${esc(flow.payload)}</span></div>
+        ${content}`;
+
+      panelBody.querySelectorAll("[data-timeline-step]").forEach((button) => {
+        button.addEventListener("click", () => setStep(Number(button.dataset.timelineStep)));
+      });
+    }
+
+    function paintStepState() {
+      if (!selectedFlow) {
+        stepFloat.classList.remove("visible");
+        return;
+      }
+      const from = byId[selectedFlow.path[currentStep]];
+      const to = byId[selectedFlow.path[currentStep + 1]];
+      stepFloat.classList.add("visible");
+      stepFloat.innerHTML = `<b>${String(currentStep + 1).padStart(2, "0")}/${String(selectedFlow.path.length - 1).padStart(2, "0")}</b>&nbsp;&nbsp; ${esc(from.name)} <span style="color:var(--muted)">→</span> ${esc(to.name)}`;
+      panelBody.querySelectorAll("[data-timeline-step]").forEach((button) => button.classList.toggle("active", Number(button.dataset.timelineStep) === currentStep));
+    }
+
+    function setStep(index) {
+      if (!selectedFlow) return;
+      const count = selectedFlow.path.length - 1;
+      currentStep = (index + count) % count;
+      playing = false;
+      document.getElementById("playButton").textContent = "Play";
+      animationOrigin = performance.now();
+      paintStepState();
+    }
+
+    function selectFlow(id) {
+      selectedFlow = FLOWS.find((flow) => flow.id === id) || null;
+      selectedModule = null;
+      selectedHood = null;
+      currentStep = 0;
+      playing = !reducedMotion;
+      animationOrigin = performance.now();
+      document.getElementById("playButton").textContent = playing ? "Pause" : "Play";
+      document.getElementById("selectedFlow").textContent = selectedFlow?.name || "None";
+      flowList.querySelectorAll("[data-flow]").forEach((button) => button.classList.toggle("selected", button.dataset.flow === id));
+      hoodList.querySelectorAll("[data-hood]").forEach((button) => button.classList.remove("selected"));
+      paintPanel();
+      paintStepState();
+    }
+
+    function selectModule(id) {
+      selectedModule = byId[id] ? id : null;
+      selectedHood = null;
+      paintPanel();
+    }
+
+    function selectHood(id) {
+      selectedHood = hoodById[id] ? id : null;
+      selectedModule = null;
+      selectedFlow = null;
+      document.getElementById("selectedFlow").textContent = "None";
+      flowList.querySelectorAll("[data-flow]").forEach((button) => button.classList.remove("selected"));
+      hoodList.querySelectorAll("[data-hood]").forEach((button) => button.classList.toggle("selected", button.dataset.hood === id));
+      paintPanel();
+      paintStepState();
+    }
+
+    function clearSelection() {
+      selectedModule = null;
+      selectedFlow = null;
+      selectedHood = null;
+      currentStep = 0;
+      document.getElementById("selectedFlow").textContent = "None";
+      flowList.querySelectorAll(".selected").forEach((button) => button.classList.remove("selected"));
+      hoodList.querySelectorAll(".selected").forEach((button) => button.classList.remove("selected"));
+      paintPanel();
+      paintStepState();
+    }
+
+    function populateRail() {
+      FLOWS.forEach((flow, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "row-button";
+        button.dataset.flow = flow.id;
+        button.innerHTML = `<span class="row-index"><i class="row-swatch ${esc(flow.color)}"></i></span><span class="row-name">${esc(flow.name)}</span><span class="row-meta">${String(index + 1).padStart(2, "0")}</span>`;
+        button.addEventListener("click", () => selectFlow(flow.id));
+        flowList.appendChild(button);
+      });
+      HOODS.forEach((hood) => {
+        const count = MODULES.filter((module) => module.hood === hood.id).length;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "row-button";
+        button.dataset.hood = hood.id;
+        button.innerHTML = `<span class="row-index">${esc(hood.id)}</span><span class="row-name">${esc(hood.name)}</span><span class="row-meta">${count}</span>`;
+        button.addEventListener("click", () => selectHood(hood.id));
+        hoodList.appendChild(button);
+      });
+    }
+
+    function searchScore(module, query) {
+      const q = query.toLowerCase();
+      const name = `${module.id} ${module.name}`.toLowerCase();
+      let score = name.startsWith(q) ? 120 : name.includes(q) ? 80 : 0;
+      if (module.note.toLowerCase().includes(q)) score += 24;
+      if (module.files.some((file) => file.toLowerCase().includes(q))) score += 48;
+      if (module.endpoints.some((endpoint) => `${endpoint.method} ${endpoint.path}`.toLowerCase().includes(q))) score += 58;
+      return score;
+    }
+
+    function searchContext(module, query) {
+      const q = query.toLowerCase();
+      const endpoint = module.endpoints.find((item) => `${item.method} ${item.path}`.toLowerCase().includes(q));
+      if (endpoint) return `${endpoint.method} ${endpoint.path}`;
+      const file = module.files.find((item) => item.toLowerCase().includes(q));
+      if (file) return file;
+      return hoodById[module.hood].name;
+    }
+
+    function renderSearch() {
+      const query = searchInput.value.trim();
+      if (!query) {
+        searchResults.classList.remove("visible");
+        browseSections.hidden = false;
+        document.getElementById("searchCount").textContent = `${MODULES.length} modules`;
+        return;
+      }
+      const matches = MODULES.map((module) => ({ module, score: searchScore(module, query) }))
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score || a.module.name.localeCompare(b.module.name))
+        .slice(0, 18);
+      browseSections.hidden = true;
+      searchResults.classList.add("visible");
+      document.getElementById("searchCount").textContent = `${matches.length} matches`;
+      searchResults.innerHTML = matches.length ? matches.map(({ module }) => `
+        <button class="row-button search-result" type="button" data-search-module="${esc(module.id)}">
+          <span class="row-index">${esc(module.id)}</span>
+          <span class="row-name">${esc(module.name)}<small>${esc(searchContext(module, query))}</small></span>
+          <span class="row-meta">${module.files.length}</span>
+        </button>`).join("") : '<div class="empty-note">No matching module, source path, or endpoint.</div>';
+      searchResults.querySelectorAll("[data-search-module]").forEach((button) => button.addEventListener("click", () => selectModule(button.dataset.searchModule)));
+    }
+
+    function setTab(tab) {
+      detailTab = tab;
+      document.getElementById("whatTab").setAttribute("aria-selected", String(tab === "what"));
+      document.getElementById("howTab").setAttribute("aria-selected", String(tab === "how"));
+      document.getElementById("whatTab").classList.toggle("active", tab === "what");
+      document.getElementById("howTab").classList.toggle("active", tab === "how");
+      paintPanel();
+      paintStepState();
+    }
+
+    canvas.addEventListener("pointerdown", (event) => {
+      drag = { x: event.clientX, y: event.clientY, viewX: view.x, viewY: view.y, moved: false };
+      canvas.classList.add("dragging");
+      canvas.setPointerCapture(event.pointerId);
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      const rect = canvas.getBoundingClientRect();
+      const point = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      if (drag) {
+        if (Math.abs(event.clientX - drag.x) + Math.abs(event.clientY - drag.y) > 3) drag.moved = true;
+        view.x = drag.viewX + event.clientX - drag.x;
+        view.y = drag.viewY + event.clientY - drag.y;
+        tooltip.classList.remove("visible");
+        return;
+      }
+      const hit = hitTest(point);
+      hoverId = hit?.id || null;
+      if (hit) {
+        const hood = hoodById[hit.hood];
+        tooltip.innerHTML = `<strong>${esc(hit.name)}</strong><span>${esc(hood.name)} · ${hit.files.length} source file${hit.files.length === 1 ? "" : "s"}${hit.endpoints.length ? ` · ${hit.endpoints.length} endpoints` : ""}</span>`;
+        tooltip.style.left = `${clamp(point.x, 125, rect.width - 125)}px`;
+        tooltip.style.top = `${clamp(point.y, 70, rect.height - 45)}px`;
+        tooltip.classList.add("visible");
+        tooltip.setAttribute("aria-hidden", "false");
+        canvas.style.cursor = "pointer";
+      } else {
+        tooltip.classList.remove("visible");
+        tooltip.setAttribute("aria-hidden", "true");
+        canvas.style.cursor = "grab";
+      }
+    });
+
+    canvas.addEventListener("pointerup", () => {
+      canvas.classList.remove("dragging");
+      if (drag && !drag.moved) hoverId ? selectModule(hoverId) : clearSelection();
+      drag = null;
+    });
+    canvas.addEventListener("pointercancel", () => { drag = null; canvas.classList.remove("dragging"); });
+    canvas.addEventListener("pointerleave", () => { tooltip.classList.remove("visible"); });
+    canvas.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      zoomAt(event.deltaY < 0 ? 1.09 : 1 / 1.09, event.clientX - rect.left, event.clientY - rect.top);
+    }, { passive: false });
+
+    document.getElementById("playButton").addEventListener("click", (event) => {
+      if (!selectedFlow) return;
+      playing = !playing;
+      animationOrigin = performance.now() - currentStep * (FLOW_MS / speed);
+      event.currentTarget.textContent = playing ? "Pause" : "Play";
+    });
+    document.getElementById("stepButton").addEventListener("click", () => setStep(currentStep + 1));
+    document.getElementById("speedControl").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-speed]");
+      if (!button) return;
+      speed = Number(button.dataset.speed);
+      animationOrigin = performance.now();
+      document.querySelectorAll("[data-speed]").forEach((item) => item.classList.toggle("active", item === button));
+    });
+    document.getElementById("zoomIn").addEventListener("click", () => zoomAt(1.18));
+    document.getElementById("zoomOut").addEventListener("click", () => zoomAt(1 / 1.18));
+    document.getElementById("fitButton").addEventListener("click", fitMap);
+    document.getElementById("whatTab").addEventListener("click", () => setTab("what"));
+    document.getElementById("howTab").addEventListener("click", () => setTab("how"));
+    document.getElementById("themeButton").addEventListener("click", () => {
+      const current = document.documentElement.dataset.theme;
+      const systemDark = matchMedia("(prefers-color-scheme: dark)").matches;
+      const next = current ? (current === "dark" ? "light" : "dark") : (systemDark ? "light" : "dark");
+      document.documentElement.dataset.theme = next;
+      localStorage.setItem("ctrlteach-atlas-theme", next);
+    });
+    searchInput.addEventListener("input", renderSearch);
+
+    addEventListener("keydown", (event) => {
+      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName);
+      if (event.key === "/" && !typing) {
+        event.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+        return;
+      }
+      if (event.key === "Escape") {
+        if (searchInput.value) {
+          searchInput.value = "";
+          renderSearch();
+          searchInput.blur();
+        } else clearSelection();
+        return;
+      }
+      if (typing) return;
+      if (event.key === " ") { event.preventDefault(); document.getElementById("playButton").click(); }
+      if (event.key === "ArrowRight") setStep(currentStep + 1);
+      if (event.key === "ArrowLeft") setStep(currentStep - 1);
+      if (event.key === "0") fitMap();
+      if (event.key === "+" || event.key === "=") zoomAt(1.18);
+      if (event.key === "-") zoomAt(1 / 1.18);
+    });
+    addEventListener("resize", () => { resizeCanvas(); fitMap(); });
+
+    const storedTheme = localStorage.getItem("ctrlteach-atlas-theme");
+    if (storedTheme === "light" || storedTheme === "dark") document.documentElement.dataset.theme = storedTheme;
+    document.getElementById("moduleCount").textContent = MODULES.length;
+    document.getElementById("endpointCount").textContent = `${ATLAS.counts.restEndpoints} REST · ${ATLAS.counts.websocketEndpoints} WS`;
+    document.getElementById("routeCount").textContent = ATLAS.counts.nextRoutePages;
+    document.getElementById("searchCount").textContent = `${MODULES.length} modules`;
+    document.getElementById("fingerprint").textContent = ATLAS.fingerprint;
+    populateRail();
+    setTab("what");
+    resizeCanvas();
+    fitMap();
+    selectFlow("study");
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
